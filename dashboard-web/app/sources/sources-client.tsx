@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Activity,
   ShieldCheck,
@@ -13,12 +13,27 @@ import {
   ChevronUp,
   ExternalLink,
 } from "lucide-react";
-import type { SourceHealthRow, SourceHealthSummary, SourceStatus } from "@/lib/types";
+import type {
+  SourceHealthRow,
+  SourceHealthSummary,
+  SourceStatus,
+  Briefing,
+} from "@/lib/types";
 import { Shell } from "@/components/Shell";
+import { PipelineHealthBriefing } from "@/components/PipelineHealthBriefing";
+import { Toast, type ToastKind } from "@/components/ui";
+
+// Toast lifecycle (matches today-client / pipeline-client).
+const TOAST_LIFETIME_MS = 3500;
+const TOAST_FADE_MS = 300;
+
+type ToastEntry = { id: number; kind: ToastKind; message: string; removing: boolean };
 
 interface SourcesPageProps {
   rows: SourceHealthRow[];
   summary: SourceHealthSummary;
+  /** Today's pipeline-health briefing, or null if the generator hasn't run yet. */
+  briefing: Briefing | null;
   highConviction: number;
   companyCount: number;
   signalCount: number;
@@ -148,6 +163,7 @@ function num(n: number | null, fmt: (x: number) => string, fallback = "—") {
 export function SourcesPage({
   rows,
   summary,
+  briefing: initialBriefing,
   highConviction,
   companyCount,
   signalCount,
@@ -158,6 +174,47 @@ export function SourcesPage({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [statusFilter, setStatusFilter] = useState<SourceStatus | "all">("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // Briefing card state — mirrors /today's pattern. ?kind=pipeline-health
+  // routes the regen call to scripts/generate-pipeline-health.mjs.
+  const [briefing, setBriefing] = useState<Briefing | null>(initialBriefing);
+  const [refreshing, setRefreshing] = useState(false);
+  const [toasts, setToasts] = useState<ToastEntry[]>([]);
+  const nextToastId = useRef(1);
+
+  function pushToast(kind: ToastKind, message: string) {
+    const id = nextToastId.current++;
+    setToasts((prev) => [...prev, { id, kind, message, removing: false }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, removing: true } : t)));
+    }, TOAST_LIFETIME_MS - TOAST_FADE_MS);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, TOAST_LIFETIME_MS);
+  }
+
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/briefing/regenerate?kind=pipeline-health", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 429) {
+        pushToast("error", body.message ?? "Hold on — regen is rate-limited (1 / 5 min).");
+        return;
+      }
+      if (!res.ok) {
+        pushToast("error", body.message ?? "Couldn't regenerate — check the server logs.");
+        return;
+      }
+      setBriefing(body.briefing as Briefing);
+      pushToast("success", `Regenerated · ${body.briefing.items.length} item${body.briefing.items.length === 1 ? "" : "s"}`);
+    } catch (err) {
+      pushToast("error", err instanceof Error ? err.message : "Regen failed");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   const statusCounts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -216,6 +273,15 @@ export function SourcesPage({
             {summary.totalSources} sources &middot; comp coverage {pct(summary.overallCompCoverage)} today &rarr; ~{pct(summary.overallProjectedCoverage)} projected
           </div>
         </div>
+
+        {/* Hero: agent-generated pipeline-health briefing. Blue tone keeps it
+            visually distinct from the warm /today briefing. Empty state until
+            scripts/generate-pipeline-health.mjs has run. */}
+        <PipelineHealthBriefing
+          briefing={briefing}
+          onRefresh={handleRefresh}
+          refreshing={refreshing}
+        />
 
         {/* Summary strip */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -410,6 +476,21 @@ export function SourcesPage({
           </table>
         </div>
       </div>
+
+      {/* Toast queue — fixed bottom-right; lives outside the scroll container. */}
+      {toasts.length > 0 && (
+        <div
+          aria-live="polite"
+          aria-atomic="false"
+          className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2"
+        >
+          {toasts.map((t) => (
+            <div key={t.id} className="pointer-events-auto">
+              <Toast kind={t.kind} message={t.message} removing={t.removing} />
+            </div>
+          ))}
+        </div>
+      )}
     </Shell>
   );
 }

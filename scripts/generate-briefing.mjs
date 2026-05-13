@@ -456,4 +456,21 @@ if (isMain) {
   });
 }
 
-export { main, buildRoles, loadApplications, staleApplications, topApplyCandidates, missedCandidates, verifyLocationCandidates, recalibrateCandidates, parseBriefingResponse };
+export {
+  main,
+  buildRoles,
+  loadApplications,
+  staleApplications,
+  topApplyCandidates,
+  missedCandidates,
+  verifyLocationCandidates,
+  recalibrateCandidates,
+  parseBriefingResponse,
+  // Shared runtime helpers — generate-pipeline-health.mjs re-uses these so
+  // the .env loading, the Claude call, and the response parser stay in one place.
+  loadEnv,
+  todayDateString,
+  callClaude,
+  pruneOldChats,
+  ROOT,
+};
