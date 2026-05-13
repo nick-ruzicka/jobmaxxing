@@ -1,14 +1,21 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { RefreshCw, Radio } from "lucide-react";
 import type { Role, RoleStatus, ScanStats } from "@/lib/types";
 import { Shell } from "@/components/Shell";
 import { StatStrip } from "@/components/StatStrip";
 import { PipelineTable } from "@/components/PipelineTable";
 import { MorningBriefing, SAMPLE_BRIEFING_ITEMS } from "@/components/MorningBriefing";
-import { PageHeader, Button } from "@/components/ui";
+import { PageHeader, Button, Toast, type ToastKind } from "@/components/ui";
 import { useScan } from "@/components/ScanContext";
+
+// Toast lifecycle, in ms. Fade-out begins LIFETIME_MS - FADE_MS so the
+// 300ms opacity transition completes exactly as the node unmounts.
+const TOAST_LIFETIME_MS = 3000;
+const TOAST_FADE_MS = 300;
+
+type ToastEntry = { id: number; kind: ToastKind; message: string; removing: boolean };
 
 interface PipelinePageProps {
   roles: Role[];
@@ -101,14 +108,42 @@ export function PipelinePage({
     [roles]
   );
 
-  function handleStatusChange(url: string, status: RoleStatus) {
+  // Toast queue. Each toast lives in `toasts`, has a fade-out flag flipped at
+  // LIFETIME-FADE and is removed at LIFETIME. nextToastId is a ref so the IDs
+  // are unique even when toasts fire back-to-back within the same tick.
+  const [toasts, setToasts] = useState<ToastEntry[]>([]);
+  const nextToastId = useRef(1);
+
+  function pushToast(kind: ToastKind, message: string) {
+    const id = nextToastId.current++;
+    setToasts((prev) => [...prev, { id, kind, message, removing: false }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, removing: true } : t)));
+    }, TOAST_LIFETIME_MS - TOAST_FADE_MS);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, TOAST_LIFETIME_MS);
+  }
+
+  async function handleStatusChange(url: string, status: RoleStatus) {
     const role = roles.find((r) => r.url === url);
+    const prevStatus = role?.status;
+    // Optimistic local update — keep the UI responsive whether the network
+    // call succeeds or not. The toast is the truthful signal.
     setRoles((prev) => prev.map((r) => (r.url === url ? { ...r, status } : r)));
-    fetch("/api/update-status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, status, company: role?.company, title: role?.title }),
-    }).catch(() => {});
+    try {
+      const res = await fetch("/api/update-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, status, company: role?.company, title: role?.title }),
+      });
+      if (!res.ok) throw new Error(`update-status returned ${res.status}`);
+      if (prevStatus && prevStatus !== status) {
+        pushToast("success", `Status updated: ${prevStatus} → ${status}`);
+      }
+    } catch {
+      pushToast("error", "Couldn't save — retry?");
+    }
   }
 
   function handleNotesChange(url: string, notes: string) {
@@ -135,6 +170,22 @@ export function PipelinePage({
           onNotesChange={handleNotesChange}
         />
       </div>
+
+      {/* Toast queue — fixed bottom-right, stacks newest-on-top. Lives outside
+          the scrollable container so it stays put as the user scrolls the table. */}
+      {toasts.length > 0 && (
+        <div
+          aria-live="polite"
+          aria-atomic="false"
+          className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2"
+        >
+          {toasts.map((t) => (
+            <div key={t.id} className="pointer-events-auto">
+              <Toast kind={t.kind} message={t.message} removing={t.removing} />
+            </div>
+          ))}
+        </div>
+      )}
     </Shell>
   );
 }
