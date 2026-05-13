@@ -89,6 +89,8 @@ export interface ScanStats {
   totalDiscovered: number;
   activelyPursuing: number;
   interviews: number;
+  /** Roles in the Offer state. Used by the Pipeline hero strip. */
+  offers: number;
   avgScore: number;
   nycCount: number;
   remoteCount: number;

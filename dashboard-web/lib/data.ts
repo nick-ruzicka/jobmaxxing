@@ -502,6 +502,7 @@ export function getStats(): ScanStats {
     (r) => r.status !== "Rejected" && r.status !== "Skipped"
   );
   const interviews = roles.filter((r) => r.status === "Interview");
+  const offers = roles.filter((r) => r.status === "Offer");
   const scores = roles.map((r) => r.score).filter((s) => s > 0);
   const avgScore =
     scores.length > 0
@@ -530,6 +531,7 @@ export function getStats(): ScanStats {
       (r) => r.status !== "Discovered"
     ).length,
     interviews: interviews.length,
+    offers: offers.length,
     avgScore,
     nycCount,
     remoteCount,

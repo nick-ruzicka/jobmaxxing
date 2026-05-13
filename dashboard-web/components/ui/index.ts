@@ -1,6 +1,10 @@
 export { Button } from "./Button";
 export { Badge } from "./Badge";
 export type { BadgeColor } from "./Badge";
+export { DropdownPill } from "./DropdownPill";
+export type { DropdownPillOption } from "./DropdownPill";
+export { Toast } from "./Toast";
+export type { ToastKind } from "./Toast";
 export { SectionLabel } from "./SectionLabel";
 export { PageHeader } from "./PageHeader";
 export { EmptyState } from "./EmptyState";

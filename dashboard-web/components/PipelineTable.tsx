@@ -316,9 +316,9 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
                     <td className="truncate px-3 py-2.5 text-text-secondary" title={role.title}>
                       {role.title}
                     </td>
-                    {/* Comp */}
-                    <td className={`truncate px-3 py-2.5 text-[12px] tabular-nums ${comp ? "text-text-secondary" : "text-text-muted"}`}>
-                      {comp || "—"}
+                    {/* Comp — silent when absent: empty cell reads quieter than a wall of em-dashes. */}
+                    <td className="truncate px-3 py-2.5 text-[12px] tabular-nums text-text-secondary">
+                      {comp}
                     </td>
                     {/* Location */}
                     <td className="px-3 py-2.5"><LocationTag location={role.location} cluster={role.location_cluster} /></td>
