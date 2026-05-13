@@ -4,11 +4,20 @@ import { Search, X } from "lucide-react";
 import type { Role, RoleStatus } from "@/lib/types";
 import { CLUSTER_META, CLUSTER_ORDER } from "@/lib/location-clusters";
 import { computeChipCounts } from "../../scripts/lib/chip-counts.mjs";
-import { Badge, Button } from "@/components/ui";
+import { Badge, Button, DropdownPill } from "@/components/ui";
+import type { DropdownPillOption } from "@/components/ui";
 
 const ALL_STATUSES: RoleStatus[] = [
   "Discovered", "Evaluated", "Applied", "Interview", "Offer", "Rejected", "Skipped",
 ];
+
+/** Status → semantic color token for the subtle tint on status chips. */
+const STATUS_TINT: Partial<Record<RoleStatus | "stale", string>> = {
+  Interview: "border-emerald-border bg-emerald-dim text-emerald",
+  Offer:     "border-amber-border bg-amber-dim text-amber",
+  Applied:   "border-blue-border bg-blue-dim text-blue",
+  Rejected:  "border-red-border bg-red-dim text-red",
+};
 
 interface Filters {
   search: string;
@@ -31,9 +40,13 @@ interface FilterBarProps {
   resultCount: number;
 }
 
-/** A real 1px vertical rule between chip groups. */
-function Divider() {
-  return <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border-subtle" />;
+/** Tiny uppercase group label — smaller than SectionLabel, inline with chips. */
+function GroupLabel({ children }: { children: string }) {
+  return (
+    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+      {children}
+    </span>
+  );
 }
 
 /** A toggle chip. Active = accent fill + a trailing × (so the active chips *are* the filter pills). */
@@ -42,12 +55,16 @@ function Chip({
   count,
   active,
   onClick,
+  tint,
 }: {
   label: string;
   count?: number;
   active: boolean;
   onClick: () => void;
+  /** Optional override classes for the active state (used by status chips). */
+  tint?: string;
 }) {
+  const activeClass = tint || "border-accent-border bg-accent-dim text-accent";
   return (
     <button
       type="button"
@@ -55,7 +72,7 @@ function Chip({
       aria-pressed={active}
       className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors ${
         active
-          ? "border-accent-border bg-accent-dim text-accent"
+          ? activeClass
           : "border-border-subtle bg-surface-2 text-text-tertiary hover:bg-surface-3 hover:text-text-secondary"
       }`}
     >
@@ -73,12 +90,12 @@ const SCORE_TIERS = [
   { min: 8, label: "8+" },
 ];
 
+/** Primary location clusters shown as inline pills. */
+const PRIMARY_LOCATIONS = ["nyc", "remote", "sf_bay", "la"];
+
 export function FilterBar({ roles, filters, onChange, onReset, resultCount }: FilterBarProps) {
   const update = (partial: Partial<Filters>) => onChange({ ...filters, ...partial });
 
-  // Compute counts via the shared pure helper. When the aggregator toggle is
-  // OFF (the default), chip counts compute over the non-aggregator subset so
-  // the visible chip numbers match the visible table rows.
   const { statusCounts, locBucketCounts, buildCount, aiCount, compCount, staleCount, aggCount } =
     computeChipCounts(roles, {
       includeAggregator: filters.includeAggregator,
@@ -110,6 +127,26 @@ export function FilterBar({ roles, filters, onChange, onReset, resultCount }: Fi
   }
   function toggleStatus(s: string) {
     update({ status: filters.status === s ? "all" : s });
+  }
+
+  // ── Overflow locations for DropdownPill ──
+  const overflowLocations = (CLUSTER_ORDER as string[]).filter(
+    (k) => !PRIMARY_LOCATIONS.includes(k) && (locBucketCounts[k] || 0) > 0
+  );
+  const overflowOptions: DropdownPillOption[] = overflowLocations.map((k) => ({
+    id: k,
+    label: (CLUSTER_META as Record<string, { label: string }>)[k]?.label || k,
+    count: locBucketCounts[k] || 0,
+    active: filters.locations.has(k),
+  }));
+  const overflowActiveCount = overflowLocations.filter((k) => filters.locations.has(k)).length;
+
+  function onOverflowChange(activeIds: string[]) {
+    const next = new Set(filters.locations);
+    // Remove all overflow keys, then add back what's active.
+    for (const k of overflowLocations) next.delete(k);
+    for (const id of activeIds) next.add(id);
+    update({ locations: next });
   }
 
   return (
@@ -168,46 +205,72 @@ export function FilterBar({ roles, filters, onChange, onReset, resultCount }: Fi
         </div>
       </div>
 
-      {/* Row 2: chip groups — location │ signals │ status │ aggregator */}
-      <div className="flex flex-wrap items-center gap-2">
-        {CLUSTER_ORDER.filter((k: string) => k === "nyc" || k === "remote" || (locBucketCounts[k] || 0) > 0).map((k: string) => {
-          const meta = (CLUSTER_META as Record<string, { label: string; tone: string }>)[k];
-          return (
-            <Chip
-              key={k}
-              label={meta.label}
-              count={locBucketCounts[k] || 0}
-              active={filters.locations.has(k)}
-              onClick={() => toggleLocation(k)}
+      {/* Row 2: grouped filter chips — Location │ Tags │ Status │ Aggregator */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        {/* ── Location ── */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <GroupLabel>Location</GroupLabel>
+          {PRIMARY_LOCATIONS.filter((k) => k === "nyc" || k === "remote" || (locBucketCounts[k] || 0) > 0).map((k) => {
+            const meta = (CLUSTER_META as Record<string, { label: string }>)[k];
+            return (
+              <Chip
+                key={k}
+                label={meta.label}
+                count={locBucketCounts[k] || 0}
+                active={filters.locations.has(k)}
+                onClick={() => toggleLocation(k)}
+              />
+            );
+          })}
+          {overflowOptions.length > 0 && (
+            <DropdownPill
+              label="More"
+              count={overflowActiveCount || undefined}
+              options={overflowOptions}
+              onChange={onOverflowChange}
             />
-          );
-        })}
+          )}
+        </div>
 
-        <Divider />
+        {/* ── Tags ── */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <GroupLabel>Tags</GroupLabel>
+          <Chip label="Build" count={buildCount} active={filters.requireBuild} onClick={() => update({ requireBuild: !filters.requireBuild })} />
+          <Chip label="AI" count={aiCount} active={filters.requireAI} onClick={() => update({ requireAI: !filters.requireAI })} />
+          <Chip label="Has comp" count={compCount} active={filters.hasComp} onClick={() => update({ hasComp: !filters.hasComp })} />
+        </div>
 
-        <Chip label="Build" count={buildCount} active={filters.requireBuild} onClick={() => update({ requireBuild: !filters.requireBuild })} />
-        <Chip label="AI" count={aiCount} active={filters.requireAI} onClick={() => update({ requireAI: !filters.requireAI })} />
-        <Chip label="Has comp" count={compCount} active={filters.hasComp} onClick={() => update({ hasComp: !filters.hasComp })} />
+        {/* ── Status ── */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <GroupLabel>Status</GroupLabel>
+          {ALL_STATUSES.filter((s) => statusCounts[s]).map((s) => (
+            <Chip
+              key={s}
+              label={s}
+              count={statusCounts[s]}
+              active={filters.status === s}
+              onClick={() => toggleStatus(s)}
+              tint={STATUS_TINT[s]}
+            />
+          ))}
+          {staleCount > 0 && (
+            <Chip
+              label="Stale"
+              count={staleCount}
+              active={filters.status === "stale"}
+              onClick={() => toggleStatus("stale")}
+            />
+          )}
+        </div>
 
-        <Divider />
-
-        {ALL_STATUSES.filter((s) => statusCounts[s]).map((s) => (
-          <Chip key={s} label={s} count={statusCounts[s]} active={filters.status === s} onClick={() => toggleStatus(s)} />
-        ))}
-        {staleCount > 0 && (
-          <Chip label="Stale" count={staleCount} active={filters.status === "stale"} onClick={() => toggleStatus("stale")} />
-        )}
-
+        {/* ── Aggregator (separate) ── */}
         {aggCount > 0 && (
-          <>
-            <Divider />
-            <Chip
-              label="Aggregator"
-              count={aggCount}
-              active={filters.includeAggregator}
-              onClick={() => update({ includeAggregator: !filters.includeAggregator })}
-            />
-          </>
+          <Chip
+            label="Aggregator"
+            count={aggCount}
+            active={filters.includeAggregator}
+            onClick={() => update({ includeAggregator: !filters.includeAggregator })}
+          />
         )}
       </div>
     </div>
