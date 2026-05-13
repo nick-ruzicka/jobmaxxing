@@ -6,6 +6,7 @@ import type { Role, RoleStatus, ScanStats } from "@/lib/types";
 import { Shell } from "@/components/Shell";
 import { StatStrip } from "@/components/StatStrip";
 import { PipelineTable } from "@/components/PipelineTable";
+import { MorningBriefing, SAMPLE_BRIEFING_ITEMS } from "@/components/MorningBriefing";
 import { PageHeader, Button } from "@/components/ui";
 import { useScan } from "@/components/ScanContext";
 
@@ -124,6 +125,9 @@ export function PipelinePage({
     >
       <PipelineHeader roleCount={pipelineCount} lastScanDate={stats.lastScanDate} />
       <div className="space-y-6">
+        {/* Placeholder content. T4 will swap SAMPLE_BRIEFING_ITEMS for
+            agent-generated suggestions. */}
+        <MorningBriefing items={SAMPLE_BRIEFING_ITEMS} />
         <StatStrip stats={stats} />
         <PipelineTable
           roles={roles}
