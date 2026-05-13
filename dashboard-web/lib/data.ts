@@ -16,7 +16,7 @@ import { normalizeCompany, companyKey } from "../../scripts/lib/normalize-compan
 // Re-export for dashboard consumers (`import { companyKey } from "@/lib/data"`).
 export { normalizeCompany, companyKey };
 
-const ROOT = join(process.cwd(), "..");
+export const ROOT = join(process.cwd(), "..");
 
 // Re-syndicator hosts (RevOps Careers, Lensa, WhatJobs, …): unreliable location/company
 // metadata, frequently corrupted JD scrapes. Roles from these hosts are tagged
@@ -39,7 +39,7 @@ function isAggregatorHost(url: string): boolean {
   }
 }
 
-function readJsonSafe<T>(path: string, fallback: T): T {
+export function readJsonSafe<T>(path: string, fallback: T): T {
   try {
     if (!existsSync(path)) return fallback;
     return JSON.parse(readFileSync(path, "utf-8"));
