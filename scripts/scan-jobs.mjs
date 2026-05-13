@@ -396,30 +396,53 @@ function classifyLocationStructured(locationStr, isRemote, workplaceType) {
   return "Unknown";
 }
 
-// Text-only fallback for Exa results (no structured data)
-// Only uses keyword matching — never returns raw text as location
+// Text-only fallback for Exa/HTML results (no structured location field).
+//
+// Trust the JD body (title + scraped text) over the URL. Re-syndicators emit template URL
+// slugs like "...-new-york-ny-united-states" that don't reflect the real location, so any
+// signal found in the body — "remote", "anywhere", a city name — wins. The URL is consulted
+// ONLY when the body says nothing about location, and then only to recover a concrete *city*
+// (URL slugs like "...-founding-gtm-engineer-nyc-12345" are reliable for the city; they are
+// NOT reliable for remote/hybrid), and never when the slug carries the "-united-states"
+// re-syndication template.
+//
+// Existing seen-urls.json entries keep their old stored location until re-scanned.
+// Never returns raw text as a location — keyword matching only.
 function classifyLocation(title, url, text) {
-  const blob = `${title} ${url} ${text}`.toLowerCase();
+  const body = `${title} ${text}`.toLowerCase();
+  const urlBlob = (url || "").toLowerCase();
   const nycSignals = ["new york", "nyc", "manhattan", "brooklyn", "soho", "midtown"];
   const remoteSignals = ["remote", "anywhere", "distributed"];
   const hybridSignals = ["hybrid"];
 
-  const isNYC = nycSignals.some((s) => blob.includes(s));
-  const isRemote = remoteSignals.some((s) => blob.includes(s));
-  const isHybrid = hybridSignals.some((s) => blob.includes(s));
+  // --- Pass 1: the JD body is authoritative ---
+  const bodyNYC = nycSignals.some((s) => body.includes(s));
+  const bodyRemote = remoteSignals.some((s) => body.includes(s));
+  const bodyHybrid = hybridSignals.some((s) => body.includes(s));
 
-  if (isNYC && isHybrid) return "Hybrid NYC";
-  if (isNYC && isRemote) return "Remote NYC";
-  if (isNYC) return "NYC";
-  if (isHybrid) return "Hybrid";
-  if (isRemote) return "Remote US";
+  if (bodyNYC && bodyHybrid) return "Hybrid NYC";
+  if (bodyNYC && bodyRemote) return "Remote NYC";
+  if (bodyNYC) return "NYC";
+  if (bodyHybrid) return "Hybrid";
+  if (bodyRemote) return "Remote US";
 
-  // Check for other US cities
-  if (blob.includes("san francisco") || blob.includes(", sf")) return "San Francisco";
-  if (blob.includes("chicago")) return "Chicago";
-  if (blob.includes("boston")) return "Boston";
-  if (blob.includes("austin")) return "Austin";
-  if (blob.includes("seattle")) return "Seattle";
+  if (body.includes("san francisco") || body.includes(", sf")) return "San Francisco";
+  if (body.includes("chicago")) return "Chicago";
+  if (body.includes("boston")) return "Boston";
+  if (body.includes("austin")) return "Austin";
+  if (body.includes("seattle")) return "Seattle";
+
+  // --- Pass 2: body is silent — recover a city from the URL slug only ---
+  // Skip URLs carrying the "-united-states" re-syndication template entirely (those slugs
+  // are auto-generated, not a real location signal). City-only — never remote/hybrid here.
+  if (!urlBlob.includes("-united-states")) {
+    if (urlBlob.includes("nyc") || urlBlob.includes("new-york")) return "NYC";
+    if (urlBlob.includes("san-francisco")) return "San Francisco";
+    if (urlBlob.includes("chicago")) return "Chicago";
+    if (urlBlob.includes("boston")) return "Boston";
+    if (urlBlob.includes("austin")) return "Austin";
+    if (urlBlob.includes("seattle")) return "Seattle";
+  }
 
   return "Unknown";
 }
