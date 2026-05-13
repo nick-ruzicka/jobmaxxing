@@ -20,6 +20,16 @@ export interface Role {
   title: string;
   company: string;
   location: string;
+  /** Structured location, populated from seen-urls.json (or parsed from `location` for
+   *  legacy entries). `location` above is the display string derived from these. */
+  location_workplace: "remote" | "hybrid" | "onsite" | "unknown";
+  location_city: string | null;
+  /** 2-letter state code for US locations, country name for international, else null. */
+  location_region: string | null;
+  /** Filter cluster — clusterForLocation() result: "nyc" | "remote" | "sf_bay" | "la"
+   *  | "boston" | "seattle" | "austin" | "denver" | "chicago" | "other_us" | "other_intl"
+   *  | "unknown". Drives the location filter chips and the stat strip. */
+  location_cluster: string;
   source: string;
   /** "aggregator" = re-syndicator host (RevOps Careers etc.) — hidden from default views.
    *  "trusted" = original ATS / job board / portfolio board. */
