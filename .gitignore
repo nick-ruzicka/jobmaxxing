@@ -62,6 +62,8 @@ interview-prep/hebbia-gtm-engineer.md
 
 # Working notes (not for the repo)
 docs/PHASE_11_TODO.md
+WORK_LOG.md
+MORNING_REPORT.md
 
 # Keep dashboard-web lockfile despite the global package-lock.json ignore
 !dashboard-web/package-lock.json
