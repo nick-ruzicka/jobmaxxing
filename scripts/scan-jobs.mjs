@@ -108,6 +108,20 @@ const TITLE_NEGATIVE = [
   "junior",
   "entry-level",
   "entry level",
+  // recruiting / talent / people-ops / admin — surface on BuiltIn "GTM" searches
+  // ("Recruiter, GTM & Engineering", "People Operations Manager - …", etc.)
+  "recruiter",
+  "talent acquisition",
+  "talent partner",
+  "people operations",
+  "people ops",
+  "hr operations",
+  "hr ops",
+  "executive assistant",
+  // finance/accounting — "revenue" is an anchor, so "Revenue Accounting Manager"
+  // and "Director, Revenue Accounting" pass the matcher; they are finance roles.
+  "revenue accounting",
+  "revenue accountant",
 ];
 
 // Non-job content patterns (blogs, newsletters, articles)
@@ -273,19 +287,21 @@ const FUNDING_QUERIES = [
   "startup funding round 2026 revenue operations hiring",
 ];
 
-// Tier 9: BuiltIn job board (Exa keyword with includeDomains)
-// Cover all GTM Engineer title variants
+// Tier 9: BuiltIn job board — direct search scrape (builtin.com/jobs?search=…&page=N)
+// BuiltIn's own search has far better recall than Exa keyword search did; each query
+// returns the manager/head/director/intern variants too. A handful of broad anchors
+// + leadership phrases covers the space.
 const BUILTIN_SEARCHES = [
+  "GTM Engineering",        // ← also pulls "GTM Engineering Manager", "Head of GTM Systems and Engineering", etc.
   "GTM Engineer",
-  "Revenue Operations Engineer",
-  "Revenue Operations Manager",
+  "Revenue Operations",
   "RevOps Engineer",
   "Go-to-Market Engineer",
-  "Go-to-Market Operations",
-  "GTM Systems Engineer",
-  "Revenue Engineer",
-  "GTM Operations Manager",
   "Sales Operations Engineer",
+  "Revenue Systems",
+  "Head of GTM",
+  "Director GTM",
+  "VP Revenue Operations",
 ];
 
 // Tier 10: YC Work at a Startup
@@ -1090,6 +1106,126 @@ function generateReport(roles, stats) {
 }
 
 // ---------------------------------------------------------------------------
+// Tier 9: BuiltIn — direct search scrape
+// ---------------------------------------------------------------------------
+// builtin.com/jobs?search=<q>&page=<n> is server-rendered: job cards are in the
+// raw HTML. Its own search has far better recall than the Exa keyword search this
+// replaced (Exa kept returning only literal-"GTM Engineer"-titled posts; BuiltIn's
+// search surfaces "GTM Engineering Manager", "Head of GTM Systems and Engineering",
+// "Engineering Manager, GTM Engineering", etc.).
+
+const BUILTIN_BASE = "https://builtin.com";
+const BUILTIN_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+// Results are recency-sorted; a niche query ("GTM Engineering") returns everything on
+// page 1, and a broad query's deeper pages are mostly stale. 2 pages is plenty.
+const BUILTIN_MAX_PAGES = 2;
+
+// Decode the HTML entities that show up in BuiltIn job titles (&amp;, &#x2013; en-dash,
+// &#39; apostrophe, …). BuiltIn also HTML-escapes some attributes oddly, so handle numeric
+// entities generically.
+function htmlDecode(s) {
+  return (s || "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch { return _; } })
+    .replace(/&#(\d+);/g, (_, d) => { try { return String.fromCodePoint(parseInt(d, 10)); } catch { return _; } })
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&");
+}
+const clean = (s) => htmlDecode((s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+
+// "Reposted 16 Days Ago" / "20 Days Ago" / "Reposted 2 Days Ago" -> ISO date (today - N).
+function builtinPostedToDate(s) {
+  const m = (s || "").match(/(\d+)\s+(hour|day|week|month)s?\s+ago/i);
+  if (!m) return "";
+  const mult = { hour: 0, day: 1, week: 7, month: 30 }[m[2].toLowerCase()] ?? 0;
+  const d = new Date();
+  d.setDate(d.getDate() - parseInt(m[1], 10) * mult);
+  return d.toISOString().slice(0, 10);
+}
+
+// Pull a job-card attribute. Cards key each attribute by an adjacent FontAwesome icon
+// class (fa-clock = posted date, fa-house-building = workplace type, fa-location-dot =
+// location, fa-trophy = seniority, fa-sack-dollar = comp). Two layouts: clock has the
+// text immediately after the icon's </i>; the rest have the icon in a sibling div before
+// a <span> holding the text.
+function builtinCardAttr(cardHtml, faIcon) {
+  const idx = cardHtml.search(new RegExp(`fa-${faIcon}\\b`, "i"));
+  if (idx === -1) return "";
+  const after = cardHtml.slice(idx, idx + 600);
+  const m1 = after.match(/<\/i>\s*([^<\s][^<]*)</); // text right after the icon
+  if (m1) return clean(m1[1]);
+  const m2 = after.match(/<span[^>]*>([\s\S]*?)<\/span>/); // first <span> after the icon
+  if (m2) return clean(m2[1]);
+  return "";
+}
+
+async function scanBuiltIn() {
+  const results = [];
+  for (const query of BUILTIN_SEARCHES) {
+    process.stdout.write(`  ${query.padEnd(28)}...`);
+    let matched = 0;
+    try {
+      for (let page = 1; page <= BUILTIN_MAX_PAGES; page++) {
+        const url = `${BUILTIN_BASE}/jobs?search=${encodeURIComponent(query)}&page=${page}`;
+        const res = await fetch(url, {
+          headers: { "User-Agent": BUILTIN_UA, Accept: "text/html" },
+          signal: AbortSignal.timeout(15000),
+          redirect: "follow",
+        });
+        if (!res.ok) {
+          process.stdout.write(` HTTP ${res.status}`);
+          break;
+        }
+        const html = await res.text();
+        // Each job card container has `data-id="job-card"` (the title anchor's longer
+        // `data-id="job-card-title"` is not a substring of it, so this split is safe).
+        const cards = html.split('data-id="job-card"').slice(1);
+        if (cards.length === 0) break;
+        for (const chunk of cards) {
+          // <a href="/job/{slug}/{id}" … data-id="job-card-title" …>Title</a> (attr order varies)
+          const titleM = chunk.match(/<a ([^>]*\bdata-id="job-card-title"[^>]*)>([^<]+)<\/a>/i);
+          if (!titleM) continue;
+          const hrefM = titleM[1].match(/href="(\/job\/[^"]+)"/i);
+          if (!hrefM) continue;
+          const href = hrefM[1];
+          const title = clean(titleM[2]);
+          if (!titleMatchesPositive(title) || titleMatchesNegative(title)) continue;
+          const seniority = builtinCardAttr(chunk, "trophy");
+          if (/internship/i.test(seniority)) continue; // catch interns the title missed
+          // <a … data-id="company-title" …><span>Company</span></a>
+          const coM = chunk.match(/<a [^>]*\bdata-id="company-title"[^>]*>([\s\S]*?)<\/a>/i);
+          const company = coM ? clean(coM[1]) : "";
+          const workplace = builtinCardAttr(chunk, "house-building"); // Hybrid / Remote or Hybrid / In-Office / Remote
+          const locStr = builtinCardAttr(chunk, "location-dot"); // "New York, NY, USA" / "4 Locations"
+          results.push({
+            title,
+            company: company || extractCompany(title, BUILTIN_BASE + href),
+            url: normalizeUrl(BUILTIN_BASE + href),
+            publishedDate: builtinPostedToDate(builtinCardAttr(chunk, "clock")),
+            location: classifyLocation(`${title} ${workplace} ${locStr}`, BUILTIN_BASE + href, `${workplace} ${locStr}`),
+            source: "BuiltIn",
+            comp: builtinCardAttr(chunk, "sack-dollar"), // "91K-137K Annually" (often absent)
+            text: "",
+            highlights: "",
+          });
+          matched++;
+        }
+        // BuiltIn pages 25 results; fewer than that or no "next" link -> last page.
+        if (cards.length < 25 || !/aria-label="Go to Next Page"/i.test(html)) break;
+      }
+      process.stdout.write(` ${matched}\n`);
+    } catch (err) {
+      process.stdout.write(` ERROR: ${err.message}\n`);
+    }
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -1260,85 +1396,9 @@ async function main() {
   allResults.push(...deepResults);
   console.log(`  Total deep: ${deepResults.length}\n`);
 
-  // --- Tier 9: BuiltIn (Exa keyword search with includeDomains) ---
-  console.log(`[Tier 9] BuiltIn — ${BUILTIN_SEARCHES.length} searches`);
-  const builtinResults = [];
-  for (const query of BUILTIN_SEARCHES) {
-    process.stdout.write(`  ${query.padEnd(35)}...`);
-    try {
-      const apiKey = process.env.EXA_API_KEY;
-      const res = await fetch("https://api.exa.ai/search", {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query,
-          type: "keyword",
-          numResults: 25,
-          includeDomains: ["builtin.com"],
-          contents: {
-            text: { maxCharacters: 800 },
-          },
-        }),
-      });
-
-      if (!res.ok) {
-        process.stdout.write(` Exa error ${res.status}\n`);
-        continue;
-      }
-
-      const data = await res.json();
-      const hits = data.results || [];
-      process.stdout.write(` ${hits.length}\n`);
-
-      for (const r of hits) {
-        const rawTitle = r.title || "";
-        const url = normalizeUrl(r.url || "");
-        const text = r.text || "";
-
-        // BuiltIn titles: "GTM Engineer - Company | Built In" or "Company - Role - Built In"
-        const cleanedTitle = rawTitle
-          .replace(/\s*[|]\s*Built\s*In\s*$/i, "")
-          .replace(/\s*-\s*Built\s*In\s*$/i, "")
-          .trim();
-
-        // Extract company from BuiltIn title pattern "Role - Company" or "Company - Role"
-        let company = "";
-        const parts = cleanedTitle.split(/\s*-\s*/);
-        if (parts.length >= 2) {
-          // If first part matches a role keyword, company is the last part
-          const firstLower = parts[0].toLowerCase();
-          if (/gtm|revenue|revops|sales|go-to-market/.test(firstLower)) {
-            company = parts[parts.length - 1].trim();
-          } else {
-            // Company is first part (e.g., "Apollo.io - GTM Engineer")
-            company = parts[0].trim();
-          }
-        }
-
-        // Extract role title (strip company from title)
-        const roleTitle = company
-          ? cleanedTitle.replace(new RegExp(`\\s*-\\s*${company.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i"), "").trim()
-          : cleanedTitle;
-
-        builtinResults.push({
-          title: roleTitle || cleanedTitle,
-          company: company || extractCompany(cleanedTitle, url),
-          url,
-          publishedDate: r.publishedDate || "",
-          location: classifyLocation(cleanedTitle, url, text),
-          source: "BuiltIn",
-          comp: "",
-          text,
-          highlights: "",
-        });
-      }
-    } catch (err) {
-      process.stdout.write(` ERROR: ${err.message}\n`);
-    }
-  }
+  // --- Tier 9: BuiltIn — direct search scrape (builtin.com/jobs?search=…) ---
+  console.log(`[Tier 9] BuiltIn — ${BUILTIN_SEARCHES.length} searches (direct scrape)`);
+  const builtinResults = await scanBuiltIn();
   stats.builtin.matches = builtinResults.length;
   allResults.push(...builtinResults);
   console.log(`  Total BuiltIn: ${builtinResults.length}\n`);
@@ -1552,7 +1612,7 @@ async function main() {
   // STEP 1: Resolve companies for entries that don't have one
   let resolved = 0;
   let resolveAttempts = 0;
-  const NEEDS_RESOLUTION = ["BuiltIn", "YC"];
+  const NEEDS_RESOLUTION = ["YC"]; // BuiltIn now arrives with company resolved (Tier 9 direct scrape)
   for (const r of netNew) {
     // Clean up display fields first
     if (!r.location) {
@@ -1565,7 +1625,7 @@ async function main() {
 
     // If company is still missing and source supports resolution, fetch the page
     if ((!r.company || r.company === "—" || r.company === "Unknown") &&
-        (NEEDS_RESOLUTION.includes(r.source) || r.url.includes("builtin.com") || r.url.includes("workatastartup.com"))) {
+        (NEEDS_RESOLUTION.includes(r.source) || r.url.includes("workatastartup.com"))) {
       resolveAttempts++;
       try {
         const res = await fetch(r.url, {
@@ -1577,21 +1637,6 @@ async function main() {
           const html = await res.text();
           const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
           const pageTitle = titleMatch ? titleMatch[1].trim() : "";
-
-          if (r.url.includes("builtin.com") && pageTitle) {
-            const clean = pageTitle.replace(/\s*[|]\s*Built\s*In.*$/i, "").replace(/\s*-\s*Built\s*In.*$/i, "").trim();
-            const parts = clean.split(/\s*-\s*/);
-            if (parts.length >= 2) {
-              const firstLower = parts[0].toLowerCase();
-              if (/^(gtm|revenue|revops|sales|go|sr|senior|head|director|manager|vp|staff|founding|enterprise|ai|associate)/i.test(firstLower)) {
-                r.company = parts[parts.length - 1].trim();
-                r.roleTitle = parts.slice(0, -1).join(" - ").trim();
-              } else {
-                r.company = parts[0].trim();
-                r.roleTitle = parts.slice(1).join(" - ").trim();
-              }
-            }
-          }
 
           if (r.url.includes("workatastartup.com") && pageTitle) {
             const atMatch = pageTitle.match(/\bat\s+(.+?)\s*(?:\||$)/i);
