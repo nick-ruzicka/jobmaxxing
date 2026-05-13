@@ -39,7 +39,7 @@ interface BadgeProps {
 export function Badge({ color = "neutral", variant = "soft", icon, className = "", children }: BadgeProps) {
   if (variant === "dot") {
     return (
-      <span className={`inline-flex items-center gap-1.5 text-[13px] text-text-secondary ${className}`}>
+      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] text-text-secondary ${className}`}>
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT[color]}`} />
         {children}
       </span>
@@ -47,7 +47,7 @@ export function Badge({ color = "neutral", variant = "soft", icon, className = "
   }
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium tabular-nums ${SOFT[color]} ${className}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium tabular-nums ${SOFT[color]} ${className}`}
     >
       {icon}
       {children}

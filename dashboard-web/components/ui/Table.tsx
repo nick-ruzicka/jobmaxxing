@@ -2,10 +2,19 @@ import type { ReactNode, HTMLAttributes, ThHTMLAttributes } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 /** The table shell: 1px border + rounded-lg + horizontal scroll. No shadow. */
-export function TableContainer({ className = "", children }: { className?: string; children: ReactNode }) {
+export function TableContainer({
+  className = "",
+  tableClassName = "",
+  children,
+}: {
+  className?: string;
+  /** Extra classes for the inner `<table>` — e.g. `table-fixed` for column-width control. */
+  tableClassName?: string;
+  children: ReactNode;
+}) {
   return (
     <div className={`overflow-x-auto rounded-lg border border-border-subtle bg-surface-2 ${className}`}>
-      <table className="w-full text-[13px]">{children}</table>
+      <table className={`w-full text-[13px] ${tableClassName}`}>{children}</table>
     </div>
   );
 }

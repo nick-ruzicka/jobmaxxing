@@ -6,14 +6,11 @@ import {
   LayoutDashboard,
   Zap,
   Building2,
-  RefreshCw,
-  Radio,
   Briefcase,
   BellDot,
   GraduationCap,
   Activity,
 } from "lucide-react";
-import { Button } from "@/components/ui";
 
 interface SidebarProps {
   activePursuing: number;
@@ -21,8 +18,6 @@ interface SidebarProps {
   companyCount: number;
   signalCount: number;
   hasWarmLeads: boolean;
-  onScanStart: (type: "scan" | "signal") => void;
-  scanRunning: boolean;
 }
 
 export function Sidebar({
@@ -31,8 +26,6 @@ export function Sidebar({
   companyCount,
   signalCount,
   hasWarmLeads,
-  onScanStart,
-  scanRunning,
 }: SidebarProps) {
   const pathname = usePathname();
 
@@ -74,7 +67,7 @@ export function Sidebar({
             <Link
               key={item.href}
               href={item.href}
-              className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-all"
+              className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors"
               style={{
                 background: active ? "var(--accent-dim)" : "transparent",
                 color: active ? "var(--accent)" : "var(--text-tertiary)",
@@ -95,24 +88,6 @@ export function Sidebar({
           );
         })}
       </nav>
-
-      {/* Actions */}
-      <div className="space-y-1.5 border-t border-border-subtle px-3 py-4">
-        <Button variant="secondary" onClick={() => onScanStart("scan")} disabled={scanRunning} className="w-full">
-          <RefreshCw size={14} className={scanRunning ? "animate-spin" : ""} />
-          <span className="text-left leading-tight">
-            <span className="block">Run Job Scan</span>
-            <span className="block text-[11px] text-text-muted">Boards + Exa + Similar</span>
-          </span>
-        </Button>
-        <Button variant="secondary" onClick={() => onScanStart("signal")} disabled={scanRunning} className="w-full">
-          <Radio size={14} />
-          <span className="text-left leading-tight">
-            <span className="block">Signal Scan</span>
-            <span className="block text-[11px] text-text-muted">Funding + hiring intent</span>
-          </span>
-        </Button>
-      </div>
 
       {/* Footer */}
       <div className="px-5 py-3 text-[11px]" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)" }}>

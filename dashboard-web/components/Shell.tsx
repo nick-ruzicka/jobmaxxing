@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { Sidebar } from "./Sidebar";
 import { TerminalDrawer } from "./TerminalDrawer";
+import { ScanProvider } from "./ScanContext";
 
 interface ShellProps {
   children: React.ReactNode;
@@ -69,10 +70,10 @@ export function Shell({
         companyCount={companyCount}
         signalCount={signalCount}
         hasWarmLeads={hasWarmLeads}
-        onScanStart={handleScanStart}
-        scanRunning={scanRunning}
       />
-      <main className="ml-60 flex-1 overflow-y-auto p-6" style={{ background: "var(--surface-0)" }}>{children}</main>
+      <ScanProvider value={{ runScan: handleScanStart, scanRunning }}>
+        <main className="ml-60 flex-1 min-w-0 overflow-y-auto bg-surface-0 p-6">{children}</main>
+      </ScanProvider>
       <TerminalDrawer
         open={terminalOpen}
         output={terminalOutput}
