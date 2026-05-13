@@ -185,8 +185,14 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
 
   return (
     <div>
-      {/* Filter bar (rebuilt in commit 4b — intentionally still the old styling here) */}
-      <FilterBar roles={roles} filters={filters} onChange={setFilters} resultCount={sorted.length} />
+      {/* Filter bar */}
+      <FilterBar
+        roles={roles}
+        filters={filters}
+        onChange={setFilters}
+        onReset={() => setFilters(emptyFilters(0))}
+        resultCount={sorted.length}
+      />
 
       {/* Batch actions */}
       {selectedUrls.size > 0 && (

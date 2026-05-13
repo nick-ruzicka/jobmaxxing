@@ -1,9 +1,10 @@
 "use client";
 
-import { X, Hammer, Cpu, MapPin } from "lucide-react";
+import { Search, X } from "lucide-react";
 import type { Role, RoleStatus } from "@/lib/types";
 import { CLUSTER_META, CLUSTER_ORDER } from "@/lib/location-clusters";
 import { computeChipCounts } from "../../scripts/lib/chip-counts.mjs";
+import { Badge, Button } from "@/components/ui";
 
 const ALL_STATUSES: RoleStatus[] = [
   "Discovered", "Evaluated", "Applied", "Interview", "Offer", "Rejected", "Skipped",
@@ -25,51 +26,54 @@ interface FilterBarProps {
   roles: Role[];
   filters: Filters;
   onChange: (f: Filters) => void;
+  /** Reset every filter — wired to "Clear filters" here and to the empty-state button in PipelineTable. */
+  onReset: () => void;
   resultCount: number;
 }
 
+/** A real 1px vertical rule between chip groups. */
+function Divider() {
+  return <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border-subtle" />;
+}
+
+/** A toggle chip. Active = accent fill + a trailing × (so the active chips *are* the filter pills). */
 function Chip({
   label,
   count,
   active,
   onClick,
-  color,
 }: {
   label: string;
   count?: number;
   active: boolean;
   onClick: () => void;
-  color?: string;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-medium transition-all"
-      style={{
-        background: active ? (color ? color : "var(--accent-dim)") : "var(--surface-2)",
-        border: active
-          ? `1px solid ${color ? color.replace("0.12)", "0.3)") : "rgba(129,140,248,0.25)"}`
-          : "1px solid var(--border-subtle)",
-        color: active ? (color ? "var(--text-primary)" : "var(--accent)") : "var(--text-tertiary)",
-      }}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors ${
+        active
+          ? "border-accent-border bg-accent-dim text-accent"
+          : "border-border-subtle bg-surface-2 text-text-tertiary hover:bg-surface-3 hover:text-text-secondary"
+      }`}
     >
       {label}
-      {count !== undefined && (
-        <span
-          className="tabular-nums text-[10px] rounded-full px-1 py-0"
-          style={{
-            background: active ? "rgba(255,255,255,0.1)" : "var(--surface-3)",
-            color: active ? "inherit" : "var(--text-muted)",
-          }}
-        >
-          {count}
-        </span>
-      )}
+      {count !== undefined && <Badge color="neutral">{count}</Badge>}
+      {active && <X size={11} className="shrink-0" />}
     </button>
   );
 }
 
-export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarProps) {
+const SCORE_TIERS = [
+  { min: 0, label: "All" },
+  { min: 4, label: "4+" },
+  { min: 6, label: "6+" },
+  { min: 8, label: "8+" },
+];
+
+export function FilterBar({ roles, filters, onChange, onReset, resultCount }: FilterBarProps) {
   const update = (partial: Partial<Filters>) => onChange({ ...filters, ...partial });
 
   // Compute counts via the shared pure helper. When the aggregator toggle is
@@ -104,85 +108,70 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
     if (next.has(bucket)) next.delete(bucket); else next.add(bucket);
     update({ locations: next });
   }
-
-  function clearAll() {
-    onChange({
-      search: "",
-      status: "all",
-      locations: new Set(),
-      minScore: 0,
-      requireBuild: false,
-      requireAI: false,
-      hasComp: false,
-      includeAggregator: false,
-    });
+  function toggleStatus(s: string) {
+    update({ status: filters.status === s ? "all" : s });
   }
 
-  const scoreTiers = [
-    { min: 8, label: "8+" },
-    { min: 6, label: "6+" },
-    { min: 4, label: "4+" },
-    { min: 0, label: "All" },
-  ];
-
   return (
-    <div className="space-y-3 mb-4">
-      {/* Row 1: Search + Score tiers + Result count */}
+    <div className="mb-4 space-y-3">
+      {/* Row 1: search · score control · result count · clear */}
       <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
+        <div className="relative max-w-xs flex-1">
+          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             type="text"
-            placeholder="Search companies or roles..."
+            placeholder="Search companies or roles…"
             value={filters.search}
             onChange={(e) => update({ search: e.target.value })}
-            className="w-full rounded-lg py-2 pl-3 pr-3 text-[13px] placeholder:opacity-40 focus:outline-none"
-            style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
+            className="w-full rounded-md border border-border-subtle bg-surface-2 py-1.5 pl-8 pr-7 text-[13px] text-text-secondary placeholder:text-text-muted"
           />
-        </div>
-
-        <div className="flex items-center gap-1 rounded-lg p-0.5" style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)" }}>
-          {scoreTiers.map((tier) => (
+          {filters.search && (
             <button
-              key={tier.min}
-              onClick={() => update({ minScore: filters.minScore === tier.min ? 0 : tier.min })}
-              className="rounded-md px-2.5 py-1 text-[11px] font-medium transition-all"
-              style={{
-                background: filters.minScore === tier.min && tier.min > 0 ? "var(--accent-dim)" : "transparent",
-                color: filters.minScore === tier.min && tier.min > 0 ? "var(--accent)" : "var(--text-muted)",
-              }}
+              type="button"
+              onClick={() => update({ search: "" })}
+              aria-label="Clear search"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-text-muted transition-colors hover:text-text-secondary"
             >
-              {tier.label}
+              <X size={13} />
             </button>
-          ))}
+          )}
         </div>
 
-        <span className="ml-auto text-[12px] tabular-nums" style={{ color: "var(--text-muted)" }}>
-          {resultCount} of {roles.length} roles
-        </span>
+        <div className="flex items-center gap-0.5 rounded-md border border-border-subtle bg-surface-2 p-0.5">
+          {SCORE_TIERS.map((tier) => {
+            const active = filters.minScore === tier.min;
+            return (
+              <button
+                key={tier.min}
+                type="button"
+                onClick={() => update({ minScore: tier.min })}
+                aria-pressed={active}
+                className={`rounded-sm px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  active ? "bg-accent-dim text-accent" : "text-text-tertiary hover:text-text-secondary"
+                }`}
+              >
+                {tier.label}
+              </button>
+            );
+          })}
+        </div>
 
-        {activeFilterCount > 0 && (
-          <button
-            onClick={clearAll}
-            className="flex items-center gap-1 text-[11px] transition-colors"
-            style={{ color: "var(--text-tertiary)" }}
-          >
-            <X size={11} /> Clear filters
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-3">
+          <span className="text-[12px] tabular-nums text-text-muted">
+            {resultCount} of {roles.length} roles
+          </span>
+          {activeFilterCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={onReset}>
+              <X size={14} /> Clear filters
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* Row 2: Location + Status + Signal toggles */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* Location chips — cluster-first: one click on "NYC area" answers
-            "what's inside my geographic constraint?" */}
-        <span className="text-[11px] mr-1" style={{ color: "var(--text-muted)" }}>
-          <MapPin size={11} className="inline -mt-0.5" /> Location
-        </span>
+      {/* Row 2: chip groups — location │ signals │ status │ aggregator */}
+      <div className="flex flex-wrap items-center gap-2">
         {CLUSTER_ORDER.filter((k: string) => k === "nyc" || k === "remote" || (locBucketCounts[k] || 0) > 0).map((k: string) => {
           const meta = (CLUSTER_META as Record<string, { label: string; tone: string }>)[k];
-          const color =
-            meta.tone === "in-scope" ? "var(--emerald-dim)" :
-            meta.tone === "unknown" ? "var(--surface-3)" : undefined;
           return (
             <Chip
               key={k}
@@ -190,64 +179,35 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
               count={locBucketCounts[k] || 0}
               active={filters.locations.has(k)}
               onClick={() => toggleLocation(k)}
-              color={color}
             />
           );
         })}
 
-        <span className="mx-1" style={{ color: "var(--border-default)" }}>|</span>
+        <Divider />
 
-        {/* Signal toggles */}
-        <Chip
-          label="Build"
-          count={buildCount}
-          active={filters.requireBuild}
-          onClick={() => update({ requireBuild: !filters.requireBuild })}
-          color="var(--emerald-dim)"
-        />
-        <Chip
-          label="AI"
-          count={aiCount}
-          active={filters.requireAI}
-          onClick={() => update({ requireAI: !filters.requireAI })}
-          color="var(--blue-dim)"
-        />
-        <Chip
-          label="Has Comp"
-          count={compCount}
-          active={filters.hasComp}
-          onClick={() => update({ hasComp: !filters.hasComp })}
-        />
-        {aggCount > 0 && (
-          <Chip
-            label="Aggregator"
-            count={aggCount}
-            active={filters.includeAggregator}
-            onClick={() => update({ includeAggregator: !filters.includeAggregator })}
-            color="var(--red-dim)"
-          />
-        )}
+        <Chip label="Build" count={buildCount} active={filters.requireBuild} onClick={() => update({ requireBuild: !filters.requireBuild })} />
+        <Chip label="AI" count={aiCount} active={filters.requireAI} onClick={() => update({ requireAI: !filters.requireAI })} />
+        <Chip label="Has comp" count={compCount} active={filters.hasComp} onClick={() => update({ hasComp: !filters.hasComp })} />
 
-        <span className="mx-1" style={{ color: "var(--border-default)" }}>|</span>
+        <Divider />
 
-        {/* Status chips - only show non-zero */}
         {ALL_STATUSES.filter((s) => statusCounts[s]).map((s) => (
-          <Chip
-            key={s}
-            label={s}
-            count={statusCounts[s]}
-            active={filters.status === s}
-            onClick={() => update({ status: filters.status === s ? "all" : s })}
-          />
+          <Chip key={s} label={s} count={statusCounts[s]} active={filters.status === s} onClick={() => toggleStatus(s)} />
         ))}
         {staleCount > 0 && (
-          <Chip
-            label="Stale"
-            count={staleCount}
-            active={filters.status === "stale"}
-            onClick={() => update({ status: filters.status === "stale" ? "all" : "stale" })}
-            color="var(--red-dim)"
-          />
+          <Chip label="Stale" count={staleCount} active={filters.status === "stale"} onClick={() => toggleStatus("stale")} />
+        )}
+
+        {aggCount > 0 && (
+          <>
+            <Divider />
+            <Chip
+              label="Aggregator"
+              count={aggCount}
+              active={filters.includeAggregator}
+              onClick={() => update({ includeAggregator: !filters.includeAggregator })}
+            />
+          </>
         )}
       </div>
     </div>
