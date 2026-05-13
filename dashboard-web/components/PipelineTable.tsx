@@ -349,7 +349,7 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
                       {comp || "—"}
                     </td>
                     {/* Location */}
-                    <td className="px-2 py-2.5"><LocationTag location={role.location} /></td>
+                    <td className="px-2 py-2.5"><LocationTag location={role.location} cluster={role.location_cluster} /></td>
                     {/* Status */}
                     <td className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <StatusDropdown value={role.status} onChange={(s) => onStatusChange(role.url, s)} />
