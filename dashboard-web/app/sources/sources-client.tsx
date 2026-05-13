@@ -103,20 +103,23 @@ type SortKey =
   | "hasCompCoverage"
   | "recoverableCount"
   | "scrapeFailures"
-  | "lastSeen";
+  | "lastSeen"
+  | "status";
 
+// Column labels are deliberately user-facing — engineer-language ("Enriched", "Hit ≥6")
+// has been swapped for verbs and outcomes that answer "is this source working?" first.
 const COLUMNS: { key: SortKey; label: string; align: "left" | "right"; sortable: boolean }[] = [
   { key: "host", label: "Source host", align: "left", sortable: true },
   { key: "totalUrls", label: "Total URLs", align: "right", sortable: true },
-  { key: "enrichmentRate", label: "Enriched", align: "right", sortable: true },
-  { key: "avgFit", label: "Avg fit", align: "right", sortable: true },
-  { key: "hitRate", label: "Hit ≥6", align: "right", sortable: true },
-  { key: "hasCompCoverage", label: "Comp today", align: "right", sortable: true },
-  { key: "recoverableCount", label: "Recoverable", align: "right", sortable: true },
-  { key: "scrapeFailures", label: "Scrape fails", align: "right", sortable: true },
+  { key: "enrichmentRate", label: "Working", align: "right", sortable: true },
+  { key: "avgFit", label: "Quality score", align: "right", sortable: true },
+  { key: "hitRate", label: "Good matches", align: "right", sortable: true },
+  { key: "hasCompCoverage", label: "Pay data found", align: "right", sortable: true },
+  { key: "recoverableCount", label: "Could recover", align: "right", sortable: true },
+  { key: "scrapeFailures", label: "Failed fetches", align: "right", sortable: true },
   { key: "lastSeen", label: "Last seen", align: "right", sortable: true },
 ];
-const COL_COUNT = COLUMNS.length + 2; // + Status + Diagnosis
+const COL_COUNT = COLUMNS.length + 2; // + Status + Issue
 
 function sortVal(r: SourceHealthRow, key: SortKey): string | number {
   switch (key) {
@@ -138,6 +141,11 @@ function sortVal(r: SourceHealthRow, key: SortKey): string | number {
       return r.scrapeFailures;
     case "lastSeen":
       return r.lastSeen || "";
+    case "status":
+      // Position in STATUS_ORDER — lower index = higher priority. Ascending sort
+      // surfaces broken-extractor → broken-scrape → healthy → quarantined → spam-blocked,
+      // which is "are my sources working?" in row order.
+      return STATUS_ORDER.indexOf(r.status);
   }
 }
 
@@ -154,8 +162,10 @@ export function SourcesPage({
   hasWarmLeads,
   activePursuing,
 }: SourcesPageProps) {
-  const [sortKey, setSortKey] = useState<SortKey>("totalUrls");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  // Default: sort by status (asc → broken first) so the page leads with what
+  // needs attention, not the largest host alphabetically.
+  const [sortKey, setSortKey] = useState<SortKey>("status");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [statusFilter, setStatusFilter] = useState<SourceStatus | "all">("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -188,7 +198,9 @@ export function SourcesPage({
       setSortDir((d) => (d === "desc" ? "asc" : "desc"));
     } else {
       setSortKey(key);
-      setSortDir(key === "host" || key === "lastSeen" ? "asc" : "desc");
+      // host / lastSeen / status default to ascending — alphabetical-first for host,
+      // chronological-first for lastSeen, broken-first for status.
+      setSortDir(key === "host" || key === "lastSeen" || key === "status" ? "asc" : "desc");
     }
   }
 
@@ -294,8 +306,17 @@ export function SourcesPage({
                     </th>
                   );
                 })}
-                <th className="px-3 py-2.5 text-left text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Status</th>
-                <th className="px-3 py-2.5 text-left text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Diagnosis</th>
+                <th
+                  className="px-3 py-2.5 text-left text-[11px] font-medium cursor-pointer select-none"
+                  style={{ color: sortKey === "status" ? "var(--text-secondary)" : "var(--text-muted)" }}
+                  onClick={() => toggleSort("status")}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    Status
+                    {sortKey === "status" && (sortDir === "desc" ? <ChevronDown size={11} /> : <ChevronUp size={11} />)}
+                  </span>
+                </th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Issue</th>
               </tr>
             </thead>
             <tbody>
@@ -338,7 +359,7 @@ export function SourcesPage({
                       <tr>
                         <td colSpan={COL_COUNT} style={{ background: "var(--surface-1)", borderBottom: "1px solid var(--border-subtle)" }}>
                           <div className="animate-expand-in px-8 py-4 space-y-3 text-[13px]">
-                            <DetailBlock label="Diagnosis">
+                            <DetailBlock label="Issue">
                               {af ? af.diagnosis : (
                                 <span style={{ color: "var(--text-muted)" }}>Not yet audited — run the comp audit on a sample of this host before relying on its recoverable estimate.</span>
                               )}
