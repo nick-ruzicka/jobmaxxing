@@ -5,3 +5,4 @@ export { SectionLabel } from "./SectionLabel";
 export { PageHeader } from "./PageHeader";
 export { EmptyState } from "./EmptyState";
 export { Skeleton } from "./Skeleton";
+export { TableContainer, Th, Tr } from "./Table";
