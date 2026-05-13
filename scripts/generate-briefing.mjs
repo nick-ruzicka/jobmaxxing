@@ -433,9 +433,10 @@ async function main() {
   writeFileSync(outPath, JSON.stringify(briefing, null, 2) + "\n");
   console.error(`[briefing] wrote ${outPath} (${items.length} items)`);
 
-  // Track last-regen timestamp for the rate limiter in Task 3.
+  // Track last-regen timestamp for the rate limiter in Task 3 — per-kind file
+  // so daily and pipeline-health don't clobber each other's throttle window.
   writeFileSync(
-    join(outDir, "last-regen.json"),
+    join(outDir, "last-regen-daily.json"),
     JSON.stringify({ kind: "daily", at: briefing.generated_at }, null, 2) + "\n"
   );
 

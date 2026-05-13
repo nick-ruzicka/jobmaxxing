@@ -143,7 +143,36 @@ ${userMessage}
 Respond directly in plain prose. No lists unless the user asks for one. Cite the role/company by name when relevant. Keep responses under ~300 words unless the user explicitly asks for more detail.`;
 }
 
+/** Lazy .env loader — Next.js only auto-loads .env files inside dashboard-web/,
+ *  but ours lives at the worktree root (one level up) and is symlinked from
+ *  the canonical repo. Read it on first miss and cache process.env. */
+let envLoaded = false;
+function loadWorktreeEnv() {
+  if (envLoaded) return;
+  envLoaded = true;
+  try {
+    const path = join(projectRoot(), ".env");
+    if (!existsSync(path)) return;
+    const raw = readFileSync(path, "utf-8");
+    for (const line of raw.split("\n")) {
+      const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/i);
+      if (!m) continue;
+      let val = m[2];
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.slice(1, -1);
+      }
+      if (!process.env[m[1]]) process.env[m[1]] = val;
+    }
+  } catch {
+    // Silent — callClaude below will fail with a clearer error if the key is missing.
+  }
+}
+
 async function callClaude(prompt: string): Promise<string> {
+  loadWorktreeEnv();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
   const res = await fetch("https://api.anthropic.com/v1/messages", {

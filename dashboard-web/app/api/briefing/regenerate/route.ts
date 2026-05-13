@@ -42,14 +42,14 @@ interface LastRegen {
 }
 
 function readLastRegen(kind: "daily" | "pipeline-health"): LastRegen | null {
-  const path = join(projectRoot(), "data", "briefings", "last-regen.json");
+  // Per-kind file so two regens of different kinds don't clobber each other's
+  // throttle. Earlier iteration shared one file; the second-kind run wiped
+  // the first kind's timestamp and back-to-back daily-after-pipeline-health
+  // (or vice versa) escaped the rate limit.
+  const path = join(projectRoot(), "data", "briefings", `last-regen-${kind}.json`);
   if (!existsSync(path)) return null;
   try {
     const raw = JSON.parse(readFileSync(path, "utf-8")) as LastRegen;
-    // The file tracks the *most recent* regen — if it's a different kind than
-    // the one being requested, don't rate-limit; each kind is independently
-    // throttled in practice because they pull on different surfaces.
-    if (raw.kind !== kind) return null;
     return raw;
   } catch {
     return null;

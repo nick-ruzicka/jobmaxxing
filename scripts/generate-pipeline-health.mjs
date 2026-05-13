@@ -338,8 +338,10 @@ export async function main() {
   writeFileSync(outPath, JSON.stringify(briefing, null, 2) + "\n");
   console.error(`[pipeline-health] wrote ${outPath} (${items.length} items)`);
 
+  // Per-kind last-regen file so daily and pipeline-health don't clobber each
+  // other's throttle window in /api/briefing/regenerate.
   writeFileSync(
-    join(outDir, "last-regen.json"),
+    join(outDir, "last-regen-pipeline-health.json"),
     JSON.stringify({ kind: "pipeline-health", at: briefing.generated_at }, null, 2) + "\n"
   );
 
