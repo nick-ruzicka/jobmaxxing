@@ -15,6 +15,10 @@ import {
 } from "lucide-react";
 import type { SourceHealthRow, SourceHealthSummary, SourceStatus } from "@/lib/types";
 import { Shell } from "@/components/Shell";
+import {
+  PipelineHealthBriefing,
+  SAMPLE_PIPELINE_HEALTH_ITEMS,
+} from "@/components/PipelineHealthBriefing";
 
 interface SourcesPageProps {
   rows: SourceHealthRow[];
@@ -228,6 +232,11 @@ export function SourcesPage({
             {summary.totalSources} sources &middot; comp coverage {pct(summary.overallCompCoverage)} today &rarr; ~{pct(summary.overallProjectedCoverage)} projected
           </div>
         </div>
+
+        {/* Placeholder content. T4 will swap SAMPLE_PIPELINE_HEALTH_ITEMS for
+            agent-generated suggestions. Same prop shape as MorningBriefing on
+            /pipeline so the agent contract stays consistent across surfaces. */}
+        <PipelineHealthBriefing items={SAMPLE_PIPELINE_HEALTH_ITEMS} />
 
         {/* Summary strip */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
