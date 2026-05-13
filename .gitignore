@@ -31,8 +31,37 @@ node_modules/
 *.mov
 *.mp4
 
+# Environment
+.env
+
+# Scan dedup state
+data/seen-urls.json
+data/signal-seen.json
+data/enrichments.json
+
 # Claude Code local
 .claude/settings.local.json
 .claude/memory/
 career-dashboard
 package-lock.json
+
+# Working-tree artifacts — generated / machine-specific, not part of the project
+.next/
+logs/
+batch/tracker-additions/merged/
+# launchd job defs with hardcoded /Users/... paths
+scripts/*.plist
+
+# Nested reference repos kept locally — not ours to commit
+forge/
+hebbia-signal-engine-reference/
+
+# Personal interview prep — gitignore before commit (will swap in examples/ template before going public)
+interview-prep/hearth-gtm-engineer.md
+interview-prep/hebbia-gtm-engineer.md
+
+# Working notes (not for the repo)
+docs/PHASE_11_TODO.md
+
+# Keep dashboard-web lockfile despite the global package-lock.json ignore
+!dashboard-web/package-lock.json
