@@ -29,6 +29,7 @@ import {
   stripTags as stripTagsLd,
 } from "./lib/extract-comp.mjs";
 import { stripHtml } from "./lib/strip-html.mjs";
+import { createCooldownTracker, sleepUntil } from "./lib/host-cooldown.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -497,12 +498,18 @@ function argVal(name) {
 }
 function parseArgs() {
   const a = process.argv.slice(2);
+  // --cooldown-on-403 SECONDS: when a host returns 5+ consecutive 403s within
+  // 60s, pause that host for the given number of seconds before continuing.
+  // Default 90s. Set to 0 to disable. See scripts/lib/host-cooldown.mjs.
+  const cooldownArg = argVal("--cooldown-on-403");
+  const cooldownSecs = cooldownArg === undefined ? 90 : Math.max(0, Number(cooldownArg) || 0);
   return {
     backfillComp: a.includes("--backfill-comp"),
     host: argVal("--host"),
     dryRun: a.includes("--dry-run"),
     limit: Number(argVal("--limit")) || Infinity,
     concurrency: Math.max(1, Number(argVal("--concurrency")) || 5),
+    cooldownOn403Secs: cooldownSecs,
   };
 }
 
@@ -518,17 +525,19 @@ async function fetchRawHtml(url) {
       signal: AbortSignal.timeout(12000),
       redirect: "follow",
     });
-    if (!res.ok) return { dead: true, reason: `HTTP ${res.status}` };
+    if (!res.ok) return { dead: true, reason: `HTTP ${res.status}`, status: res.status };
     const finalUrl = res.url || url;
     const html = await res.text();
-    if (html.length < 700) return { dead: true, reason: "body too short" };
+    if (html.length < 700) return { dead: true, reason: "body too short", status: res.status };
     const origHasJob = /\/jobs?\//.test(url);
     const finalHasJob = /\/jobs?\//.test(finalUrl);
     if (/[?&]error=true/.test(finalUrl) || (origHasJob && !finalHasJob)) {
-      return { dead: true, reason: "redirected away from posting" };
+      return { dead: true, reason: "redirected away from posting", status: res.status };
     }
-    return { dead: false, html };
+    return { dead: false, html, status: res.status };
   } catch (e) {
+    // status: undefined — no HTTP response (network/timeout). Cooldown tracker
+    // treats any non-403 as a streak reset, which is correct here.
     return { dead: true, reason: e?.name === "TimeoutError" ? "timeout" : e?.message || "fetch error" };
   }
 }
@@ -577,11 +586,39 @@ async function backfillComp(args) {
   if (slice.length === 0) { console.log("  Nothing to do.\n"); return; }
 
   const before = compCoverage(enrichments, host);
-  const stat = { recovered: 0, newlyHasComp: 0, qualitative: 0, stillNone: 0, dead: 0, bySource: {} };
+  const stat = { recovered: 0, newlyHasComp: 0, qualitative: 0, stillNone: 0, dead: 0, bySource: {}, cooldowns: 0 };
   let done = 0;
 
+  // Per-host 403 cooldown tracker. cooldownOn403Secs=0 disables (record() still
+  // runs but cooldownMs=0 means triggers expire immediately and nobody sleeps).
+  const tracker = createCooldownTracker({
+    cooldownMs: args.cooldownOn403Secs * 1000,
+    windowMs: 60_000,
+    threshold: 5,
+  });
+  if (args.cooldownOn403Secs > 0) {
+    console.log(`  Cooldown: 5+ consecutive 403s within 60s → pause that host ${args.cooldownOn403Secs}s\n`);
+  }
+
   await pMapLimit(slice, args.concurrency, async (url) => {
+    const urlHost = hostnameOf(url);
+    // Gate: if this URL's host is currently in cooldown, sleep until it ends.
+    // Other hosts in the same batch are unaffected (their workers don't sleep).
+    if (args.cooldownOn403Secs > 0 && tracker.isInCooldown(urlHost, Date.now())) {
+      const until = tracker.cooldownUntil(urlHost);
+      const waitS = Math.ceil((until - Date.now()) / 1000);
+      process.stdout.write(`  [cooldown] ${urlHost} — waiting ${waitS}s\n`);
+      await sleepUntil(until);
+    }
     const r = await fetchRawHtml(url);
+    if (args.cooldownOn403Secs > 0) {
+      const rec = tracker.record(urlHost, r.status, Date.now());
+      if (rec.triggered) {
+        stat.cooldowns++;
+        const waitS = Math.ceil((rec.cooldownUntil - Date.now()) / 1000);
+        process.stdout.write(`  [cooldown] ${urlHost} — 5 consecutive 403s, pausing ${waitS}s\n`);
+      }
+    }
     done++;
     const tag = `  [${String(done).padStart(String(slice.length).length)}/${slice.length}]`;
     if (r.dead) { stat.dead++; process.stdout.write(`${tag} DEAD (${r.reason}) ${url}\n`); return; }
@@ -617,6 +654,7 @@ async function backfillComp(args) {
   console.log(`  Qualitative-only:     ${stat.qualitative} (tagged so they aren't re-fetched)`);
   console.log(`  Still no comp:         ${stat.stillNone}`);
   console.log(`  Dead / expired:       ${stat.dead}`);
+  if (stat.cooldowns > 0) console.log(`  403 cooldowns fired:  ${stat.cooldowns}`);
   console.log(`  Comp coverage on "${host}": ${before.has}/${before.enriched} (${pctStr(before.has, before.enriched)})  →  ${afterHas}/${before.enriched} (${pctStr(afterHas, before.enriched)})\n`);
 }
 
