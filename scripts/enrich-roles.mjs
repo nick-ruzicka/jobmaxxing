@@ -281,10 +281,16 @@ async function fetchViaCompanyBoard(title, company) {
   return null;
 }
 
-// A real browser UA — some hosts (BuiltIn, VC boards) serve richer markup (incl. JSON-LD) to
-// browser-like clients. Matches the UA used to verify the comp-extraction audit.
+// A real browser UA + a couple of headers — some hosts (BuiltIn, VC boards) serve richer markup
+// (incl. JSON-LD) to browser-like clients, and a bare UA under load tends to trip WAF 403s.
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const BROWSER_HEADERS = {
+  "User-Agent": BROWSER_UA,
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Cache-Control": "no-cache",
+};
 
 /** Pull the longest JSON-LD JobPosting `description` (full JD) out of a raw page, or "". */
 function ldJobDescription(html) {
@@ -302,7 +308,7 @@ async function fetchViaHtml(url, title) {
   // Generic HTML fetch — works for BuiltIn, YC, VC boards, aggregators, etc.
   try {
     const res = await fetch(url, {
-      headers: { "User-Agent": BROWSER_UA },
+      headers: BROWSER_HEADERS,
       signal: AbortSignal.timeout(12000),
       redirect: "follow",
     });
@@ -500,7 +506,7 @@ function hostMatches(urlHost, target) {
 async function fetchRawHtml(url) {
   try {
     const res = await fetch(url, {
-      headers: { "User-Agent": BROWSER_UA },
+      headers: BROWSER_HEADERS,
       signal: AbortSignal.timeout(12000),
       redirect: "follow",
     });
