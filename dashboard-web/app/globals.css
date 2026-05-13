@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+/* =========================================================================
+   JobOps Design System — 2026 Dark-First
+
+   4 surface levels, semantic color tokens, LCH-inspired dark palette.
+   Reference: Linear, Vercel, Stripe dashboard design language.
+   ========================================================================= */
+
+:root {
+  /* Surface elevation (darkest → lightest) */
+  --surface-0: #0a0a10;     /* deepest background */
+  --surface-1: #0e0e16;     /* sidebar, page bg */
+  --surface-2: #14141e;     /* cards, table container */
+  --surface-3: #1a1a26;     /* hover states, elevated cards */
+  --surface-4: #20202e;     /* active states, inputs */
+  --surface-row: #171720;   /* alternate table rows — visible but subtle */
+
+  /* Borders (3 levels) */
+  --border-subtle: #1e1e2a;
+  --border-default: #26263a;
+  --border-strong: #32324a;
+
+  /* Text hierarchy */
+  --text-primary: #edeef0;
+  --text-secondary: #a8adb7;
+  --text-tertiary: #6b7280;
+  --text-muted: #454b55;
+
+  /* Accent */
+  --accent: #818cf8;        /* indigo-400, slightly lighter for dark bg */
+  --accent-dim: rgba(129, 140, 248, 0.12);
+  --accent-strong: #6366f1;
+
+  /* Semantic */
+  --emerald: #34d399;
+  --emerald-dim: rgba(52, 211, 153, 0.12);
+  --amber: #fbbf24;
+  --amber-dim: rgba(251, 191, 36, 0.12);
+  --blue: #60a5fa;
+  --blue-dim: rgba(96, 165, 250, 0.12);
+  --violet: #a78bfa;
+  --violet-dim: rgba(167, 139, 250, 0.12);
+  --red: #f87171;
+  --red-dim: rgba(248, 113, 113, 0.10);
+
+  /* Shadows (higher opacity for dark mode) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 12px rgba(129, 140, 248, 0.15);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Transitions */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+}
+
+body {
+  background: var(--surface-0);
+  color: var(--text-secondary);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus ring — indigo glow, visible only on keyboard nav */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--accent);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* Select reset */
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235f6570' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+  appearance: none;
+}
+select option { background: var(--surface-2); color: var(--text-secondary); }
+
+/* Utility: expand animation for table rows */
+@keyframes expand-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-expand-in {
+  animation: expand-in var(--duration-normal) var(--ease-out);
+}
+
+/* Utility: subtle pulse for warm lead indicator */
+@keyframes subtle-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-subtle-pulse {
+  animation: subtle-pulse 3s ease-in-out infinite;
+}
