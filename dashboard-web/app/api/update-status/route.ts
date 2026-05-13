@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       );
     }
 
-    let content = readFileSync(appPath, "utf-8");
+    const content = readFileSync(appPath, "utf-8");
     const lines = content.split("\n");
 
     // Try to find existing row by company + role

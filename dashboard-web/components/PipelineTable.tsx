@@ -129,9 +129,16 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
     });
   }, [roles, sortKey, sortDir, filters]);
 
-  // Reset pagination when filters change
+  // Reset pagination when filters change.
+  // Uses the "Adjusting state during render" pattern from
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  // — avoids the cascading-render hazard of setState-in-effect.
   const filtersKey = JSON.stringify([filters.search, filters.status, filters.minScore, filters.requireBuild, filters.requireAI, filters.hasComp, filters.includeAggregator, [...filters.locations]]);
-  useEffect(() => { setVisibleCount(50); }, [filtersKey]);
+  const [prevFiltersKey, setPrevFiltersKey] = useState(filtersKey);
+  if (prevFiltersKey !== filtersKey) {
+    setPrevFiltersKey(filtersKey);
+    setVisibleCount(50);
+  }
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(sortDir === "desc" ? "asc" : "desc");
