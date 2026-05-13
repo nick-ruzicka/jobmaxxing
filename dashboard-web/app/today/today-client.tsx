@@ -2,11 +2,12 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { RefreshCw, Radio, ArrowRight } from "lucide-react";
-import type { Briefing, ScanStats } from "@/lib/types";
+import { RefreshCw, Radio, ArrowRight, MessageCircle } from "lucide-react";
+import type { Briefing, BriefingItem, ScanStats } from "@/lib/types";
 import { Shell } from "@/components/Shell";
 import { StatStrip } from "@/components/StatStrip";
 import { MorningBriefing } from "@/components/MorningBriefing";
+import { AgentChatPanel } from "@/components/AgentChatPanel";
 import { PageHeader, Button, Toast, type ToastKind } from "@/components/ui";
 import { useScan } from "@/components/ScanContext";
 
@@ -40,7 +41,7 @@ function formatTodayHuman(): string {
   });
 }
 
-function TodayHeader() {
+function TodayHeader({ onOpenChat }: { onOpenChat: () => void }) {
   const { runScan, scanRunning } = useScan();
   return (
     <PageHeader
@@ -48,6 +49,14 @@ function TodayHeader() {
       subtitle={formatTodayHuman()}
       actions={
         <>
+          <Button
+            variant="secondary"
+            onClick={onOpenChat}
+            title="Open the agent chat panel"
+          >
+            <MessageCircle size={14} />
+            Ask agent
+          </Button>
           <Button
             variant="secondary"
             onClick={() => runScan("scan")}
@@ -85,9 +94,27 @@ export function TodayPage({
   const [briefing, setBriefing] = useState<Briefing | null>(initialBriefing);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Chat panel state. `scopedItem` is set when the user opens via a chevron
+  // (carries the item context into the conversation); when null, the panel
+  // opens scoped to the briefing as a whole. Always derive the date from
+  // briefing.date when present so the panel persists into the same file
+  // the briefing was generated for.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [scopedItem, setScopedItem] = useState<BriefingItem | null>(null);
+
   // Toast queue — identical lifecycle to pipeline-client's; kept inline.
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
   const nextToastId = useRef(1);
+
+  function openChatGeneral() {
+    setScopedItem(null);
+    setChatOpen(true);
+  }
+
+  function openChatForItem(item: BriefingItem) {
+    setScopedItem(item);
+    setChatOpen(true);
+  }
 
   function pushToast(kind: ToastKind, message: string) {
     const id = nextToastId.current++;
@@ -136,15 +163,16 @@ export function TodayPage({
       signalCount={signalCount}
       hasWarmLeads={hasWarmLeads}
     >
-      <TodayHeader />
+      <TodayHeader onOpenChat={openChatGeneral} />
       <div className="space-y-6">
-        {/* Hero: the morning briefing. onRefresh is wired to the rate-limited
-            regenerate API; Task 5 will add onItemAsk for the chat panel. */}
+        {/* Hero: the morning briefing. onRefresh runs the rate-limited regen
+            API; onItemAsk opens the chat panel scoped to the clicked item. */}
         <MorningBriefing
           items={items}
           lastGenerated={lastGenerated}
           onRefresh={handleRefresh}
           refreshing={refreshing}
+          onItemAsk={openChatForItem}
         />
 
         {/* Pivot to the table view — flush right, low-weight. Reads as
@@ -164,6 +192,17 @@ export function TodayPage({
             metadata, not the main act. */}
         <StatStrip stats={stats} />
       </div>
+
+      {/* Agent chat panel — opens via the Ask agent button or any item chevron.
+          Persistent per day at data/chats/<briefing.date>.json. The date prop
+          derives from briefing.date when present; falls back to today so the
+          panel still works when the briefing hasn't been generated. */}
+      <AgentChatPanel
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        date={briefing?.date ?? new Date().toISOString().slice(0, 10)}
+        scopedItem={scopedItem}
+      />
 
       {/* Toast queue — fixed bottom-right, identical to pipeline-client's. */}
       {toasts.length > 0 && (
