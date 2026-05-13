@@ -21,6 +21,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { locationFields, structuredLocationFields } from "./lib/location.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -402,104 +403,6 @@ function titleMatchesNegative(title) {
   return TITLE_NEGATIVE.some((kw) => t.includes(kw));
 }
 
-// Structured location classifier — uses API fields when available
-function classifyLocationStructured(locationStr, isRemote, workplaceType) {
-  const loc = (locationStr || "").toLowerCase();
-  const nycSignals = ["new york", "nyc", "manhattan", "brooklyn", "soho", "midtown", "flatiron", "tribeca"];
-  const usSignals = ["united states", "us ", ", us", "usa", "san francisco", "sf", "los angeles", "la", "chicago", "boston", "austin", "seattle", "denver", "miami", "atlanta"];
-  const isNYC = nycSignals.some((s) => loc.includes(s));
-
-  // workplaceType from Ashby: "Remote", "Hybrid", "OnSite"
-  if (workplaceType) {
-    const wt = workplaceType.toLowerCase();
-    if (wt === "remote") return isNYC ? "Remote NYC" : "Remote US";
-    if (wt === "hybrid") return isNYC ? "Hybrid NYC" : "Hybrid";
-    if (wt === "onsite") {
-      if (isNYC) return "NYC";
-      // Return city name if short enough, else just "On-site"
-      const city = (locationStr || "").split(",")[0]?.trim();
-      return city && city.length < 30 ? city : "On-site";
-    }
-  }
-
-  // isRemote flag (Ashby)
-  if (isRemote) {
-    if (isNYC) return "Hybrid NYC";  // remote=true + NYC location = likely hybrid
-    return "Remote US";
-  }
-
-  // Fall back to text matching
-  if (isNYC) return "NYC";
-  if (loc.includes("remote") || loc.includes("anywhere")) return "Remote US";
-  if (loc.includes("hybrid")) return "Hybrid";
-
-  // If we have a US city, show it instead of "Unknown"
-  if (usSignals.some((s) => loc.includes(s))) {
-    // Extract city name
-    const city = locationStr.split(",")[0]?.trim() || locationStr;
-    return city;
-  }
-
-  // Non-US locations — return city if parseable and short
-  if (loc && !loc.includes("unknown")) {
-    const city = (locationStr || "").split(",")[0]?.trim();
-    if (city && city.length < 30 && city.length > 1) return city;
-  }
-
-  return "Unknown";
-}
-
-// Text-only fallback for Exa/HTML results (no structured location field).
-//
-// Trust the JD body (title + scraped text) over the URL. Re-syndicators emit template URL
-// slugs like "...-new-york-ny-united-states" that don't reflect the real location, so any
-// signal found in the body — "remote", "anywhere", a city name — wins. The URL is consulted
-// ONLY when the body says nothing about location, and then only to recover a concrete *city*
-// (URL slugs like "...-founding-gtm-engineer-nyc-12345" are reliable for the city; they are
-// NOT reliable for remote/hybrid), and never when the slug carries the "-united-states"
-// re-syndication template.
-//
-// Existing seen-urls.json entries keep their old stored location until re-scanned.
-// Never returns raw text as a location — keyword matching only.
-function classifyLocation(title, url, text) {
-  const body = `${title} ${text}`.toLowerCase();
-  const urlBlob = (url || "").toLowerCase();
-  const nycSignals = ["new york", "nyc", "manhattan", "brooklyn", "soho", "midtown"];
-  const remoteSignals = ["remote", "anywhere", "distributed"];
-  const hybridSignals = ["hybrid"];
-
-  // --- Pass 1: the JD body is authoritative ---
-  const bodyNYC = nycSignals.some((s) => body.includes(s));
-  const bodyRemote = remoteSignals.some((s) => body.includes(s));
-  const bodyHybrid = hybridSignals.some((s) => body.includes(s));
-
-  if (bodyNYC && bodyHybrid) return "Hybrid NYC";
-  if (bodyNYC && bodyRemote) return "Remote NYC";
-  if (bodyNYC) return "NYC";
-  if (bodyHybrid) return "Hybrid";
-  if (bodyRemote) return "Remote US";
-
-  if (body.includes("san francisco") || body.includes(", sf")) return "San Francisco";
-  if (body.includes("chicago")) return "Chicago";
-  if (body.includes("boston")) return "Boston";
-  if (body.includes("austin")) return "Austin";
-  if (body.includes("seattle")) return "Seattle";
-
-  // --- Pass 2: body is silent — recover a city from the URL slug only ---
-  // Skip URLs carrying the "-united-states" re-syndication template entirely (those slugs
-  // are auto-generated, not a real location signal). City-only — never remote/hybrid here.
-  if (!urlBlob.includes("-united-states")) {
-    if (urlBlob.includes("nyc") || urlBlob.includes("new-york")) return "NYC";
-    if (urlBlob.includes("san-francisco")) return "San Francisco";
-    if (urlBlob.includes("chicago")) return "Chicago";
-    if (urlBlob.includes("boston")) return "Boston";
-    if (urlBlob.includes("austin")) return "Austin";
-    if (urlBlob.includes("seattle")) return "Seattle";
-  }
-
-  return "Unknown";
-}
-
 function normalizeUrl(url) {
   try {
     const u = new URL(url);
@@ -740,9 +643,6 @@ async function scanAshby(slugs) {
             ? `$${Math.round(compMin / 1000)}K-$${Math.round(compMax / 1000)}K`
             : "";
 
-        // Use structured Ashby fields for precise location
-        const location = classifyLocationStructured(loc, job.isRemote, job.workplaceType);
-
         results.push({
           title,
           company: slug.charAt(0).toUpperCase() + slug.slice(1).replace(/-/g, " "),
@@ -750,7 +650,7 @@ async function scanAshby(slugs) {
             `https://jobs.ashbyhq.com/${slug}/${job.id}`
           ),
           publishedDate: job.publishedAt || "",
-          location,
+          ...structuredLocationFields(loc, job.isRemote, job.workplaceType),
           source: "Tier 1: Ashby",
           comp: compStr,
           text: loc,
@@ -793,15 +693,12 @@ async function scanGreenhouse(slugs) {
 
         const loc = job.location?.name || "";
 
-        // Greenhouse doesn't have isRemote/workplaceType, but location string is reliable
-        const location = classifyLocationStructured(loc, false, null);
-
         results.push({
           title,
           company: slug.charAt(0).toUpperCase() + slug.slice(1).replace(/-/g, " "),
           url: normalizeUrl(job.absolute_url || `https://boards.greenhouse.io/${slug}/jobs/${job.id}`),
           publishedDate: job.updated_at || "",
-          location,
+          ...structuredLocationFields(loc, false, null),
           source: "Tier 1: Greenhouse",
           comp: "",
           text: loc,
@@ -1010,7 +907,7 @@ async function runExaQueries(queries, tierLabel) {
           company: extractCompany(title, url),
           url,
           publishedDate: r.publishedDate || "",
-          location: classifyLocation(title, url, text + " " + highlights),
+          ...locationFields(title, url, text + " " + highlights),
           source: tierLabel,
           comp: "",
           text,
@@ -1206,7 +1103,7 @@ async function scanBuiltIn() {
             company: company || extractCompany(title, BUILTIN_BASE + href),
             url: normalizeUrl(BUILTIN_BASE + href),
             publishedDate: builtinPostedToDate(builtinCardAttr(chunk, "clock")),
-            location: classifyLocation(`${title} ${workplace} ${locStr}`, BUILTIN_BASE + href, `${workplace} ${locStr}`),
+            ...locationFields(`${title} ${workplace} ${locStr}`, BUILTIN_BASE + href, `${workplace} ${locStr}`),
             source: "BuiltIn",
             comp: builtinCardAttr(chunk, "sack-dollar"), // "91K-137K Annually" (often absent)
             text: "",
@@ -1343,7 +1240,7 @@ async function main() {
           company: extractCompany(r.title || "", normalizeUrl(r.url || "")),
           url: normalizeUrl(r.url || ""),
           publishedDate: r.publishedDate || "",
-          location: classifyLocation(r.title || "", r.url || "", (r.text || "") + " " + ((r.highlights || []).join(" "))),
+          ...locationFields(r.title || "", r.url || "", (r.text || "") + " " + ((r.highlights || []).join(" "))),
           source: "Tier 6: Similar",
           comp: "",
           text: r.text || "",
@@ -1382,7 +1279,7 @@ async function main() {
           company: extractCompany(r.title || "", normalizeUrl(r.url || "")),
           url: normalizeUrl(r.url || ""),
           publishedDate: r.publishedDate || "",
-          location: classifyLocation(r.title || "", r.url || "", (r.text || "") + " " + ((r.highlights || []).join(" "))),
+          ...locationFields(r.title || "", r.url || "", (r.text || "") + " " + ((r.highlights || []).join(" "))),
           source: "Tier 8: Deep",
           comp: "",
           text: r.text || "",
@@ -1489,7 +1386,7 @@ async function main() {
             company: company || extractCompany(cleanedTitle, url),
             url,
             publishedDate: r.publishedDate || "",
-            location: classifyLocation(cleanedTitle, url, text),
+            ...locationFields(cleanedTitle, url, text),
             source: sourceName,
             comp: "",
             text,
@@ -1539,7 +1436,7 @@ async function main() {
           company: extractCompany(title, url),
           url,
           publishedDate: r.publishedDate || "",
-          location: classifyLocation(title, url, text + " " + highlights),
+          ...locationFields(title, url, text + " " + highlights),
           source: "Google Search",
           comp: "",
           text,
@@ -1616,7 +1513,7 @@ async function main() {
   for (const r of netNew) {
     // Clean up display fields first
     if (!r.location) {
-      r.location = classifyLocation(r.title, r.url, r.text + " " + (r.highlights || ""));
+      Object.assign(r, locationFields(r.title, r.url, r.text + " " + (r.highlights || "")));
     }
     r.roleTitle = r.source.startsWith("Tier 1") ? r.title : extractRoleTitle(r.title);
     if (r.company === "—" || !r.company) {
@@ -1738,6 +1635,11 @@ async function main() {
       source: r.source,
       company: r.company,
       location: r.location || "Unknown",
+      ...(r.location_workplace ? {
+        location_workplace: r.location_workplace,
+        location_city: r.location_city ?? null,
+        location_region: r.location_region ?? null,
+      } : {}),
       ...(tier ? { source_tier: tier } : {}),
     };
   }
