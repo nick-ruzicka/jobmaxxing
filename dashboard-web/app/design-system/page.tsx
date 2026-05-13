@@ -10,6 +10,7 @@ import {
   Briefcase, Bell, Search, RefreshCw, Radio, ExternalLink, ChevronDown,
   AlertTriangle, Sparkles, ArrowUpDown, Building2, Hammer,
 } from "lucide-react";
+import { DropdownPillDemo } from "./DropdownPillDemo";
 
 const CSS = `
 .ds {
@@ -333,6 +334,16 @@ export default function DesignSystemPage() {
               <span className="badge badge-amber">Signal</span>
               <span className="badge badge-neutral">Scan</span>
             </div>
+          </div>
+        </Section>
+
+        {/* ---- dropdown pill (live demo of the real primitive) ---- */}
+        <Section id="dropdown-pill" label="Components" title="DropdownPill" desc="Filter pill identical to the FilterBar Chip + a chevron that rotates on open. Use for grouped options that would overflow as separate chips (e.g. 'More locations' for non-NYC/Remote buckets). This is the real components/ui/DropdownPill rendered live — open it, toggle, tab out, ESC to close.">
+          <div className="card" style={{ padding: 20 }}>
+            <DropdownPillDemo />
+            <p className="t-caption" style={{ color: "var(--color-text-muted)", marginTop: 12 }}>
+              Left: multi-select with a count (active option seeded). Middle: <span className="chip-key">closeOnSelect</span> for radio-style use. Right: <span className="chip-key">align=&quot;right&quot;</span> popover anchoring.
+            </p>
           </div>
         </Section>
 
