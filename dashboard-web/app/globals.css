@@ -1,110 +1,165 @@
 @import "tailwindcss";
 
 /* =========================================================================
-   JobOps Design System — 2026 Dark-First
+   JobOps Design System — see DESIGN.md (repo root) and /design-system.
 
-   4 surface levels, semantic color tokens, LCH-inspired dark palette.
-   Reference: Linear, Vercel, Stripe dashboard design language.
+   Tokens live in @theme and are exposed as Tailwind utilities:
+     bg-surface-2 · text-text-secondary · border-border-subtle · shadow-1 · ...
+   The :root aliases below keep the legacy `var(--surface-2)` names working
+   while components migrate; they get removed in the cleanup commit.
    ========================================================================= */
 
-:root {
-  /* Surface elevation (darkest → lightest) */
-  --surface-0: #0a0a10;     /* deepest background */
-  --surface-1: #0e0e16;     /* sidebar, page bg */
-  --surface-2: #14141e;     /* cards, table container */
-  --surface-3: #1a1a26;     /* hover states, elevated cards */
-  --surface-4: #20202e;     /* active states, inputs */
-  --surface-row: #171720;   /* alternate table rows — visible but subtle */
+@theme {
+  /* surfaces (darkest → lightest) */
+  --color-surface-0: #0a0a10;
+  --color-surface-1: #0e0e16;
+  --color-surface-2: #14141e;
+  --color-surface-3: #1a1a26;
+  --color-surface-4: #20202e;
+  --color-surface-row: #161620;
 
-  /* Borders (3 levels) */
-  --border-subtle: #1e1e2a;
-  --border-default: #26263a;
-  --border-strong: #32324a;
+  /* borders */
+  --color-border-subtle: #1e1e2a;
+  --color-border-default: #26263a;
+  --color-border-strong: #32324a;
 
-  /* Text hierarchy */
-  --text-primary: #edeef0;
-  --text-secondary: #a8adb7;
-  --text-tertiary: #6b7280;
-  --text-muted: #454b55;
+  /* text — muted tiers raised to meet WCAG AA 4.5:1 on surface-0/1
+     (was --text-tertiary #6b7280 ≈4.2:1, --text-muted #454b55 ≈2.5:1) */
+  --color-text-primary: #edeef0;
+  --color-text-secondary: #a8adb7;
+  --color-text-tertiary: #8a909c;
+  --color-text-muted: #787e8b;
 
-  /* Accent */
-  --accent: #818cf8;        /* indigo-400, slightly lighter for dark bg */
-  --accent-dim: rgba(129, 140, 248, 0.12);
-  --accent-strong: #6366f1;
+  /* accent — interactive / selected state ONLY (selected nav, focus ring,
+     links, primary button, segmented-control active). Not for data categories. */
+  --color-accent: #818cf8;
+  --color-accent-strong: #6366f1;
+  --color-accent-dim: rgba(129, 140, 248, 0.12);
+  --color-accent-border: rgba(129, 140, 248, 0.25);
 
-  /* Semantic */
-  --emerald: #34d399;
-  --emerald-dim: rgba(52, 211, 153, 0.12);
-  --amber: #fbbf24;
-  --amber-dim: rgba(251, 191, 36, 0.12);
-  --blue: #60a5fa;
-  --blue-dim: rgba(96, 165, 250, 0.12);
-  --violet: #a78bfa;
-  --violet-dim: rgba(167, 139, 250, 0.12);
-  --red: #f87171;
-  --red-dim: rgba(248, 113, 113, 0.10);
+  /* semantic — each owns its meaning; score & status draw from these */
+  --color-emerald: #34d399;
+  --color-emerald-dim: rgba(52, 211, 153, 0.12);
+  --color-emerald-border: rgba(52, 211, 153, 0.25);
+  --color-amber: #fbbf24;
+  --color-amber-dim: rgba(251, 191, 36, 0.12);
+  --color-amber-border: rgba(251, 191, 36, 0.25);
+  --color-blue: #60a5fa;
+  --color-blue-dim: rgba(96, 165, 250, 0.12);
+  --color-blue-border: rgba(96, 165, 250, 0.25);
+  --color-violet: #a78bfa;
+  --color-violet-dim: rgba(167, 139, 250, 0.12);
+  --color-violet-border: rgba(167, 139, 250, 0.25);
+  --color-red: #f87171;
+  --color-red-dim: rgba(248, 113, 113, 0.10);
+  --color-red-border: rgba(248, 113, 113, 0.22);
 
-  /* Shadows (higher opacity for dark mode) */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 12px rgba(129, 140, 248, 0.15);
-
-  /* Radii */
+  /* radii */
   --radius-sm: 6px;
   --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-lg: 10px;
 
-  /* Transitions */
+  /* one shadow — floating layers only (dropdowns / popovers). 1px borders do
+     the rest of the elevation work. */
+  --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
+
+  /* motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --duration-fast: 120ms;
-  --duration-normal: 200ms;
+
+  /* fonts — Inter everywhere; mono is reserved for terminal output + <code> */
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* ---- legacy aliases (removed in the cleanup commit once components migrate) ---- */
+:root {
+  --surface-0: var(--color-surface-0);
+  --surface-1: var(--color-surface-1);
+  --surface-2: var(--color-surface-2);
+  --surface-3: var(--color-surface-3);
+  --surface-4: var(--color-surface-4);
+  --surface-row: var(--color-surface-row);
+  --border-subtle: var(--color-border-subtle);
+  --border-default: var(--color-border-default);
+  --border-strong: var(--color-border-strong);
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-tertiary: var(--color-text-tertiary);
+  --text-muted: var(--color-text-muted);
+  --accent: var(--color-accent);
+  --accent-strong: var(--color-accent-strong);
+  --accent-dim: var(--color-accent-dim);
+  --accent-border: var(--color-accent-border);
+  --emerald: var(--color-emerald); --emerald-dim: var(--color-emerald-dim); --emerald-border: var(--color-emerald-border);
+  --amber: var(--color-amber); --amber-dim: var(--color-amber-dim); --amber-border: var(--color-amber-border);
+  --blue: var(--color-blue); --blue-dim: var(--color-blue-dim); --blue-border: var(--color-blue-border);
+  --violet: var(--color-violet); --violet-dim: var(--color-violet-dim); --violet-border: var(--color-violet-border);
+  --red: var(--color-red); --red-dim: var(--color-red-dim); --red-border: var(--color-red-border);
+  /* shadow scale collapses onto the one functional shadow / none */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: var(--shadow-1);
+  --shadow-xl: var(--shadow-1);
+  --shadow-glow: none;
+  --duration-fast: 120ms;
+  --duration-normal: 150ms;
+}
+
+html { color-scheme: dark; }
+
 body {
-  background: var(--surface-0);
-  color: var(--text-secondary);
+  background: var(--color-surface-0);
+  color: var(--color-text-secondary);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Focus ring — indigo glow, visible only on keyboard nav */
+/* form controls don't inherit font-family — fixes the ui-sans-serif leak on <button>/<input>/<select> */
+button, input, textarea, select { font: inherit; }
+
+/* one focus language, app-wide. delete every per-input `focus:outline-none` and inline `outline:` */
 *:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--accent);
+  box-shadow: 0 0 0 2px var(--color-surface-0), 0 0 0 4px var(--color-accent);
+  border-radius: var(--radius-sm);
 }
 
-/* Scrollbar */
+/* scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+::-webkit-scrollbar-thumb { background: var(--color-border-subtle); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); }
 
-/* Select reset */
+/* native select arrow */
 select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235f6570' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a909c' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
   padding-right: 28px;
   appearance: none;
 }
-select option { background: var(--surface-2); color: var(--text-secondary); }
+select option { background: var(--color-surface-2); color: var(--color-text-secondary); }
 
-/* Utility: expand animation for table rows */
+/* row expand animation */
 @keyframes expand-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.animate-expand-in {
-  animation: expand-in var(--duration-normal) var(--ease-out);
-}
+.animate-expand-in { animation: expand-in 150ms var(--ease-out); }
 
-/* Utility: subtle pulse for warm lead indicator */
+/* subtle pulse for the warm-lead indicator */
 @keyframes subtle-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
-.animate-subtle-pulse {
-  animation: subtle-pulse 3s ease-in-out infinite;
+.animate-subtle-pulse { animation: subtle-pulse 3s ease-in-out infinite; }
+
+/* honor reduced-motion globally */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
