@@ -6,6 +6,30 @@ import { Shell } from "@/components/Shell";
 import { useScan } from "@/components/ScanContext";
 import { PageHeader, SectionLabel, Badge, Button, TableContainer, Th, Tr, EmptyState } from "@/components/ui";
 
+/** Parse "$25M" / "$1.5B" / "$500K" → number of millions. 0 when missing/unknown. */
+function amountToMillions(amount: string | null): number {
+  if (!amount) return 0;
+  const m = amount.match(/\$?\s*([\d.]+)\s*([KMB])?/i);
+  if (!m) return 0;
+  const num = parseFloat(m[1]);
+  if (!Number.isFinite(num)) return 0;
+  const unit = (m[2] || "M").toUpperCase();
+  if (unit === "B") return num * 1000;
+  if (unit === "K") return num / 1000;
+  return num;
+}
+
+/** Funding tier pill — same gold language as the High Conviction cards above,
+ *  muted at $5–20M, neutral grey below $5M, em-dash when missing. The chip IS
+ *  the conviction-closeness indicator. */
+function FundingPill({ amount }: { amount: string | null }) {
+  if (!amount) return <span className="text-text-muted">—</span>;
+  const m = amountToMillions(amount);
+  if (m >= 20) return <Badge color="amber">{amount}</Badge>;
+  if (m >= 5) return <Badge color="amber" className="opacity-60">{amount}</Badge>;
+  return <Badge color="neutral">{amount}</Badge>;
+}
+
 interface SignalsPageProps {
   warmLeads: Signal[];
   monitoring: Signal[];
@@ -47,11 +71,9 @@ export function SignalsPage({
   hasWarmLeads,
   activePursuing,
 }: SignalsPageProps) {
-  const monitorSorted = [...monitoring].sort((a, b) => {
-    const amtA = parseFloat((a.amount || "0").replace(/[^0-9.]/g, "")) || 0;
-    const amtB = parseFloat((b.amount || "0").replace(/[^0-9.]/g, "")) || 0;
-    return amtB - amtA;
-  });
+  const monitorSorted = [...monitoring].sort(
+    (a, b) => amountToMillions(b.amount) - amountToMillions(a.amount),
+  );
 
   return (
     <Shell
@@ -138,11 +160,11 @@ export function SignalsPage({
                   </td>
                 </tr>
               ) : (
-                monitorSorted.map((s, idx) => (
-                  <Tr key={s.slug} className={idx % 2 === 1 ? "bg-surface-row" : ""}>
-                    <td className="px-3 py-2.5 text-text-secondary">{s.name}</td>
-                    <td className="px-3 py-2.5 text-[12px] tabular-nums text-text-muted">{s.amount || "—"}</td>
-                    <td className="px-3 py-2.5 text-[12px] tabular-nums text-text-muted">{s.lastChecked}</td>
+                monitorSorted.map((s) => (
+                  <Tr key={s.slug} zebra>
+                    <td className="px-3 py-3 font-medium text-text-primary">{s.name}</td>
+                    <td className="px-3 py-3 tabular-nums"><FundingPill amount={s.amount} /></td>
+                    <td className="px-3 py-3 text-[12px] tabular-nums text-text-muted">{s.lastChecked}</td>
                   </Tr>
                 ))
               )}
