@@ -14,24 +14,29 @@
  * links use the accent color. Empty state when items.length === 0.
  */
 
-import { Calendar, Sparkles, Clock, Search, MapPin, ShieldCheck, RefreshCw, ArrowRight } from "lucide-react";
+import {
+  Calendar,
+  Sparkles,
+  Clock,
+  Search,
+  MapPin,
+  ShieldCheck,
+  RefreshCw,
+  ArrowRight,
+  Scale,
+  AlertTriangle,
+  GitBranch,
+  Tag,
+  Terminal,
+  ChevronRight,
+  Loader2,
+} from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
+import type { BriefingItem, BriefingItemType } from "@/lib/types";
 
-export type BriefingItemType =
-  | "interview"
-  | "apply"
-  | "follow_up"
-  | "missed"
-  | "stale"
-  | "verify_location";
-
-export interface BriefingItem {
-  type: BriefingItemType;
-  title: string;
-  subtitle?: string;
-  action_label?: string;
-  action_href?: string;
-}
+// Re-export the types so existing callers that did
+// `import { BriefingItem } from "@/components/MorningBriefing"` keep working.
+export type { BriefingItem, BriefingItemType };
 
 interface MorningBriefingProps {
   /** Concrete actions for today. Order matters — render top-to-bottom as-is. */
@@ -40,6 +45,17 @@ interface MorningBriefingProps {
   lastGenerated?: Date;
   /** Regenerate handler. When omitted, the refresh button is hidden. */
   onRefresh?: () => void;
+  /** While true, the refresh button shows a spinner + "Thinking…" label and is disabled. */
+  refreshing?: boolean;
+  /** "Ask agent about this item" — when set, each item renders a trailing chevron
+   *  that calls this with the item. The /today + /sources pages wire this to the
+   *  AgentChatPanel; pages without a chat panel pass nothing. */
+  onItemAsk?: (item: BriefingItem, index: number) => void;
+  /** Custom card title (defaults to "Today's Focus"). PipelineHealth uses
+   *  "Pipeline Health" with a different accent tone. */
+  title?: string;
+  /** Header tone — "amber" (default, /today) or "blue" (/sources, system-maintainer view). */
+  tone?: "amber" | "blue";
 }
 
 const ICONS: Record<BriefingItemType, ComponentType<SVGProps<SVGSVGElement> & { size?: number }>> = {
@@ -49,6 +65,11 @@ const ICONS: Record<BriefingItemType, ComponentType<SVGProps<SVGSVGElement> & { 
   missed: Search,
   stale: Clock,
   verify_location: MapPin,
+  recalibrate: Scale,
+  extractor_regression: AlertTriangle,
+  new_pattern: GitBranch,
+  label_opportunity: Tag,
+  command_suggestion: Terminal,
 };
 
 const ICON_TONE: Record<BriefingItemType, string> = {
@@ -58,6 +79,11 @@ const ICON_TONE: Record<BriefingItemType, string> = {
   missed: "text-violet",
   stale: "text-amber",
   verify_location: "text-blue",
+  recalibrate: "text-violet",
+  extractor_regression: "text-red",
+  new_pattern: "text-blue",
+  label_opportunity: "text-emerald",
+  command_suggestion: "text-accent",
 };
 
 function relativeFromNow(d: Date): string {
@@ -71,25 +97,38 @@ function relativeFromNow(d: Date): string {
   return `${days}d ago`;
 }
 
-export function MorningBriefing({ items, lastGenerated, onRefresh }: MorningBriefingProps) {
+export function MorningBriefing({
+  items,
+  lastGenerated,
+  onRefresh,
+  refreshing = false,
+  onItemAsk,
+  title = "Today's Focus",
+  tone = "amber",
+}: MorningBriefingProps) {
+  // Tone palette: amber (default, daily focus) vs blue (pipeline health). Mixed
+  // inline via color-mix so we don't ship two near-identical CSS files.
+  const toneVar = tone === "blue" ? "var(--color-blue)" : "var(--color-amber)";
+  const HeaderIcon = tone === "blue" ? AlertTriangle : ShieldCheck;
+  const headerIconClass = tone === "blue" ? "text-blue" : "text-amber";
+
   return (
-    // Warm tint: a very low-opacity amber wash. Reads as the highest-priority
+    // Warm/cool tint: a very low-opacity wash. Reads as the highest-priority
     // surface without competing with the accent-fill hero stat tiles below.
-    // Border picks up a faint amber bias for the same reason.
+    // Border picks up a faint same-hue bias for the same reason.
     <section
       className="rounded-lg border bg-surface-2 shadow-sm"
       style={{
-        borderColor: "color-mix(in srgb, var(--color-amber) 18%, var(--color-border-subtle))",
-        background:
-          "linear-gradient(180deg, color-mix(in srgb, var(--color-amber) 4%, var(--color-surface-2)) 0%, var(--color-surface-2) 100%)",
+        borderColor: `color-mix(in srgb, ${toneVar} 18%, var(--color-border-subtle))`,
+        background: `linear-gradient(180deg, color-mix(in srgb, ${toneVar} 4%, var(--color-surface-2)) 0%, var(--color-surface-2) 100%)`,
       }}
-      aria-label="Today's focus"
+      aria-label={title}
     >
       <header className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <ShieldCheck size={14} className="text-amber" aria-hidden />
+          <HeaderIcon size={14} className={headerIconClass} aria-hidden />
           <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-text-primary">
-            Today&apos;s Focus
+            {title}
           </h2>
           {lastGenerated && (
             <span className="text-[11px] tabular-nums text-text-muted">
@@ -101,11 +140,22 @@ export function MorningBriefing({ items, lastGenerated, onRefresh }: MorningBrie
           <button
             type="button"
             onClick={onRefresh}
-            className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-3 px-2 py-0.5 text-[11px] font-medium text-text-tertiary transition-colors hover:bg-surface-4 hover:text-text-secondary"
-            title="Regenerate briefing"
+            disabled={refreshing}
+            className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-3 px-2 py-0.5 text-[11px] font-medium text-text-tertiary transition-colors hover:bg-surface-4 hover:text-text-secondary disabled:cursor-wait disabled:opacity-60 disabled:hover:bg-surface-3"
+            title={refreshing ? "Regenerating…" : "Regenerate briefing"}
+            aria-busy={refreshing}
           >
-            <RefreshCw size={11} />
-            Refresh
+            {refreshing ? (
+              <>
+                <Loader2 size={11} className="animate-spin" />
+                Thinking…
+              </>
+            ) : (
+              <>
+                <RefreshCw size={11} />
+                Refresh
+              </>
+            )}
           </button>
         )}
       </header>
@@ -120,10 +170,10 @@ export function MorningBriefing({ items, lastGenerated, onRefresh }: MorningBrie
         <ul className="divide-y divide-border-subtle">
           {items.map((item, idx) => {
             const Icon = ICONS[item.type];
-            const tone = ICON_TONE[item.type];
+            const iconTone = ICON_TONE[item.type];
             return (
               <li key={idx} className="flex items-start gap-3 px-4 py-3">
-                <span aria-hidden className={`mt-0.5 shrink-0 ${tone}`}>
+                <span aria-hidden className={`mt-0.5 shrink-0 ${iconTone}`}>
                   <Icon size={16} />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -141,6 +191,17 @@ export function MorningBriefing({ items, lastGenerated, onRefresh }: MorningBrie
                     </a>
                   )}
                 </div>
+                {onItemAsk && (
+                  <button
+                    type="button"
+                    onClick={() => onItemAsk(item, idx)}
+                    className="-mr-1 mt-0.5 shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-secondary"
+                    title="Ask the agent about this"
+                    aria-label="Ask the agent about this item"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                )}
               </li>
             );
           })}
@@ -150,41 +211,7 @@ export function MorningBriefing({ items, lastGenerated, onRefresh }: MorningBrie
   );
 }
 
-/**
- * Placeholder content for the MorningBriefing. T4 will replace this with an
- * agent-generated feed; until then the page renders these hard-coded items
- * so the visual is real and reviewable.
- *
- * Kept in the same module as the component so the placeholder + the type
- * shape move together — when T4 deletes this, they delete the import too.
- */
-export const SAMPLE_BRIEFING_ITEMS: BriefingItem[] = [
-  {
-    type: "interview",
-    title: "2:00pm — Hearth interview",
-    subtitle: "Prep doc covers the GTM-Eng comp shape and their recent funding",
-    action_label: "Open interview prep",
-    action_href: "/interviews",
-  },
-  {
-    type: "apply",
-    title: "Apply today: incident.io GTM Engineer",
-    subtitle: "Posted 5d ago · fits your stack · score 8",
-    action_label: "View role",
-    action_href: "/",
-  },
-  {
-    type: "follow_up",
-    title: "Follow up: Stuut (4d since last contact)",
-    subtitle: "Last touch was your initial outreach — they replied, didn't book",
-    action_label: "Review draft",
-    action_href: "/",
-  },
-  {
-    type: "missed",
-    title: "You might have missed: Maple GTM Engineer",
-    subtitle: "Scored 6 by the title heuristic — JD enrichment says 7",
-    action_label: "Re-evaluate",
-    action_href: "/",
-  },
-];
+// SAMPLE_BRIEFING_ITEMS used to live here as T1's placeholder feed. T4 deleted
+// it once the briefing generator + /today route landed — real items now come
+// from data/briefings/YYYY-MM-DD.json via getTodaysBriefing(). Empty briefing
+// renders the "No urgent actions today — pipeline is healthy." state.

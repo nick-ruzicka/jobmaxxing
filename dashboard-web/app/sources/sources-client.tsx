@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Activity,
   ShieldCheck,
@@ -13,16 +13,27 @@ import {
   ChevronUp,
   ExternalLink,
 } from "lucide-react";
-import type { SourceHealthRow, SourceHealthSummary, SourceStatus } from "@/lib/types";
+import type {
+  SourceHealthRow,
+  SourceHealthSummary,
+  SourceStatus,
+  Briefing,
+} from "@/lib/types";
 import { Shell } from "@/components/Shell";
-import {
-  PipelineHealthBriefing,
-  SAMPLE_PIPELINE_HEALTH_ITEMS,
-} from "@/components/PipelineHealthBriefing";
+import { PipelineHealthBriefing } from "@/components/PipelineHealthBriefing";
+import { Toast, type ToastKind } from "@/components/ui";
+
+// Toast lifecycle (matches today-client / pipeline-client).
+const TOAST_LIFETIME_MS = 3500;
+const TOAST_FADE_MS = 300;
+
+type ToastEntry = { id: number; kind: ToastKind; message: string; removing: boolean };
 
 interface SourcesPageProps {
   rows: SourceHealthRow[];
   summary: SourceHealthSummary;
+  /** Today's pipeline-health briefing, or null if the generator hasn't run yet. */
+  briefing: Briefing | null;
   highConviction: number;
   companyCount: number;
   signalCount: number;
@@ -107,23 +118,20 @@ type SortKey =
   | "hasCompCoverage"
   | "recoverableCount"
   | "scrapeFailures"
-  | "lastSeen"
-  | "status";
+  | "lastSeen";
 
-// Column labels are deliberately user-facing — engineer-language ("Enriched", "Hit ≥6")
-// has been swapped for verbs and outcomes that answer "is this source working?" first.
 const COLUMNS: { key: SortKey; label: string; align: "left" | "right"; sortable: boolean }[] = [
   { key: "host", label: "Source host", align: "left", sortable: true },
   { key: "totalUrls", label: "Total URLs", align: "right", sortable: true },
-  { key: "enrichmentRate", label: "Working", align: "right", sortable: true },
-  { key: "avgFit", label: "Quality score", align: "right", sortable: true },
-  { key: "hitRate", label: "Good matches", align: "right", sortable: true },
-  { key: "hasCompCoverage", label: "Pay data found", align: "right", sortable: true },
-  { key: "recoverableCount", label: "Could recover", align: "right", sortable: true },
-  { key: "scrapeFailures", label: "Failed fetches", align: "right", sortable: true },
+  { key: "enrichmentRate", label: "Enriched", align: "right", sortable: true },
+  { key: "avgFit", label: "Avg fit", align: "right", sortable: true },
+  { key: "hitRate", label: "Hit ≥6", align: "right", sortable: true },
+  { key: "hasCompCoverage", label: "Comp today", align: "right", sortable: true },
+  { key: "recoverableCount", label: "Recoverable", align: "right", sortable: true },
+  { key: "scrapeFailures", label: "Scrape fails", align: "right", sortable: true },
   { key: "lastSeen", label: "Last seen", align: "right", sortable: true },
 ];
-const COL_COUNT = COLUMNS.length + 2; // + Status + Issue
+const COL_COUNT = COLUMNS.length + 2; // + Status + Diagnosis
 
 function sortVal(r: SourceHealthRow, key: SortKey): string | number {
   switch (key) {
@@ -145,11 +153,6 @@ function sortVal(r: SourceHealthRow, key: SortKey): string | number {
       return r.scrapeFailures;
     case "lastSeen":
       return r.lastSeen || "";
-    case "status":
-      // Position in STATUS_ORDER — lower index = higher priority. Ascending sort
-      // surfaces broken-extractor → broken-scrape → healthy → quarantined → spam-blocked,
-      // which is "are my sources working?" in row order.
-      return STATUS_ORDER.indexOf(r.status);
   }
 }
 
@@ -160,18 +163,58 @@ function num(n: number | null, fmt: (x: number) => string, fallback = "—") {
 export function SourcesPage({
   rows,
   summary,
+  briefing: initialBriefing,
   highConviction,
   companyCount,
   signalCount,
   hasWarmLeads,
   activePursuing,
 }: SourcesPageProps) {
-  // Default: sort by status (asc → broken first) so the page leads with what
-  // needs attention, not the largest host alphabetically.
-  const [sortKey, setSortKey] = useState<SortKey>("status");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [sortKey, setSortKey] = useState<SortKey>("totalUrls");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [statusFilter, setStatusFilter] = useState<SourceStatus | "all">("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // Briefing card state — mirrors /today's pattern. ?kind=pipeline-health
+  // routes the regen call to scripts/generate-pipeline-health.mjs.
+  const [briefing, setBriefing] = useState<Briefing | null>(initialBriefing);
+  const [refreshing, setRefreshing] = useState(false);
+  const [toasts, setToasts] = useState<ToastEntry[]>([]);
+  const nextToastId = useRef(1);
+
+  function pushToast(kind: ToastKind, message: string) {
+    const id = nextToastId.current++;
+    setToasts((prev) => [...prev, { id, kind, message, removing: false }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, removing: true } : t)));
+    }, TOAST_LIFETIME_MS - TOAST_FADE_MS);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, TOAST_LIFETIME_MS);
+  }
+
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/briefing/regenerate?kind=pipeline-health", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 429) {
+        pushToast("error", body.message ?? "Hold on — regen is rate-limited (1 / 5 min).");
+        return;
+      }
+      if (!res.ok) {
+        pushToast("error", body.message ?? "Couldn't regenerate — check the server logs.");
+        return;
+      }
+      setBriefing(body.briefing as Briefing);
+      pushToast("success", `Regenerated · ${body.briefing.items.length} item${body.briefing.items.length === 1 ? "" : "s"}`);
+    } catch (err) {
+      pushToast("error", err instanceof Error ? err.message : "Regen failed");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   const statusCounts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -202,9 +245,7 @@ export function SourcesPage({
       setSortDir((d) => (d === "desc" ? "asc" : "desc"));
     } else {
       setSortKey(key);
-      // host / lastSeen / status default to ascending — alphabetical-first for host,
-      // chronological-first for lastSeen, broken-first for status.
-      setSortDir(key === "host" || key === "lastSeen" || key === "status" ? "asc" : "desc");
+      setSortDir(key === "host" || key === "lastSeen" ? "asc" : "desc");
     }
   }
 
@@ -233,10 +274,14 @@ export function SourcesPage({
           </div>
         </div>
 
-        {/* Placeholder content. T4 will swap SAMPLE_PIPELINE_HEALTH_ITEMS for
-            agent-generated suggestions. Same prop shape as MorningBriefing on
-            /pipeline so the agent contract stays consistent across surfaces. */}
-        <PipelineHealthBriefing items={SAMPLE_PIPELINE_HEALTH_ITEMS} />
+        {/* Hero: agent-generated pipeline-health briefing. Blue tone keeps it
+            visually distinct from the warm /today briefing. Empty state until
+            scripts/generate-pipeline-health.mjs has run. */}
+        <PipelineHealthBriefing
+          briefing={briefing}
+          onRefresh={handleRefresh}
+          refreshing={refreshing}
+        />
 
         {/* Summary strip */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -315,17 +360,8 @@ export function SourcesPage({
                     </th>
                   );
                 })}
-                <th
-                  className="px-3 py-2.5 text-left text-[11px] font-medium cursor-pointer select-none"
-                  style={{ color: sortKey === "status" ? "var(--text-secondary)" : "var(--text-muted)" }}
-                  onClick={() => toggleSort("status")}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    Status
-                    {sortKey === "status" && (sortDir === "desc" ? <ChevronDown size={11} /> : <ChevronUp size={11} />)}
-                  </span>
-                </th>
-                <th className="px-3 py-2.5 text-left text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Issue</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Status</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Diagnosis</th>
               </tr>
             </thead>
             <tbody>
@@ -368,7 +404,7 @@ export function SourcesPage({
                       <tr>
                         <td colSpan={COL_COUNT} style={{ background: "var(--surface-1)", borderBottom: "1px solid var(--border-subtle)" }}>
                           <div className="animate-expand-in px-8 py-4 space-y-3 text-[13px]">
-                            <DetailBlock label="Issue">
+                            <DetailBlock label="Diagnosis">
                               {af ? af.diagnosis : (
                                 <span style={{ color: "var(--text-muted)" }}>Not yet audited — run the comp audit on a sample of this host before relying on its recoverable estimate.</span>
                               )}
@@ -440,6 +476,21 @@ export function SourcesPage({
           </table>
         </div>
       </div>
+
+      {/* Toast queue — fixed bottom-right; lives outside the scroll container. */}
+      {toasts.length > 0 && (
+        <div
+          aria-live="polite"
+          aria-atomic="false"
+          className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2"
+        >
+          {toasts.map((t) => (
+            <div key={t.id} className="pointer-events-auto">
+              <Toast kind={t.kind} message={t.message} removing={t.removing} />
+            </div>
+          ))}
+        </div>
+      )}
     </Shell>
   );
 }

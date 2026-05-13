@@ -3,10 +3,10 @@
 import { useState, useMemo, useRef } from "react";
 import { RefreshCw, Radio } from "lucide-react";
 import type { Role, RoleStatus, ScanStats } from "@/lib/types";
+import { computePipelineStats } from "@/lib/stats";
 import { Shell } from "@/components/Shell";
 import { StatStrip } from "@/components/StatStrip";
 import { PipelineTable } from "@/components/PipelineTable";
-import { MorningBriefing, SAMPLE_BRIEFING_ITEMS } from "@/components/MorningBriefing";
 import { PageHeader, Button, Toast, type ToastKind } from "@/components/ui";
 import { useScan } from "@/components/ScanContext";
 
@@ -74,33 +74,11 @@ export function PipelinePage({
 }: PipelinePageProps) {
   const [roles, setRoles] = useState(initialRoles);
 
-  const stats: ScanStats = useMemo(() => {
-    // Stat strip always reflects the non-aggregator pipeline (aggregator results are
-    // re-syndicated noise; including them inflates counts and tanks the average).
-    const r0 = roles.filter((r) => r.source_tier !== "aggregator");
-    const active = r0.filter((r) => r.status !== "Rejected" && r.status !== "Skipped");
-    const pursuing = active.filter((r) => r.status !== "Discovered");
-    const interviews = r0.filter((r) => r.status === "Interview");
-    const offers = r0.filter((r) => r.status === "Offer");
-    const scores = r0.map((r) => r.score).filter((s) => s > 0);
-    const avgScore = scores.length > 0
-      ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
-      : 0;
-
-    const actionable = r0.filter((r) => r.score >= 4);
-
-    return {
-      totalDiscovered: actionable.length,
-      activelyPursuing: pursuing.length,
-      interviews: interviews.length,
-      offers: offers.length,
-      avgScore,
-      nycCount: r0.filter((r) => r.location_cluster === "nyc").length,
-      remoteCount: r0.filter((r) => r.location_cluster === "remote").length,
-      hasWarmLeads: serverMeta.hasWarmLeads,
-      lastScanDate: serverMeta.lastScanDate,
-    };
-  }, [roles, serverMeta]);
+  // Stats recompute on roles mutation (status edits drag rows between buckets).
+  const stats: ScanStats = useMemo(
+    () => computePipelineStats(roles, serverMeta),
+    [roles, serverMeta]
+  );
 
   // Header count: the non-aggregator pipeline size (stable; the filter bar shows the filtered count).
   const pipelineCount = useMemo(
@@ -160,9 +138,9 @@ export function PipelinePage({
     >
       <PipelineHeader roleCount={pipelineCount} lastScanDate={stats.lastScanDate} />
       <div className="space-y-6">
-        {/* Placeholder content. T4 will swap SAMPLE_BRIEFING_ITEMS for
-            agent-generated suggestions. */}
-        <MorningBriefing items={SAMPLE_BRIEFING_ITEMS} />
+        {/* The morning briefing used to live here as a placeholder hero. T4 moved
+            it to /today (the new homepage); /pipeline is now the table-first
+            workspace view, KPIs at the top and the table below. */}
         <StatStrip stats={stats} />
         <PipelineTable
           roles={roles}

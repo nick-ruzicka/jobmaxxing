@@ -10,6 +10,7 @@ import {
   BellDot,
   GraduationCap,
   Activity,
+  Sun,
 } from "lucide-react";
 import { Badge, SectionLabel } from "@/components/ui";
 
@@ -30,8 +31,13 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
 
+  // /today is the new top-of-funnel surface — the agent's daily focus card
+  // lives there. /pipeline is the table-first workspace view. The badge on
+  // /pipeline still tracks "actively pursuing" because that's where you go
+  // to do something about them.
   const nav = [
-    { href: "/", label: "Pipeline", icon: LayoutDashboard, badge: activePursuing || undefined },
+    { href: "/today", label: "Today", icon: Sun },
+    { href: "/pipeline", label: "Pipeline", icon: LayoutDashboard, badge: activePursuing || undefined },
     { href: "/signals", label: "Signals", icon: Zap, badge: highConviction || undefined },
     { href: "/companies", label: "Companies", icon: Building2 },
     { href: "/sources", label: "Source Health", icon: Activity },
