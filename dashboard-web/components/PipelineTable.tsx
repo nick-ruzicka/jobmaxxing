@@ -16,8 +16,9 @@ import { ScorePill } from "./ScorePill";
 import { StatusDropdown } from "./StatusDropdown";
 import { LocationTag } from "./LocationTag";
 import { ExpandedRow } from "./ExpandedRow";
-import { FilterBar, bucketLocation } from "./FilterBar";
+import { FilterBar } from "./FilterBar";
 import type { Filters } from "./FilterBar";
+import { CLUSTER_ORDER } from "@/lib/location-clusters";
 
 type SortKey = "score" | "company" | "location" | "status" | "firstSeen" | "comp";
 type SortDir = "asc" | "desc";
@@ -92,7 +93,7 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
 
     // Location buckets (multi-select)
     if (filters.locations.size > 0) {
-      filtered = filtered.filter((r) => filters.locations.has(bucketLocation(r.location)));
+      filtered = filtered.filter((r) => filters.locations.has(r.location_cluster || "unknown"));
     }
 
     // Min score
@@ -120,7 +121,12 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
       switch (sortKey) {
         case "score": cmp = a.score - b.score; break;
         case "company": cmp = a.company.localeCompare(b.company); break;
-        case "location": cmp = a.location.localeCompare(b.location); break;
+        case "location": {
+          const ai = CLUSTER_ORDER.indexOf(a.location_cluster || "unknown");
+          const bi = CLUSTER_ORDER.indexOf(b.location_cluster || "unknown");
+          cmp = ai !== bi ? ai - bi : a.location.localeCompare(b.location);
+          break;
+        }
         case "status": cmp = a.status.localeCompare(b.status); break;
         case "firstSeen": cmp = a.firstSeen.localeCompare(b.firstSeen); break;
         case "comp": cmp = extractComp(a).localeCompare(extractComp(b)); break;
@@ -343,7 +349,7 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
                       {comp || "—"}
                     </td>
                     {/* Location */}
-                    <td className="px-2 py-2.5"><LocationTag location={role.location} /></td>
+                    <td className="px-2 py-2.5"><LocationTag location={role.location} cluster={role.location_cluster} /></td>
                     {/* Status */}
                     <td className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <StatusDropdown value={role.status} onChange={(s) => onStatusChange(role.url, s)} />

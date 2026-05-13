@@ -42,8 +42,8 @@ export function PipelinePage({
       activelyPursuing: pursuing.length,
       interviews: interviews.length,
       avgScore,
-      nycCount: r0.filter((r) => r.location.includes("NYC")).length,
-      remoteCount: r0.filter((r) => r.location.toLowerCase().includes("remote")).length,
+      nycCount: r0.filter((r) => r.location_cluster === "nyc").length,
+      remoteCount: r0.filter((r) => r.location_cluster === "remote").length,
       hasWarmLeads: serverMeta.hasWarmLeads,
       lastScanDate: serverMeta.lastScanDate,
     };

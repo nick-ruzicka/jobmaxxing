@@ -1,22 +1,15 @@
 import { MapPin } from "lucide-react";
+import { CLUSTER_META } from "@/lib/location-clusters";
 
-const LOC_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  nyc:     { bg: "var(--emerald-dim)", text: "var(--emerald)", border: "rgba(52,211,153,0.15)" },
-  hybrid:  { bg: "var(--blue-dim)", text: "var(--blue)", border: "rgba(96,165,250,0.15)" },
-  remote:  { bg: "var(--accent-dim)", text: "var(--accent)", border: "rgba(129,140,248,0.15)" },
-  unknown: { bg: "var(--surface-3)", text: "var(--text-muted)", border: "var(--border-subtle)" },
+const TONE_STYLES: Record<string, { bg: string; text: string; border: string }> = {
+  "in-scope":     { bg: "var(--emerald-dim)", text: "var(--emerald)", border: "rgba(52,211,153,0.15)" },
+  "out-of-scope": { bg: "var(--surface-3)",   text: "var(--text-secondary)", border: "var(--border-subtle)" },
+  unknown:        { bg: "var(--surface-3)",   text: "var(--text-muted)", border: "var(--border-subtle)" },
 };
 
-function getLocStyle(location: string) {
-  const l = location.toLowerCase();
-  if (l.includes("nyc")) return LOC_STYLES.nyc;
-  if (l.includes("hybrid")) return LOC_STYLES.hybrid;
-  if (l.includes("remote")) return LOC_STYLES.remote;
-  return LOC_STYLES.unknown;
-}
-
-export function LocationTag({ location }: { location: string }) {
-  const s = getLocStyle(location);
+export function LocationTag({ location, cluster }: { location: string; cluster?: string }) {
+  const tone = (cluster && (CLUSTER_META as Record<string, { tone: string }>)[cluster]?.tone) || "unknown";
+  const s = TONE_STYLES[tone] || TONE_STYLES.unknown;
   return (
     <span
       className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md"

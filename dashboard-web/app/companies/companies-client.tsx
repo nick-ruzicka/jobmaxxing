@@ -150,7 +150,7 @@ export function CompaniesPage({
                             >
                               <ScorePill score={role.score} />
                               <span className="truncate max-w-[200px]" style={{ color: "var(--text-secondary)" }}>{role.title}</span>
-                              <LocationTag location={role.location} />
+                              <LocationTag location={role.location} cluster={role.location_cluster} />
                             </a>
                           ))}
                         </div>

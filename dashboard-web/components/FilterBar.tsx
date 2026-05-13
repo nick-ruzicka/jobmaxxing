@@ -2,6 +2,7 @@
 
 import { X, Hammer, Cpu, MapPin } from "lucide-react";
 import type { Role, RoleStatus } from "@/lib/types";
+import { CLUSTER_META, CLUSTER_ORDER } from "@/lib/location-clusters";
 
 const ALL_STATUSES: RoleStatus[] = [
   "Discovered", "Evaluated", "Applied", "Interview", "Offer", "Rejected", "Skipped",
@@ -24,16 +25,6 @@ interface FilterBarProps {
   filters: Filters;
   onChange: (f: Filters) => void;
   resultCount: number;
-}
-
-// Group locations into buckets
-function bucketLocation(loc: string): string {
-  const l = loc.toLowerCase();
-  if (l.includes("nyc") || l === "new york") return "NYC";
-  if (l.includes("remote")) return "Remote";
-  if (l.includes("hybrid") && !l.includes("nyc")) return "Hybrid";
-  if (l === "unknown") return "Unknown";
-  return "Other";
 }
 
 function Chip({
@@ -91,8 +82,8 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
 
   for (const r of roles) {
     statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
-    const bucket = bucketLocation(r.location);
-    locBucketCounts[bucket] = (locBucketCounts[bucket] || 0) + 1;
+    const cl = r.location_cluster || "unknown";
+    locBucketCounts[cl] = (locBucketCounts[cl] || 0) + 1;
     if (r.enrichment?.build_component) buildCount++;
     if (r.enrichment?.ai_signal) aiCount++;
     if (r.enrichment?.comp_range && r.enrichment.comp_range !== "Not listed") compCount++;
@@ -129,12 +120,6 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
       includeAggregator: false,
     });
   }
-
-  const locBuckets = [
-    { key: "NYC", label: "NYC", color: "var(--emerald-dim)" },
-    { key: "Remote", label: "Remote", color: "var(--accent-dim)" },
-    { key: "Hybrid", label: "Hybrid", color: "var(--blue-dim)" },
-  ];
 
   const scoreTiers = [
     { min: 8, label: "8+" },
@@ -191,20 +176,27 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
 
       {/* Row 2: Location + Status + Signal toggles */}
       <div className="flex items-center gap-2 flex-wrap">
-        {/* Location chips */}
+        {/* Location chips — cluster-first: one click on "NYC area" answers
+            "what's inside my geographic constraint?" */}
         <span className="text-[11px] mr-1" style={{ color: "var(--text-muted)" }}>
           <MapPin size={11} className="inline -mt-0.5" /> Location
         </span>
-        {locBuckets.map((b) => (
-          <Chip
-            key={b.key}
-            label={b.label}
-            count={locBucketCounts[b.key] || 0}
-            active={filters.locations.has(b.key)}
-            onClick={() => toggleLocation(b.key)}
-            color={b.color}
-          />
-        ))}
+        {CLUSTER_ORDER.filter((k: string) => k === "nyc" || k === "remote" || (locBucketCounts[k] || 0) > 0).map((k: string) => {
+          const meta = (CLUSTER_META as Record<string, { label: string; tone: string }>)[k];
+          const color =
+            meta.tone === "in-scope" ? "var(--emerald-dim)" :
+            meta.tone === "unknown" ? "var(--surface-3)" : undefined;
+          return (
+            <Chip
+              key={k}
+              label={meta.label}
+              count={locBucketCounts[k] || 0}
+              active={filters.locations.has(k)}
+              onClick={() => toggleLocation(k)}
+              color={color}
+            />
+          );
+        })}
 
         <span className="mx-1" style={{ color: "var(--border-default)" }}>|</span>
 
@@ -266,4 +258,3 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
 }
 
 export type { Filters };
-export { bucketLocation };
