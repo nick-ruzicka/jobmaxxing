@@ -9,7 +9,9 @@ if [ -f .env ]; then
   set +a
 fi
 
-/opt/homebrew/bin/node scripts/sync-score-feedback.mjs
+# sync-score-feedback.mjs reconciles score-overrides.json against applications.md and is
+# dry-run by default — the automated pipeline needs --write to actually apply the reconciliation.
+/opt/homebrew/bin/node scripts/sync-score-feedback.mjs --write
 /opt/homebrew/bin/node scripts/scan-jobs.mjs
 /opt/homebrew/bin/node scripts/enrich-roles.mjs
 
