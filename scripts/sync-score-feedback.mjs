@@ -21,6 +21,7 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { normalizeCompany, companyKey } from "./lib/normalize-company.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -75,14 +76,22 @@ let penalized = 0;
 let blocked = 0;
 
 for (const entry of entries) {
-  const coKey = entry.company.toLowerCase().replace(/[^a-z0-9]/g, "");
+  // Use the shared `companyKey()` so aliased names (OpenAI Inc / OpenAI,
+  // X / xAI, Norminal.So / Nominal, …) reconcile to the same override slot.
+  // See scripts/lib/normalize-company.mjs.
+  const coKey = companyKey(entry.company);
   if (!coKey || coKey.length < 2) continue;
+
+  // Display name: normalized form so score-overrides.json stores the
+  // canonical company (e.g. "OpenAI" instead of "OpenAI Inc"). Falls back
+  // to the raw entry if normalization comes back empty.
+  const displayCompany = normalizeCompany(entry.company) || entry.company;
 
   // High score → boost
   if (entry.score !== null && entry.score >= 4.0) {
     if (!overrides.boost[coKey]) {
       overrides.boost[coKey] = {
-        company: entry.company,
+        company: displayCompany,
         score: entry.score,
         reason: `Evaluated ${entry.score}/5 for ${entry.role}`,
       };
@@ -94,7 +103,7 @@ for (const entry of entries) {
   if (entry.score !== null && entry.score <= 2.5) {
     if (!overrides.penalize[coKey]) {
       overrides.penalize[coKey] = {
-        company: entry.company,
+        company: displayCompany,
         score: entry.score,
         reason: `Evaluated ${entry.score}/5 for ${entry.role}`,
       };
@@ -114,7 +123,7 @@ for (const entry of entries) {
   if (["Rejected", "Discarded", "SKIP"].includes(entry.status)) {
     if (!overrides.penalize[coKey]) {
       overrides.penalize[coKey] = {
-        company: entry.company,
+        company: displayCompany,
         score: entry.score,
         reason: `Status: ${entry.status}`,
       };
