@@ -8,6 +8,7 @@ import type {
   SignalResult,
   Company,
   ScanStats,
+  Briefing,
 } from "./types";
 import { clusterForLocation, flattenLocation, parseLocationString } from "./location-clusters";
 import type { StructuredLocation } from "./location-clusters";
@@ -636,6 +637,40 @@ export function getConfig() {
     ashby: parseEntries(ashbyMatch?.[1]),
     greenhouse: parseEntries(ghMatch?.[1]),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Daily briefing — reads JSON produced by scripts/generate-briefing.mjs
+// (and scripts/generate-pipeline-health.mjs for the /sources variant).
+// ---------------------------------------------------------------------------
+
+/** Returns YYYY-MM-DD for "today" in local time. Generator writes files keyed
+ *  by the same local-date string, so this is what the page reads back. */
+function todayDateString(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Read the briefing for a specific date from data/briefings/. Returns null
+ *  when the file doesn't exist (first-run / never-generated state) or when
+ *  it can't be parsed. Used by /today and /sources. */
+export function getBriefingForDate(date: string, kind: "daily" | "pipeline-health" = "daily"): Briefing | null {
+  const prefix = kind === "pipeline-health" ? "pipeline-health-" : "";
+  const path = join(ROOT, "data", "briefings", `${prefix}${date}.json`);
+  return readJsonSafe<Briefing | null>(path, null);
+}
+
+/** Convenience — today's daily briefing. */
+export function getTodaysBriefing(): Briefing | null {
+  return getBriefingForDate(todayDateString(), "daily");
+}
+
+/** Convenience — today's pipeline-health briefing (used by /sources). */
+export function getTodaysPipelineHealthBriefing(): Briefing | null {
+  return getBriefingForDate(todayDateString(), "pipeline-health");
 }
 
 // ---------------------------------------------------------------------------

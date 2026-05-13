@@ -85,6 +85,48 @@ export interface Company {
   roles: Role[];
 }
 
+// ---------------------------------------------------------------------------
+// Daily briefing (/today, /sources) — shape produced by scripts/generate-briefing.mjs
+// and scripts/generate-pipeline-health.mjs. Read on the server, rendered by
+// MorningBriefing and PipelineHealthBriefing.
+// ---------------------------------------------------------------------------
+
+/** Categories the agent emits. Each maps to an icon + tone in MorningBriefing. */
+export type BriefingItemType =
+  | "interview"
+  | "apply"
+  | "follow_up"
+  | "missed"
+  | "stale"
+  | "verify_location"
+  | "recalibrate"
+  // Pipeline Health categories (Task 4) — share the same render but different tone.
+  | "extractor_regression"
+  | "new_pattern"
+  | "label_opportunity"
+  | "command_suggestion";
+
+export interface BriefingItem {
+  type: BriefingItemType;
+  title: string;
+  subtitle?: string;
+  /** Inline call-to-action — when both fields are set, an arrow link renders. */
+  action_label?: string;
+  action_href?: string;
+  /** Free-form context payload the chat panel uses to scope a conversation
+   *  scoped to this item. Populated by the generator (e.g. role URL + JD body
+   *  excerpt for "apply" / "recalibrate" items). */
+  context?: Record<string, unknown>;
+}
+
+export interface Briefing {
+  /** YYYY-MM-DD — also the filename slug under data/briefings/. */
+  date: string;
+  /** ISO timestamp from the generator run. */
+  generated_at: string;
+  items: BriefingItem[];
+}
+
 export interface ScanStats {
   totalDiscovered: number;
   activelyPursuing: number;

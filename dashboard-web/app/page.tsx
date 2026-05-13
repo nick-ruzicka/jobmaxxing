@@ -1,30 +1,10 @@
-import { getRoles, getSignals, getConfig, getStats } from "@/lib/data";
-import { PipelinePage } from "./pipeline-client";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
+/**
+ * Root entry — the homepage is now /today (the daily-agent briefing surface).
+ * The pipeline table lives at /pipeline. This redirect keeps existing bookmarks
+ * and the sidebar logo working without forcing a hard rename of the route tree.
+ */
 export default function Page() {
-  // Fetch *all* roles (incl. aggregator-sourced) so the pipeline view can offer an
-  // "Include aggregator results" toggle; the table hides source_tier:"aggregator" by default
-  // and the stat strip computes from the non-aggregator subset.
-  const roles = getRoles({ includeAggregator: true });
-  const signals = getSignals();
-  const config = getConfig();
-  const stats = getStats();
-
-  const highConviction = signals.filter((s) => s.result === "high").length;
-  const companyCount = config.ashby.length + config.greenhouse.length;
-
-  return (
-    <PipelinePage
-      roles={roles}
-      serverMeta={{
-        hasWarmLeads: stats.hasWarmLeads,
-        lastScanDate: stats.lastScanDate,
-      }}
-      highConviction={highConviction}
-      companyCount={companyCount}
-      signalCount={signals.length}
-    />
-  );
+  redirect("/today");
 }
