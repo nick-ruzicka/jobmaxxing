@@ -49,12 +49,18 @@ export const EXCLUDE_DOMAINS = [
  * Update this constant when re-auditing. Recovery rates and diagnoses are sample-derived
  * (n=30); confidence is medium-high for top-volume hosts (BuiltIn, Ashby, Greenhouse) and
  * lower for tail hosts. Keys are bare hostnames or parent domains (matched via parentDomain()).
+ *
+ * Diagnoses are past-tense for hosts where Fix #5 landed and post-backfill coverage is
+ * >50% (BuiltIn, Ashby, job-boards.greenhouse.io). Hosts at or below the 50% threshold
+ * carry "In progress (Fix #N, YYYY-MM-DD): X recovered across Y rows, …" notes that
+ * make explicit what landed vs what remains. `recoveryRate` values are unchanged — they
+ * still feed the broken-extractor classifier and the projected-coverage math.
  */
 export const AUDIT_FINDINGS: Record<string, AuditFinding> = {
   "builtin.com": {
     recoveryRate: 0.8,
     diagnosis:
-      'JSON-LD JobPosting is present, but the script type is HTML-entity-encoded (type="application/ld&#x2B;json") and JobPosting is nested in an @graph array — naive parsers miss it. ~11% extracted today.',
+      'JSON-LD JobPosting script type was HTML-entity-encoded (type="application/ld&#x2B;json") with JobPosting nested in an @graph array — naive parsers missed it. Fixed in Fix #5a (2026-05-13): coverage 11% → 56%. ~157 rows remain WAF-throttled (5+ consecutive 403s after ~100 rapid requests); will recover under --cooldown-on-403 once the WAF cools.',
     fixId: "5a",
     fixLabel:
       "BuiltIn JSON-LD parser — decode &#x2B; in the script type, walk @graph, read baseSalary (minValue/maxValue and single-value scalar forms); fall back to the fa-sack-dollar strip labelled (est.).",
@@ -64,7 +70,7 @@ export const AUDIT_FINDINGS: Record<string, AuditFinding> = {
   "jobs.ashbyhq.com": {
     recoveryRate: 0.85,
     diagnosis:
-      'Structured baseSalary is always null; the pay range lives in the JSON-LD "description" prose ("The salary range for this role is $X–$Y"). ~30% extracted today.',
+      'Structured baseSalary was always null; the pay range lived in the JSON-LD "description" prose ("The salary range for this role is $X–$Y"). Fixed in Fix #5c (2026-05-13): coverage 35% → 80% across 51 backfilled rows (23 from jsonld_description + 13 from jsonld_basesalary surfaced by the broader fix).',
     fixId: "5c",
     fixLabel:
       "Ashby description-prose regex — run the comp regex over the JSON-LD description field, not just the rendered page.",
@@ -76,7 +82,7 @@ export const AUDIT_FINDINGS: Record<string, AuditFinding> = {
   "job-boards.greenhouse.io": {
     recoveryRate: 0.75,
     diagnosis:
-      'No JSON-LD at all; the pay range is a plain server-rendered <div> ("Pay Transparency Range", "Tier N Pay Range", "base salary range", "OTE"). 0% extracted today.',
+      'No JSON-LD at all; pay range was plain server-rendered prose ("Pay Transparency Range", "Tier N Pay Range", "base salary range", "OTE"). Fixed in Fix #5d (2026-05-13): coverage 0% → 67% across 27 backfilled rows via jd_prose regex.',
     fixId: "5d",
     fixLabel: "Greenhouse server-rendered prose regex — pure text regex on the captured JD.",
     sampleUrls: ["https://job-boards.greenhouse.io/apolloio/jobs/5918855004"],
@@ -85,7 +91,7 @@ export const AUDIT_FINDINGS: Record<string, AuditFinding> = {
   "boards.greenhouse.io": {
     recoveryRate: 0.75,
     diagnosis:
-      "Same as job-boards.greenhouse.io — no JSON-LD; pay range in a server-rendered <div>.",
+      "Same parser as job-boards.greenhouse.io — no JSON-LD; pay range in server-rendered prose. Fix #5d landed (2026-05-13) but the visible backlog is tiny: 4 URLs, 3 dead, 1 qualitative-only — no comp-bearing rows in current backlog. New postings on this older subdomain will recover at the ~67% rate observed on job-boards.greenhouse.io.",
     fixId: "5d",
     fixLabel: "Greenhouse server-rendered prose regex — pure text regex on the captured JD.",
     sampleUrls: ["https://boards.greenhouse.io/braze/jobs/7406001"],
@@ -94,7 +100,7 @@ export const AUDIT_FINDINGS: Record<string, AuditFinding> = {
   "revopscareers.com": {
     recoveryRate: 0.45,
     diagnosis:
-      "Aggregator (quarantined). Emits JSON-LD JobPosting with baseSalary, often the single-value scalar form ($93,730/yr); many entries are thin re-scrapes with no baseSalary. 2% extracted today.",
+      "Aggregator (quarantined). Emits JSON-LD JobPosting with baseSalary, often the single-value scalar form ($93,730/yr); many entries are thin re-scrapes with no baseSalary. In progress (Fix #5b, 2026-05-13): 75 recovered across 293 backfilled rows (47 jsonld_basesalary + 28 jsonld_description, coverage 2% → 26%); 187 rows still have no upstream comp signal; 30 tagged qualitative-only.",
     fixId: "5b",
     fixLabel:
       "revopscareers JSON-LD parser — same JSON-LD pattern, simpler script-type encoding; handle the single-value scalar baseSalary form.",
@@ -106,7 +112,7 @@ export const AUDIT_FINDINGS: Record<string, AuditFinding> = {
   "jobs.insightpartners.com": {
     recoveryRate: 0.35,
     diagnosis:
-      'Getro/Consider-powered SPA — JSON-LD JobPosting (incl. baseSalary when the underlying ATS has it) is in the *raw* HTML even though the page renders client-side; the pipeline scrapes the SPA shell and sees "completely broken HTML". 0% extracted, ~44% scrape errors.',
+      'Getro/Consider-powered SPA — JSON-LD JobPosting (incl. baseSalary when the underlying ATS has it) is in the *raw* HTML even though the page renders client-side; the pipeline scrapes the SPA shell and sees "completely broken HTML". In progress (Fix #5e, 2026-05-13): 8 recovered across 25 backfilled rows (jsonld_basesalary, coverage 0% → 32%); 14 employer-side gaps where no range was posted; ~44% historic scrape-error backlog still pending re-scrape (Fix #6).',
     fixId: "5e",
     fixLabel:
       "VC-portfolio JSON-LD parser — parse JSON-LD from raw HTML; also recovers the scrape-failure cases. Synergy with Fix #6.",
@@ -118,7 +124,7 @@ export const AUDIT_FINDINGS: Record<string, AuditFinding> = {
   "jobs.generalcatalyst.com": {
     recoveryRate: 0.3,
     diagnosis:
-      "Same Getro/Consider SPA pattern as jobs.insightpartners.com; baseSalary is employer-dependent (fewer of these employers post ranges).",
+      "Same Getro/Consider SPA pattern as jobs.insightpartners.com; baseSalary is employer-dependent. In progress (Fix #5e, 2026-05-13): 11 recovered across 22 backfilled rows (10 jsonld_basesalary + 1 jsonld_description, coverage 0% → 50%, exactly at the past-tense threshold); 8 remaining rows are employers that did not post ranges.",
     fixId: "5e",
     fixLabel: "VC-portfolio JSON-LD parser — parse JSON-LD from raw HTML.",
     sampleUrls: [
@@ -128,7 +134,8 @@ export const AUDIT_FINDINGS: Record<string, AuditFinding> = {
   },
   "jobs.8vc.com": {
     recoveryRate: 0.3,
-    diagnosis: "Same Getro/Consider SPA pattern as jobs.insightpartners.com.",
+    diagnosis:
+      "Same Getro/Consider SPA pattern as jobs.insightpartners.com. In progress (Fix #5e, 2026-05-13): 3 recovered across 8 backfilled rows (jsonld_basesalary, coverage 0% → 38%); 4 remaining rows are employers that did not post ranges.",
     fixId: "5e",
     fixLabel: "VC-portfolio JSON-LD parser — parse JSON-LD from raw HTML.",
     sampleUrls: [
