@@ -1,0 +1,57 @@
+# companies.yml — Tracked companies for Tier 1 structured scanning
+#
+# Ashby API: https://api.ashbyhq.com/posting-api/job-board/{slug}
+# Greenhouse API: https://boards-api.greenhouse.io/v1/boards/{slug}/jobs
+#
+# Add new slugs as you discover companies worth tracking.
+# The scanner hits each slug every run and filters by title keywords.
+# Slugs that 404 are logged and skipped silently.
+#
+# Last verified: 2026-04-09
+
+ashby_slugs:
+  # Verified working (20 companies)
+  - rillet           # 33 jobs — AI-native ERP, Sequoia/a16z
+  - hebbia-ai        # Ashby slug is hebbia-ai, not hebbia
+  - eliseai          # 112 jobs — AI for housing/healthcare
+  - zip              # 119 jobs — AI procurement, $2.2B
+  - ramp             # 132 jobs — corporate cards/spend
+  - notion           # 160 jobs — productivity/docs
+  - linear           # 20 jobs — project management
+  - mercury          # fintech banking
+  - deel             # 270 jobs — global HR/payroll
+  - runway           # 4 jobs — AI video
+  - vercel           # frontend cloud
+  - supabase         # 41 jobs — open source Firebase
+  - superhuman       # email client
+  - pave             # comp benchmarking
+  - resend           # 7 jobs — email API
+  - raycast          # developer tools
+  - causal           # 2 jobs — planning/modeling
+  - sardine          # 28 jobs — fraud/compliance
+  - replit           # 81 jobs — AI coding
+  - plain            # 15 jobs — customer support
+  - incident         # incident.io — slug is "incident" not "incident-io"
+  - snowflake        # on Ashby, not Greenhouse
+  - airbyte          # on Ashby, not Greenhouse
+  - qualified        # on Ashby, not Greenhouse
+  - chilipiper       # on Ashby, not Greenhouse
+  # Not on Ashby (use Greenhouse or other): attentive, rippling, brex, carta, lattice, descript, commandbar, june, pipes, scaleai
+
+greenhouse_slugs:
+  # Verified working (11 companies)
+  - hebbia           # also on Ashby as hebbia-ai
+  - attentive        # SMS marketing — on Greenhouse, not Ashby
+  - gongio           # Gong slug is "gongio" not "gong"
+  - apolloio         # 47 jobs — sales intelligence (slug is apolloio, not apollo)
+  - salesloft        # 32 jobs — sales engagement
+  - fivetran         # 164 jobs — data integration
+  - hubspotjobs      # 72 jobs — CRM/marketing (slug is hubspotjobs, not hubspot)
+  - intercom         # 187 jobs — customer messaging
+  - mixpanel         # 51 jobs — product analytics
+  - amplitude        # 38 jobs — product analytics
+  - braze            # 183 jobs — customer engagement
+  - iterable         # 44 jobs — marketing automation
+  - klaviyo          # 243 jobs — email/SMS marketing
+  - sendbird         # 19 jobs — chat API
+  # Not on Greenhouse (moved to Ashby or other): snowflake, airbyte, clearbit, segment, drift, qualified, chilipiper, outreach
