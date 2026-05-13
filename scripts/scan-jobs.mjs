@@ -66,20 +66,30 @@ function loadCompanies() {
   };
 }
 
-// Title keywords
-const TITLE_POSITIVE = [
-  "gtm engineer",
-  "revenue engineer",
-  "gtm operations",
-  "revenue operations",
+// --- Title relevance: anchor + role-token matcher ---------------------------
+// A title is relevant if it references GTM/Revenue/RevOps (an "anchor") AND
+// carries an engineering / ops / systems / leadership word (a "role token").
+// Anchors are matched as substrings (so "RevenueBase" still matches "revenue");
+// role tokens are matched as WHOLE WORDS (so "Recruiter, Go-to-Market" fails —
+// "recruiter" is not a role token — and "Designer, Go-to-Market AI" fails too).
+// This replaced a flat substring allowlist that missed leadership variants like
+// "Head of GTM Systems and Engineering" / "Director, GTM Strategy & Operations".
+const TITLE_ANCHORS = [
+  "gtm",
+  "go to market",
+  "go-to-market",
+  "revenue",
   "revops",
+  "rev ops",
   "sales operations",
   "sales ops",
-  "go-to-market",
-  "go to market",
-  "gtm infrastructure",
-  "revenue infrastructure",
 ];
+
+const TITLE_ROLE_TOKENS = new Set([
+  "engineer", "engineering", "operations", "ops", "systems", "infrastructure",
+  "manager", "lead", "leader", "head", "director", "vp", "architect", "developer",
+  // the bigram "vice president" is handled separately in titleHasRoleToken()
+]);
 
 const TITLE_NEGATIVE = [
   "account executive",
@@ -95,6 +105,9 @@ const TITLE_NEGATIVE = [
   "data scientist",
   "machine learning engineer",
   "intern",
+  "junior",
+  "entry-level",
+  "entry level",
 ];
 
 // Non-job content patterns (blogs, newsletters, articles)
@@ -339,13 +352,37 @@ function saveSeen(seen) {
   writeFileSync(SEEN_PATH, JSON.stringify(seen, null, 2) + "\n");
 }
 
+// Lowercase, strip punctuation to spaces, collapse whitespace. Used for both
+// the anchor substring test and the whole-word role-token test.
+function normalizeTitle(s) {
+  return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Returns the matched anchor phrase (for match-reason reporting), or null.
+function titleMatchAnchor(title) {
+  const n = normalizeTitle(title);
+  if (!n) return null;
+  for (const a of TITLE_ANCHORS) {
+    if (n.includes(normalizeTitle(a))) return a;
+  }
+  return null;
+}
+
+function titleHasRoleToken(title) {
+  const words = normalizeTitle(title).split(" ");
+  if (words.some((w) => TITLE_ROLE_TOKENS.has(w))) return true;
+  for (let i = 0; i < words.length - 1; i++) {
+    if (words[i] === "vice" && words[i + 1] === "president") return true;
+  }
+  return false;
+}
+
 function titleMatchesPositive(title) {
-  const t = title.toLowerCase();
-  return TITLE_POSITIVE.some((kw) => t.includes(kw));
+  return !!titleMatchAnchor(title) && titleHasRoleToken(title);
 }
 
 function titleMatchesNegative(title) {
-  const t = title.toLowerCase();
+  const t = (title || "").toLowerCase();
   return TITLE_NEGATIVE.some((kw) => t.includes(kw));
 }
 
@@ -1643,10 +1680,8 @@ async function main() {
     }
 
     // Match reason
-    const matchedKw = TITLE_POSITIVE.find(
-      (kw) => r.title.toLowerCase().includes(kw) || (r.highlights || "").toLowerCase().includes(kw)
-    );
-    r.matchReason = matchedKw ? `"${matchedKw}"` : "query relevance";
+    const matchedAnchor = titleMatchAnchor(r.title) || titleMatchAnchor(r.highlights || "");
+    r.matchReason = matchedAnchor ? `"${matchedAnchor}"` : "query relevance";
   }
 
   // STEP 5: Write validated entries to seen-urls
