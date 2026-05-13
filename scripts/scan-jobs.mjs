@@ -22,6 +22,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { cleanTitle } from "./lib/title-cleanup.mjs";
+import { companyKey } from "./lib/normalize-company.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -1693,12 +1694,14 @@ async function main() {
     console.log(`  Title cleanup: ${titlesCleaned} titles stripped of source-attribution suffixes`);
   }
 
-  // STEP 3: Cross-company dedup — skip if same company + similar role already in pipeline
+  // STEP 3: Cross-company dedup — skip if same company + similar role already in pipeline.
+  // Uses shared companyKey() so aliased names (OpenAI Inc / OpenAI, X / xAI, etc.)
+  // collapse to the same bucket — see scripts/lib/normalize-company.mjs.
   const companyRoleIndex = new Map();
   // Build index from existing seen URLs
   for (const [, meta] of Object.entries(seen)) {
     if (!meta.company) continue;
-    const coKey = meta.company.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const coKey = companyKey(meta.company);
     const titleKey = (meta.title || "").toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
     if (coKey.length >= 3) {
       if (!companyRoleIndex.has(coKey)) companyRoleIndex.set(coKey, new Set());
@@ -1709,7 +1712,7 @@ async function main() {
   const dedupedNew = [];
   let crossDeduped = 0;
   for (const r of withCompany) {
-    const coKey = r.company.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const coKey = companyKey(r.company);
     const titleKey = (r.roleTitle || r.title).toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
 
     if (coKey.length >= 3 && companyRoleIndex.has(coKey)) {
