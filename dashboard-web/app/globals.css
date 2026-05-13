@@ -5,8 +5,8 @@
 
    Tokens live in @theme and are exposed as Tailwind utilities:
      bg-surface-2 · text-text-secondary · border-border-subtle · shadow-1 · ...
-   The :root aliases below keep the legacy `var(--surface-2)` names working
-   while components migrate; they get removed in the cleanup commit.
+   Components use those classes (not inline `var(--…)`). Inline styles that
+   genuinely need a token reference the @theme name directly (`var(--color-…)`).
    ========================================================================= */
 
 @theme {
@@ -69,40 +69,6 @@
   /* fonts — Inter everywhere; mono is reserved for terminal output + <code> */
   --font-sans: var(--font-inter), system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-/* ---- legacy aliases (removed in the cleanup commit once components migrate) ---- */
-:root {
-  --surface-0: var(--color-surface-0);
-  --surface-1: var(--color-surface-1);
-  --surface-2: var(--color-surface-2);
-  --surface-3: var(--color-surface-3);
-  --surface-4: var(--color-surface-4);
-  --surface-row: var(--color-surface-row);
-  --border-subtle: var(--color-border-subtle);
-  --border-default: var(--color-border-default);
-  --border-strong: var(--color-border-strong);
-  --text-primary: var(--color-text-primary);
-  --text-secondary: var(--color-text-secondary);
-  --text-tertiary: var(--color-text-tertiary);
-  --text-muted: var(--color-text-muted);
-  --accent: var(--color-accent);
-  --accent-strong: var(--color-accent-strong);
-  --accent-dim: var(--color-accent-dim);
-  --accent-border: var(--color-accent-border);
-  --emerald: var(--color-emerald); --emerald-dim: var(--color-emerald-dim); --emerald-border: var(--color-emerald-border);
-  --amber: var(--color-amber); --amber-dim: var(--color-amber-dim); --amber-border: var(--color-amber-border);
-  --blue: var(--color-blue); --blue-dim: var(--color-blue-dim); --blue-border: var(--color-blue-border);
-  --violet: var(--color-violet); --violet-dim: var(--color-violet-dim); --violet-border: var(--color-violet-border);
-  --red: var(--color-red); --red-dim: var(--color-red-dim); --red-border: var(--color-red-border);
-  /* shadow scale collapses onto the one functional shadow / none */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-lg: var(--shadow-1);
-  --shadow-xl: var(--shadow-1);
-  --shadow-glow: none;
-  --duration-fast: 120ms;
-  --duration-normal: 150ms;
 }
 
 html { color-scheme: dark; }

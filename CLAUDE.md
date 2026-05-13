@@ -256,6 +256,7 @@ Default modes are in `modes/` (English). Additional language-specific modes are 
 - Output in `output/` (gitignored), Reports in `reports/`
 - JDs in `jds/` (referenced as `local:jds/{file}` in pipeline.md)
 - Batch in `batch/` (gitignored except scripts and prompt)
+- **Dashboard UI (`dashboard-web/`):** before any visual/UI change, read `DESIGN.md` (repo root) — the canonical design system. Style with the `@theme` token classes (`bg-surface-2`, `text-text-secondary`, …), never inline `var(--…)` styles or raw Tailwind palette colors. Live spec at `/design-system`. (See also `dashboard-web/AGENTS.md`.)
 - Report numbering: sequential 3-digit zero-padded, max existing + 1
 - **RULE: After each batch of evaluations, run `node merge-tracker.mjs`** to merge tracker additions and avoid duplications.
 - **RULE: NEVER create new entries in applications.md if company+role already exists.** Update the existing entry.
