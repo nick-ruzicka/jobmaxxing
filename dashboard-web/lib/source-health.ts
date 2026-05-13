@@ -375,10 +375,21 @@ export function computeSourceHealth(
 
   rows.sort((a, b) => b.totalUrls - a.totalUrls || a.host.localeCompare(b.host));
 
+  const isActive = (r: SourceHealthRow) =>
+    r.status !== "quarantined" && r.status !== "spam-blocked";
   const totalEnriched = rows.reduce((s, r) => s + r.enrichedReal, 0);
   const totalHasComp = rows.reduce((s, r) => s + r.hasCompCount, 0);
   const totalNotListed = rows.reduce((s, r) => s + r.notListedCount, 0);
-  const overallRecoverable = rows.reduce((s, r) => s + r.recoverableCount, 0);
+  const activeRows = rows.filter(isActive);
+  const activeEnriched = activeRows.reduce((s, r) => s + r.enrichedReal, 0);
+  const activeHasComp = activeRows.reduce((s, r) => s + r.hasCompCount, 0);
+  const overallRecoverable = activeRows.reduce((s, r) => s + r.recoverableCount, 0);
+  const additionalRecoverableQuarantined = rows
+    .filter((r) => r.status === "quarantined")
+    .reduce((s, r) => s + r.recoverableCount, 0);
+  const additionalRecoverableSpam = rows
+    .filter((r) => r.status === "spam-blocked")
+    .reduce((s, r) => s + r.recoverableCount, 0);
   const summary: SourceHealthSummary = {
     totalSources: rows.length,
     healthySources: rows.filter((r) => r.status === "healthy").length,
@@ -391,10 +402,14 @@ export function computeSourceHealth(
     totalHasComp,
     totalNotListed,
     overallCompCoverage: totalEnriched ? totalHasComp / totalEnriched : 0,
+    activeEnriched,
+    activeHasComp,
     overallRecoverable,
     overallProjectedCoverage: totalEnriched
       ? (totalHasComp + overallRecoverable) / totalEnriched
       : 0,
+    additionalRecoverableQuarantined,
+    additionalRecoverableSpam,
   };
   return { rows, summary };
 }

@@ -163,20 +163,28 @@ export interface SourceHealthSummary {
   totalSources: number;
   /** status === "healthy". */
   healthySources: number;
-  /** "broken-extractor" + "broken-scrape". */
+  /** "broken-extractor" + "broken-scrape" — i.e. the active-pipeline hosts that need a fix. */
   brokenSources: number;
   quarantinedSources: number;
   spamBlockedSources: number;
-  /** Σ enrichedReal. */
+  /** Σ enrichedReal (all hosts). */
   totalEnriched: number;
-  /** Σ hasCompCount. */
+  /** Σ hasCompCount (all hosts). */
   totalHasComp: number;
-  /** Σ notListedCount. */
+  /** Σ notListedCount (all hosts). */
   totalNotListed: number;
-  /** totalHasComp / totalEnriched. */
+  /** totalHasComp / totalEnriched — comp coverage across the whole dataset, today. */
   overallCompCoverage: number;
-  /** Σ recoverableCount. */
+  /** Σ enrichedReal over active-pipeline hosts only (status not "quarantined"/"spam-blocked"). */
+  activeEnriched: number;
+  /** Σ hasCompCount over active-pipeline hosts only. */
+  activeHasComp: number;
+  /** Σ recoverableCount over active-pipeline hosts only — the honest "fix the active pipeline" number. */
   overallRecoverable: number;
-  /** (totalHasComp + overallRecoverable) / totalEnriched. */
+  /** (totalHasComp + overallRecoverable) / totalEnriched — headline: where whole-dataset coverage lands if only the active-pipeline hosts get fixed. */
   overallProjectedCoverage: number;
+  /** Recoverable on quarantined (aggregator) hosts — surfaced but excluded from the headline (Fix 5b territory). */
+  additionalRecoverableQuarantined: number;
+  /** Recoverable on spam-blocked hosts — surfaced but excluded from the headline; only meaningful if a host is unquarantined. */
+  additionalRecoverableSpam: number;
 }

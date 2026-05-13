@@ -138,7 +138,17 @@ describe("computeSourceHealth", () => {
     expect(summary.totalHasComp).toBe(4); // a1, x1, lever1, lever2
     expect(summary.totalEnriched).toBe(11);
     expect(summary.totalNotListed).toBe(7);
-    expect(summary.overallRecoverable).toBeGreaterThan(0);
+  });
+
+  it("summary splits active-pipeline recoverable from quarantined/spam", () => {
+    // active hosts = builtin, ashby, insightpartners, lever (revopscareers quarantined, hirevector spam excluded)
+    expect(summary.activeEnriched).toBe(9); // 11 - 1 (revops) - 1 (hirevector)
+    expect(summary.activeHasComp).toBe(4);
+    expect(summary.overallRecoverable).toBe(4); // builtin round(2*.8)=2 + ashby round(2*.85)=2 + insight round(1*.35)=0
+    expect(summary.additionalRecoverableQuarantined).toBe(0); // revops round(1*.45)=0
+    expect(summary.additionalRecoverableSpam).toBe(0); // hirevector round(1*.4)=0
+    // headline = (totalHasComp + activeRecoverable) / totalEnriched
+    expect(summary.overallProjectedCoverage).toBeCloseTo(8 / 11, 5);
     expect(summary.overallProjectedCoverage).toBeGreaterThan(summary.overallCompCoverage);
   });
 });
@@ -155,5 +165,10 @@ describe("getSourceHealth (real data smoke test)", () => {
     const gh = rows.find((r) => r.host === "job-boards.greenhouse.io");
     if (gh) expect(gh.hasCompCount).toBe(0);
     expect(rows.find((r) => r.host === "revopscareers.com")?.status).toBe("quarantined");
+    // revopscareers carries a big recoverable count that must NOT leak into the headline
+    expect(summary.additionalRecoverableQuarantined).toBeGreaterThan(50);
+    expect(summary.overallRecoverable).toBeGreaterThan(50); // active-pipeline recoverable still substantial (builtin etc.)
+    expect(summary.overallProjectedCoverage).toBeGreaterThan(summary.overallCompCoverage);
+    expect(summary.overallProjectedCoverage).toBeLessThan(0.55); // headline excludes the ~133 quarantined
   });
 });
