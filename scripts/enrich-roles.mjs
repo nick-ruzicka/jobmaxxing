@@ -18,6 +18,16 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { normalizeCompany } from "./lib/normalize-company.mjs";
+import {
+  extractComp,
+  applyExtraction,
+  shouldBackfill,
+  isRealComp,
+  hostnameOf,
+  jsonLdBlocks,
+  findJobPostings,
+  stripTags as stripTagsLd,
+} from "./lib/extract-comp.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -106,6 +116,7 @@ async function fetchAshbyJD(url) {
       department: job.department || "",
       team: job.team || "",
       comp: job.compensation,
+      rawHtml: job.descriptionHtml || "",
     };
   } catch {
     return null;
@@ -141,6 +152,7 @@ async function fetchGreenhouseJD(url) {
       department: (job.departments || []).map((d) => d.name).join(", "),
       team: "",
       comp: null,
+      rawHtml: job.content || "",
     };
   } catch {
     return null;
@@ -193,6 +205,7 @@ async function fetchViaExa(url, title) {
       department: "",
       team: "",
       comp: null,
+      rawHtml: result.text || "",
     };
   } catch {
     return null;
@@ -226,6 +239,7 @@ async function fetchViaCompanyBoard(title, company) {
           department: match.department || "",
           team: match.team || "",
           comp: match.compensation,
+          rawHtml: match.descriptionHtml || "",
         };
       }
     }
@@ -257,6 +271,7 @@ async function fetchViaCompanyBoard(title, company) {
             department: (detail.departments || []).map((d) => d.name).join(", "),
             team: "",
             comp: null,
+            rawHtml: detail.content || "",
           };
         }
       }
@@ -266,12 +281,29 @@ async function fetchViaCompanyBoard(title, company) {
   return null;
 }
 
+// A real browser UA — some hosts (BuiltIn, VC boards) serve richer markup (incl. JSON-LD) to
+// browser-like clients. Matches the UA used to verify the comp-extraction audit.
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+/** Pull the longest JSON-LD JobPosting `description` (full JD) out of a raw page, or "". */
+function ldJobDescription(html) {
+  let best = "";
+  for (const jp of jsonLdBlocks(html).flatMap(findJobPostings)) {
+    if (typeof jp.description === "string") {
+      const d = stripTagsLd(jp.description);
+      if (d.length > best.length) best = d;
+    }
+  }
+  return best;
+}
+
 async function fetchViaHtml(url, title) {
-  // Generic HTML fetch — works for BuiltIn, YC, VC boards, etc.
+  // Generic HTML fetch — works for BuiltIn, YC, VC boards, aggregators, etc.
   try {
     const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; career-ops/1.0)" },
-      signal: AbortSignal.timeout(10000),
+      headers: { "User-Agent": BROWSER_UA },
+      signal: AbortSignal.timeout(12000),
       redirect: "follow",
     });
     if (!res.ok) return null;
@@ -285,9 +317,11 @@ async function fetchViaHtml(url, title) {
     const pageTitleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
     const pageTitle = pageTitleMatch ? pageTitleMatch[1].trim() : "";
 
-    // Try to find the JD section (heuristic: longest text block)
-    // For BuiltIn pages, the JD is usually after the company info
-    const jdText = text.length > 5000 ? text.slice(0, 5000) : text;
+    // Prefer the full JD from a JSON-LD JobPosting `description` over the truncated stripped-HTML
+    // blob — better quality for Claude, and it's the same JSON-LD extractComp() reads for comp.
+    const ldDesc = ldJobDescription(html);
+    const jdText =
+      ldDesc.length > 300 ? ldDesc.slice(0, 6000) : text.length > 5000 ? text.slice(0, 5000) : text;
 
     return {
       title: title || pageTitle,
@@ -298,6 +332,7 @@ async function fetchViaHtml(url, title) {
       department: "",
       team: "",
       comp: null,
+      rawHtml: html,
     };
   } catch {
     return null;
@@ -439,7 +474,142 @@ Analyze this role against the candidate's profile. Return ONLY valid JSON with t
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// CLI args + comp backfill mode (no Claude calls — just re-fetch HTML and re-run extractComp)
+// ---------------------------------------------------------------------------
+function argVal(name) {
+  const i = process.argv.indexOf(name);
+  return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined;
+}
+function parseArgs() {
+  const a = process.argv.slice(2);
+  return {
+    backfillComp: a.includes("--backfill-comp"),
+    host: argVal("--host"),
+    dryRun: a.includes("--dry-run"),
+    limit: Number(argVal("--limit")) || Infinity,
+    concurrency: Math.max(1, Number(argVal("--concurrency")) || 5),
+  };
+}
+
+function hostMatches(urlHost, target) {
+  if (target === "all") return true;
+  return urlHost === target || urlHost.endsWith("." + target);
+}
+
+async function fetchRawHtml(url) {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": BROWSER_UA },
+      signal: AbortSignal.timeout(12000),
+      redirect: "follow",
+    });
+    if (!res.ok) return { dead: true, reason: `HTTP ${res.status}` };
+    const finalUrl = res.url || url;
+    const html = await res.text();
+    if (html.length < 700) return { dead: true, reason: "body too short" };
+    const origHasJob = /\/jobs?\//.test(url);
+    const finalHasJob = /\/jobs?\//.test(finalUrl);
+    if (/[?&]error=true/.test(finalUrl) || (origHasJob && !finalHasJob)) {
+      return { dead: true, reason: "redirected away from posting" };
+    }
+    return { dead: false, html };
+  } catch (e) {
+    return { dead: true, reason: e?.name === "TimeoutError" ? "timeout" : e?.message || "fetch error" };
+  }
+}
+
+async function pMapLimit(items, limit, fn) {
+  for (let i = 0; i < items.length; i += limit) {
+    await Promise.all(items.slice(i, i + limit).map(fn));
+    if (i + limit < items.length) await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+function pctStr(n, d) {
+  return d ? `${Math.round((n / d) * 100)}%` : "0%";
+}
+function compCoverage(enrichments, host) {
+  let has = 0, enriched = 0;
+  for (const [url, e] of Object.entries(enrichments)) {
+    if (host !== "all" && !hostMatches(hostnameOf(url), host)) continue;
+    if (!e || typeof e !== "object" || "error" in e) continue;
+    enriched++;
+    if (isRealComp(e.comp_range)) has++;
+  }
+  return { has, enriched };
+}
+
+async function backfillComp(args) {
+  const host = (args.host || "builtin.com").toLowerCase();
+  console.log(`\n=== Comp Backfill — host=${host}${args.dryRun ? " (DRY-RUN)" : ""} — ${new Date().toISOString().slice(0, 10)} ===\n`);
+
+  const enrichments = loadJson(ENRICHMENT_PATH, {});
+  const targets = Object.keys(enrichments).filter((url) => hostMatches(hostnameOf(url), host));
+  console.log(`  Total enrichments: ${Object.keys(enrichments).length}`);
+  console.log(`  On host "${host}": ${targets.length}`);
+
+  const toFetch = [];
+  let nErr = 0, nStructured = 0;
+  for (const url of targets) {
+    const e = enrichments[url];
+    if (e && typeof e === "object" && "error" in e) { nErr++; continue; }
+    if (!shouldBackfill(e)) { nStructured++; continue; }
+    toFetch.push(url);
+  }
+  const slice = Number.isFinite(args.limit) ? toFetch.slice(0, args.limit) : toFetch;
+  console.log(`  Eligible (comp empty or Claude-sourced): ${toFetch.length}${slice.length < toFetch.length ? ` — processing ${slice.length} (--limit)` : ""}`);
+  console.log(`  Skipped — enrichment errors: ${nErr}, already structured: ${nStructured}\n`);
+  if (slice.length === 0) { console.log("  Nothing to do.\n"); return; }
+
+  const before = compCoverage(enrichments, host);
+  const stat = { recovered: 0, newlyHasComp: 0, qualitative: 0, stillNone: 0, dead: 0, bySource: {} };
+  let done = 0;
+
+  await pMapLimit(slice, args.concurrency, async (url) => {
+    const r = await fetchRawHtml(url);
+    done++;
+    const tag = `  [${String(done).padStart(String(slice.length).length)}/${slice.length}]`;
+    if (r.dead) { stat.dead++; process.stdout.write(`${tag} DEAD (${r.reason}) ${url}\n`); return; }
+    const ce = extractComp(r.html, url);
+    const prevReal = isRealComp(enrichments[url] && enrichments[url].comp_range);
+    const { changed, entry } = applyExtraction(enrichments[url], ce);
+    if (!changed) {
+      if (ce.comp_source === "none") stat.stillNone++;
+      process.stdout.write(`${tag} — (${ce.comp_source})\n`);
+      return;
+    }
+    if (ce.comp_source === "qualitative_only") {
+      stat.qualitative++;
+      process.stdout.write(`${tag} qualitative-only — tagged\n`);
+    } else {
+      stat.recovered++;
+      stat.bySource[ce.comp_source] = (stat.bySource[ce.comp_source] || 0) + 1;
+      if (!prevReal && isRealComp(entry.comp_range)) stat.newlyHasComp++;
+      process.stdout.write(`${tag} ${ce.comp_range}  [${ce.comp_source}]\n`);
+    }
+    if (!args.dryRun) {
+      enrichments[url] = entry;
+      if (done % 25 === 0) saveJson(ENRICHMENT_PATH, enrichments);
+    }
+  });
+
+  if (!args.dryRun) saveJson(ENRICHMENT_PATH, enrichments);
+  const afterHas = before.has + stat.newlyHasComp;
+
+  console.log(`\n  --- Summary (host=${host}${args.dryRun ? " — DRY-RUN, nothing written" : ""}) ---`);
+  console.log(`  Re-fetched:           ${slice.length}`);
+  console.log(`  Recovered:            ${stat.recovered}   by source: ${JSON.stringify(stat.bySource)}`);
+  console.log(`  Qualitative-only:     ${stat.qualitative} (tagged so they aren't re-fetched)`);
+  console.log(`  Still no comp:         ${stat.stillNone}`);
+  console.log(`  Dead / expired:       ${stat.dead}`);
+  console.log(`  Comp coverage on "${host}": ${before.has}/${before.enriched} (${pctStr(before.has, before.enriched)})  →  ${afterHas}/${before.enriched} (${pctStr(afterHas, before.enriched)})\n`);
+}
+
 async function main() {
+  const args = parseArgs();
+  if (args.backfillComp) return backfillComp(args);
+
   console.log(`\n=== Role Enrichment — ${new Date().toISOString().slice(0, 10)} ===\n`);
 
   const seenUrls = loadJson(SEEN_PATH, {});
@@ -531,12 +701,29 @@ async function main() {
       continue;
     }
 
+    // Deterministic comp extraction over whatever HTML/text we fetched — overrides Claude's
+    // comp_range when it has a stronger signal (structured JSON-LD baseSalary, or a comp range
+    // when Claude found nothing). See scripts/lib/extract-comp.mjs.
+    const claudeComp = typeof analysis.comp_range === "string" ? analysis.comp_range.trim() : "";
+    let comp_range = isRealComp(claudeComp) ? claudeComp : "Not listed";
+    let comp_source = isRealComp(claudeComp) ? "claude_extracted" : "none";
+    const ce = extractComp(jdData.rawHtml || jdData.description || "", url);
+    if (ce.comp_source === "jsonld_basesalary" || (ce.comp_range && isRealComp(ce.comp_range) && !isRealComp(comp_range))) {
+      comp_range = ce.comp_range;
+      comp_source = ce.comp_source;
+    } else if (ce.comp_source === "qualitative_only" && !isRealComp(comp_range)) {
+      comp_range = "Not listed";
+      comp_source = "qualitative_only";
+    }
+
     enrichments[url] = {
       ...analysis,
+      comp_range,
+      comp_source,
       timestamp: new Date().toISOString(),
     };
 
-    process.stdout.write(` ${analysis.fit_score}/10 — ${analysis.verdict?.slice(0, 60)}...\n`);
+    process.stdout.write(` ${analysis.fit_score}/10 [${comp_source}] — ${analysis.verdict?.slice(0, 50)}...\n`);
     enriched++;
 
     // Small delay to avoid rate limiting
