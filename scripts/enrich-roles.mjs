@@ -404,21 +404,37 @@ ${jdData.comp ? `**Compensation:** ${JSON.stringify(jdData.comp)}` : ""}
 ${jdText}
 
 ## Instructions
-Analyze this role against the candidate's profile. Return ONLY valid JSON with this exact structure:
+
+Analyze this role against the candidate's profile. Return ONLY a valid JSON object that matches the schema in the worked example below — same keys, same types, your values.
+
+Field semantics (apply these BEFORE filling the example shape; never copy these notes into the output):
+- comp_range: literal salary range as written in the JD (e.g. "$220K-$260K base"). If the JD has no salary, use the literal string "Not listed".
+- location: the city/region/remote policy as stated in the JD. If the JD does not state a location, use the literal string "Unknown". Do not invent or guess.
+- work_policy: one of "remote", "hybrid", "on-site", or "unknown".
+- stack: tools/platforms named in the JD. Empty array if none.
+- team_context: short factual phrase about reporting line and team size, only if the JD states it. Empty string otherwise.
+- green_flags / red_flags: arrays of short factual phrases grounded in the JD. Empty arrays if nothing applies. No speculation.
+- build_component: true if the role meaningfully involves building software/automations.
+- ai_signal: true if AI/ML is a stated part of the work.
+- company_stage: one of "Series A", "Series B", "Series C", "Series D+", "public", "private", or "unknown". Do not guess.
+- fit_score: integer 1-10.
+- verdict: 2-3 sentence factual assessment. No placeholder phrasing; if you cannot justify a claim from the JD, do not make it.
+
+Worked example (shape only — replace every value with your own analysis of this JD):
 
 {
-  "comp_range": "salary range if mentioned, or 'Not listed'",
-  "location": "NYC / Remote US / Hybrid NYC / San Francisco / On-site [City] / Remote — extract from JD text",
-  "work_policy": "remote / hybrid / on-site / not specified",
-  "stack": ["tool1", "tool2"],
-  "team_context": "who this reports to and team size if mentioned",
-  "green_flags": ["specific things from the JD that match the candidate's green flags"],
-  "red_flags": ["specific things from the JD that match the candidate's red flags, or gaps"],
-  "build_component": true or false,
-  "ai_signal": true or false,
-  "company_stage": "Series X / public / unknown — infer from JD if not stated",
-  "fit_score": 1-10 integer,
-  "verdict": "2-3 sentence assessment. Be specific about why this is or isn't a fit. Reference the candidate's actual experience and the JD's actual requirements."
+  "comp_range": "$220K-$260K base + 0.25% equity",
+  "location": "Remote US",
+  "work_policy": "remote",
+  "stack": ["Snowflake", "Hex", "dbt"],
+  "team_context": "Reports to Head of GTM Ops. Team of 4 RevOps engineers.",
+  "green_flags": ["RevOps-engineer title is an exact match", "early-stage SaaS, ~50 employees"],
+  "red_flags": ["Salesforce-only stack; no warehouse mentioned"],
+  "build_component": true,
+  "ai_signal": false,
+  "company_stage": "Series A",
+  "fit_score": 8,
+  "verdict": "Strong fit. The RevOps-engineering scope aligns with the candidate's prior GTM-systems work. Main gap is Salesforce-only tooling vs the warehouse-native stack the candidate has shipped on."
 }`;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
