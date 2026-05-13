@@ -33,6 +33,7 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { normalizeCompany, companyKey } from "./lib/normalize-company.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -56,10 +57,6 @@ const SOURCE_AUTO = "auto:applications";
 function loadJson(path, fallback) {
   if (!existsSync(path)) return fallback;
   try { return JSON.parse(readFileSync(path, "utf-8")); } catch { return fallback; }
-}
-
-function companyKey(c) {
-  return (c || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 // Parse applications.md → [{ num, date, company, role, score:(num|null), status, notes }]

@@ -11,6 +11,10 @@ import type {
 } from "./types";
 import { clusterForLocation, flattenLocation, parseLocationString } from "./location-clusters";
 import type { StructuredLocation } from "./location-clusters";
+import { normalizeCompany, companyKey } from "../../scripts/lib/normalize-company.mjs";
+
+// Re-export for dashboard consumers (`import { companyKey } from "@/lib/data"`).
+export { normalizeCompany, companyKey };
 
 const ROOT = join(process.cwd(), "..");
 
@@ -179,7 +183,11 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
     penalize?: Record<string, OverrideEntry>;
     block?: string[];
   }>(join(ROOT, "data", "score-overrides.json"), { boost: {}, penalize: {}, block: [] });
-  const companyKey = (c: string) => (c || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  // `companyKey` is the shared helper from scripts/lib/normalize-company.mjs
+  // (imported at the top of this file). The local lambda used to live here —
+  // removed in favor of the centralized version so alias-mapped names
+  // (OpenAI Inc / OpenAI, X / xAI, Norminal.So / Nominal, …) collapse to the
+  // same override slot, matching scan-jobs.mjs + sync-score-feedback.mjs.
   const clampScore = (n: number) => Math.max(1, Math.min(10, Math.round(n)));
 
   // Parse latest scan report for scores and metadata

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { exec } from "child_process";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -76,12 +76,12 @@ IMPORTANT: Your output must be the COMPLETE markdown document starting with "# I
     });
 
     child.on("close", (code) => {
-      try { require("fs").unlinkSync(tmpFile); } catch {}
+      try { unlinkSync(tmpFile); } catch {}
       resolve({ output, code: code ?? 1 });
     });
 
     child.on("error", () => {
-      try { require("fs").unlinkSync(tmpFile); } catch {}
+      try { unlinkSync(tmpFile); } catch {}
       resolve({ output: "", code: 1 });
     });
   });

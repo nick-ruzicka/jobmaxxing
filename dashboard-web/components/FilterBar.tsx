@@ -3,6 +3,7 @@
 import { X, Hammer, Cpu, MapPin } from "lucide-react";
 import type { Role, RoleStatus } from "@/lib/types";
 import { CLUSTER_META, CLUSTER_ORDER } from "@/lib/location-clusters";
+import { computeChipCounts } from "../../scripts/lib/chip-counts.mjs";
 
 const ALL_STATUSES: RoleStatus[] = [
   "Discovered", "Evaluated", "Applied", "Interview", "Offer", "Rejected", "Skipped",
@@ -71,26 +72,22 @@ function Chip({
 export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarProps) {
   const update = (partial: Partial<Filters>) => onChange({ ...filters, ...partial });
 
-  // Compute counts
-  const statusCounts: Record<string, number> = {};
-  const locBucketCounts: Record<string, number> = {};
-  let buildCount = 0;
-  let aiCount = 0;
-  let compCount = 0;
-  let staleCount = 0;
-  let aggCount = 0;
-
-  for (const r of roles) {
-    statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
-    const cl = r.location_cluster || "unknown";
-    locBucketCounts[cl] = (locBucketCounts[cl] || 0) + 1;
-    if (r.enrichment?.build_component) buildCount++;
-    if (r.enrichment?.ai_signal) aiCount++;
-    if (r.enrichment?.comp_range && r.enrichment.comp_range !== "Not listed") compCount++;
-    if (r.comp) compCount++;
-    if (r.stale) staleCount++;
-    if (r.source_tier === "aggregator") aggCount++;
-  }
+  // Compute counts via the shared pure helper. When the aggregator toggle is
+  // OFF (the default), chip counts compute over the non-aggregator subset so
+  // the visible chip numbers match the visible table rows.
+  const { statusCounts, locBucketCounts, buildCount, aiCount, compCount, staleCount, aggCount } =
+    computeChipCounts(roles, {
+      includeAggregator: filters.includeAggregator,
+      bucketRole: (r: unknown) => ((r as Role).location_cluster || "unknown"),
+    }) as {
+      statusCounts: Record<string, number>;
+      locBucketCounts: Record<string, number>;
+      buildCount: number;
+      aiCount: number;
+      compCount: number;
+      staleCount: number;
+      aggCount: number;
+    };
 
   const activeFilterCount =
     (filters.status !== "all" ? 1 : 0) +

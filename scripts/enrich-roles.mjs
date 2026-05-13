@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { normalizeCompany } from "./lib/normalize-company.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -497,6 +498,11 @@ async function main() {
       for (const p of parts) { if (roleWords.includes(p.toLowerCase())) break; coParts.push(p); }
       if (coParts.length > 0 && coParts.length <= 4) company = coParts.join("-");
     }
+
+    // Normalize company so alias-mapped lookups (Norminal.So → Nominal,
+    // OpenAI Inc → OpenAI, X.AI → xAI, etc.) hit the right Ashby/Greenhouse
+    // board slug downstream. See scripts/lib/normalize-company.mjs.
+    if (company) company = normalizeCompany(company) || company;
 
     // Clean title for matching
     const cleanedTitle = title
