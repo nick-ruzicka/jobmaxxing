@@ -59,9 +59,14 @@
   --radius-md: 8px;
   --radius-lg: 10px;
 
-  /* one shadow — floating layers only (dropdowns / popovers). 1px borders do
-     the rest of the elevation work. */
+  /* Floating layers — dropdowns / popovers. */
   --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
+
+  /* Headline elevation — used by hero KPI tiles on Pipeline. 1px below +
+     an inset 1px highlight above to simulate a top-light source on dark
+     surfaces. Restrained enough that 1px borders still do most of the
+     elevation work; this is the only step up. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.035);
 
   /* motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);

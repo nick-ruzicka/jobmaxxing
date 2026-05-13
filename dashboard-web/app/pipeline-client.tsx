@@ -18,7 +18,7 @@ interface PipelinePageProps {
 }
 
 /** Lives inside <Shell> so it can read the scan controls from context. */
-function PipelineHeader({ roleCount }: { roleCount: number }) {
+function PipelineHeader({ roleCount, lastScanDate }: { roleCount: number; lastScanDate: string }) {
   const { runScan, scanRunning } = useScan();
   return (
     <PageHeader
@@ -26,6 +26,13 @@ function PipelineHeader({ roleCount }: { roleCount: number }) {
       subtitle={`${roleCount} ${roleCount === 1 ? "role" : "roles"}`}
       actions={
         <>
+          {lastScanDate && (
+            // Demoted from a stat card to incidental metadata — it's not a KPI,
+            // it's a freshness marker on the action that produced the data.
+            <span className="mr-1 hidden text-[12px] tabular-nums text-text-muted sm:inline">
+              Last scan: {lastScanDate}
+            </span>
+          )}
           <Button
             variant="secondary"
             onClick={() => runScan("scan")}
@@ -66,6 +73,7 @@ export function PipelinePage({
     const active = r0.filter((r) => r.status !== "Rejected" && r.status !== "Skipped");
     const pursuing = active.filter((r) => r.status !== "Discovered");
     const interviews = r0.filter((r) => r.status === "Interview");
+    const offers = r0.filter((r) => r.status === "Offer");
     const scores = r0.map((r) => r.score).filter((s) => s > 0);
     const avgScore = scores.length > 0
       ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
@@ -77,6 +85,7 @@ export function PipelinePage({
       totalDiscovered: actionable.length,
       activelyPursuing: pursuing.length,
       interviews: interviews.length,
+      offers: offers.length,
       avgScore,
       nycCount: r0.filter((r) => r.location_cluster === "nyc").length,
       remoteCount: r0.filter((r) => r.location_cluster === "remote").length,
@@ -113,7 +122,7 @@ export function PipelinePage({
       signalCount={signalCount}
       hasWarmLeads={serverMeta.hasWarmLeads}
     >
-      <PipelineHeader roleCount={pipelineCount} />
+      <PipelineHeader roleCount={pipelineCount} lastScanDate={stats.lastScanDate} />
       <div className="space-y-6">
         <StatStrip stats={stats} />
         <PipelineTable
