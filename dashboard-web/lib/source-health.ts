@@ -60,7 +60,7 @@ export const AUDIT_FINDINGS: Record<string, AuditFinding> = {
   "builtin.com": {
     recoveryRate: 0.8,
     diagnosis:
-      'JSON-LD JobPosting script type was HTML-entity-encoded (type="application/ld&#x2B;json") with JobPosting nested in an @graph array — naive parsers missed it. Fixed in Fix #5a (2026-05-13): coverage 11% → 56%. ~157 rows remain WAF-throttled (5+ consecutive 403s after ~100 rapid requests); will recover under --cooldown-on-403 once the WAF cools.',
+      'JSON-LD JobPosting script type was HTML-entity-encoded (type="application/ld&#x2B;json") with JobPosting nested in an @graph array — naive parsers missed it. Fixed in Fix #5a (2026-05-13): coverage 11% → 83% across two backfill passes (224/401 → 334/401). The second pass used --cooldown-on-403 120 at concurrency 1 to absorb the WAF rate-limit; recovered an additional 120 rows (81 jsonld_basesalary + 36 jd_estimate + 3 jsonld_description) and the cooldown flag triggered 5 times. 35 rows remain WAF-blocked (HTTP 403 even with cooldown); they will recover on a future pass once the WAF cools further.',
     fixId: "5a",
     fixLabel:
       "BuiltIn JSON-LD parser — decode &#x2B; in the script type, walk @graph, read baseSalary (minValue/maxValue and single-value scalar forms); fall back to the fa-sack-dollar strip labelled (est.).",
