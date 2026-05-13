@@ -132,7 +132,7 @@ function computeDesired(appRows, claudeFit) {
       agg.rows[0];
     const fit = claudeFit[ck];
     const fitStr = typeof fit === "number" ? `${fit}/10` : "?";
-    const notesStr = repRow.notes ? repRow.notes.replace(/\s+/g, " ").slice(0, 120) : "—";
+    const notesStr = repRow.notes ? repRow.notes.replace(/\s+/g, " ").slice(0, 240) : "—";
     const mkReason = (tag) =>
       `auto:applications | ${tag} | status=${repRow.status || "—"} | date=${repRow.date || "—"} | notes=${notesStr} | claude=${fitStr}`;
 
@@ -266,7 +266,9 @@ if (changes.length === 0) {
   const adds = changes.filter((c) => c.op === "add").length;
   const rms = changes.filter((c) => c.op === "remove").length;
   const ups = changes.filter((c) => c.op === "update").length;
-  const conflicts = changes.filter((c) => /CONFLICT/.test(c.detail || "")).length;
+  // count only fresh conflicts (the "⚠ CONFLICT" marker on add/update) — not the word
+  // "CONFLICT" echoed inside an old reason string in a removal message
+  const conflicts = changes.filter((c) => (c.op === "add" || c.op === "update") && /⚠ CONFLICT/.test(c.detail || "")).length;
   console.log(`Summary: +${adds} added, -${rms} removed, ~${ups} updated${conflicts ? `, ${conflicts} CONFLICT` : ""}`);
 }
 
