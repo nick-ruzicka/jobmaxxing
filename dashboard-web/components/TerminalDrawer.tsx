@@ -20,33 +20,24 @@ export function TerminalDrawer({ open, output, onClose, running }: TerminalDrawe
   if (!open) return null;
 
   return (
-    <div
-      className="fixed bottom-0 left-60 right-0 z-30"
-      style={{ background: "var(--surface-0)", borderTop: "1px solid var(--border-default)", boxShadow: "var(--shadow-xl)" }}
-    >
-      <div
-        className="flex items-center justify-between px-4 py-2"
-        style={{ borderBottom: "1px solid var(--border-subtle)" }}
-      >
-        <div className="flex items-center gap-2 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+    <div className="fixed bottom-0 left-60 right-0 z-30 border-t border-border-default bg-surface-0 shadow-1">
+      <div className="flex items-center justify-between border-b border-border-subtle px-4 py-2">
+        <div className="flex items-center gap-2 text-[12px] text-text-tertiary">
           <Terminal size={13} />
-          <span>{running ? "Scan running..." : "Scan complete"}</span>
-          {running && <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: "var(--emerald)" }} />}
+          <span>{running ? "Scan running…" : "Scan complete"}</span>
+          {running && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald" />}
         </div>
         <button
+          type="button"
           onClick={onClose}
-          className="rounded p-1 transition-colors"
-          style={{ color: "var(--text-muted)" }}
+          aria-label="Close terminal"
+          className="rounded-sm p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-secondary"
         >
           <X size={13} />
         </button>
       </div>
-      <pre
-        ref={scrollRef}
-        className="h-48 overflow-y-auto px-4 py-3 text-[12px] leading-relaxed"
-        style={{ color: "var(--emerald)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
-      >
-        {output || "Starting scan..."}
+      <pre ref={scrollRef} className="h-48 overflow-y-auto px-4 py-3 font-mono text-[12px] leading-relaxed text-emerald">
+        {output || "Starting scan…"}
       </pre>
     </div>
   );

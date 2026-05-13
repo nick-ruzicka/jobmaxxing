@@ -21,6 +21,7 @@ import {
 import type { Role } from "@/lib/types";
 import type { InterviewPrep } from "@/lib/data";
 import { Shell } from "@/components/Shell";
+import { PageHeader, SectionLabel, Badge, Button, EmptyState } from "@/components/ui";
 
 interface InterviewsPageProps {
   preps: InterviewPrep[];
@@ -60,7 +61,6 @@ function MeetingNotesBox({ slug, initialNotes }: { slug: string; initialNotes: s
   }, [slug, notes]);
 
   const handleProcess = useCallback(async () => {
-    // Save first, then process
     await fetch("/api/save-notes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -68,7 +68,7 @@ function MeetingNotesBox({ slug, initialNotes }: { slug: string; initialNotes: s
     });
 
     setProcessing(true);
-    setProcessOutput("Sending to Opus 4.6... this takes 30-90 seconds.");
+    setProcessOutput("Sending to Opus… this takes 30-90 seconds.");
 
     try {
       const res = await fetch("/api/process-notes", {
@@ -76,10 +76,9 @@ function MeetingNotesBox({ slug, initialNotes }: { slug: string; initialNotes: s
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug }),
       });
-
       const data = await res.json();
       if (data.ok) {
-        setProcessOutput(data.message + " Reloading...");
+        setProcessOutput(data.message + " Reloading…");
         setTimeout(() => window.location.reload(), 1500);
       } else {
         const msg = data.message || data.error || "Unknown error";
@@ -94,54 +93,32 @@ function MeetingNotesBox({ slug, initialNotes }: { slug: string; initialNotes: s
   }, [slug, notes]);
 
   return (
-    <div className="border-b border-[var(--border-subtle)] px-4 py-3">
-      <div className="flex items-center gap-2 mb-2">
-        <StickyNote size={14} className="text-violet-400" />
-        <span className="text-xs font-medium  text-[var(--text-muted)]">
-          Meeting Notes
-        </span>
-        <span className="text-[10px] text-[var(--text-muted)] ml-1">
-          Paste Granola notes, recruiter intel, comp conversations
-        </span>
+    <div className="border-b border-border-subtle px-4 py-3">
+      <div className="mb-2 flex items-center gap-2">
+        <StickyNote size={14} className="text-text-tertiary" />
+        <span className="text-[12px] font-medium text-text-secondary">Meeting notes</span>
+        <span className="ml-1 text-[11px] text-text-muted">Paste Granola notes, recruiter intel, comp conversations</span>
       </div>
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="Paste meeting notes here... recruiter screen details, comp discussions, interviewer names, anything useful for prep."
+        placeholder="Paste meeting notes here… recruiter screen details, comp discussions, interviewer names, anything useful for prep."
         rows={4}
-        className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-sm text-[var(--text-secondary)] placeholder:text-[var(--text-muted)] focus:border-indigo-500/30 focus:outline-none resize-y"
+        className="w-full resize-y rounded-md border border-border-subtle bg-surface-1 px-3 py-2 text-[13px] text-text-secondary placeholder:text-text-muted"
       />
-      <div className="flex items-center gap-2 mt-2">
-        <button
-          onClick={handleSave}
-          disabled={saving || processing}
-          className="flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-2)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:border-indigo-500/30 transition-colors disabled:opacity-50"
-        >
-          {saving ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : (
-            <Save size={12} />
-          )}
-          {saving ? "Saving..." : "Save Notes"}
-        </button>
-        <button
-          onClick={handleProcess}
-          disabled={processing || !notes.trim()}
-          className="flex items-center gap-1.5 rounded-md bg-violet-500/15 border border-violet-500/20 px-3 py-1.5 text-xs text-violet-400 hover:bg-violet-500/25 transition-colors disabled:opacity-50"
-        >
-          {processing ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : (
-            <Sparkles size={12} />
-          )}
-          {processing ? "Enhancing with Opus..." : "Enhance Prep with Notes"}
-        </button>
-        {saved && (
-          <span className="text-xs text-emerald-400">Saved to prep doc</span>
-        )}
+      <div className="mt-2 flex items-center gap-2">
+        <Button variant="secondary" size="sm" onClick={handleSave} disabled={saving || processing}>
+          {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+          {saving ? "Saving…" : "Save notes"}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={handleProcess} disabled={processing || !notes.trim()}>
+          {processing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+          {processing ? "Enhancing with Opus…" : "Enhance prep with notes"}
+        </Button>
+        {saved && <span className="text-[12px] text-emerald">Saved to prep doc</span>}
       </div>
       {processOutput && (
-        <pre className="mt-2 max-h-40 overflow-y-auto rounded-md bg-[var(--surface-1)] border border-[var(--border-subtle)] p-2 text-[11px] text-[var(--text-muted)] font-mono whitespace-pre-wrap">
+        <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border-subtle bg-surface-1 p-2 font-mono text-[11px] text-text-muted">
           {processOutput.slice(-500)}
         </pre>
       )}
@@ -149,38 +126,26 @@ function MeetingNotesBox({ slug, initialNotes }: { slug: string; initialNotes: s
   );
 }
 
-function GeneratePrepButton({
-  company,
-  role,
-  url,
-}: {
-  company: string;
-  role: string;
-  url?: string;
-}) {
+function GeneratePrepButton({ company, role, url }: { company: string; role: string; url?: string }) {
   const [generating, setGenerating] = useState(false);
   const [output, setOutput] = useState("");
 
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
     setOutput("");
-
     try {
       const res = await fetch("/api/generate-prep", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ company, role, url }),
       });
-
       if (!res.body) {
         setOutput("Error: no response");
         setGenerating(false);
         return;
       }
-
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -195,20 +160,12 @@ function GeneratePrepButton({
 
   return (
     <div>
-      <button
-        onClick={handleGenerate}
-        disabled={generating}
-        className="flex items-center gap-1.5 rounded-md bg-indigo-500/15 border border-indigo-500/20 px-3 py-1.5 text-xs text-indigo-400 hover:bg-indigo-500/25 transition-colors disabled:opacity-50"
-      >
-        {generating ? (
-          <Loader2 size={12} className="animate-spin" />
-        ) : (
-          <Sparkles size={12} />
-        )}
-        {generating ? "Generating..." : "Generate Prep Doc"}
-      </button>
+      <Button variant="secondary" size="sm" onClick={handleGenerate} disabled={generating}>
+        {generating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+        {generating ? "Generating…" : "Generate prep doc"}
+      </Button>
       {output && (
-        <pre className="mt-2 max-h-32 overflow-y-auto rounded-md bg-[var(--surface-1)] border border-[var(--border-subtle)] p-2 text-[11px] text-[var(--text-muted)] font-mono">
+        <pre className="mt-2 max-h-32 overflow-y-auto rounded-md border border-border-subtle bg-surface-1 p-2 font-mono text-[11px] text-text-muted">
           {output}
         </pre>
       )}
@@ -216,54 +173,38 @@ function GeneratePrepButton({
   );
 }
 
-const SECTION_ICONS: Record<string, React.ReactNode> = {
-  "Company Quick Brief": <Briefcase size={14} className="text-indigo-400" />,
-  "Why This Role Fits You": <Target size={14} className="text-emerald-400" />,
-  "STAR+R Stories Ready to Deploy": <BookOpen size={14} className="text-amber-400" />,
-  "Questions THEY Will Ask You": <MessageSquare size={14} className="text-sky-400" />,
-  "Questions YOU Should Ask Them": <HelpCircle size={14} className="text-violet-400" />,
-  "Red Flag Watch": <AlertTriangle size={14} className="text-red-400" />,
-  "Salary Negotiation Prep": <DollarSign size={14} className="text-emerald-400" />,
-  "Pre-Interview Checklist": <Target size={14} className="text-amber-400" />,
-  "Meeting Notes": <StickyNote size={14} className="text-violet-400" />,
-};
+// Per-section glyphs — monochrome (tints are reserved for badges that carry meaning).
+const SECTION_ICONS: { key: string; icon: React.ReactNode }[] = [
+  { key: "Company Quick Brief", icon: <Briefcase size={14} /> },
+  { key: "Why This Role Fits", icon: <Target size={14} /> },
+  { key: "STAR+R Stories", icon: <BookOpen size={14} /> },
+  { key: "Questions THEY", icon: <MessageSquare size={14} /> },
+  { key: "Questions YOU", icon: <HelpCircle size={14} /> },
+  { key: "Red Flag", icon: <AlertTriangle size={14} /> },
+  { key: "Salary", icon: <DollarSign size={14} /> },
+  { key: "Pre-Interview Checklist", icon: <Target size={14} /> },
+];
 
-function getIcon(heading: string) {
-  for (const [key, icon] of Object.entries(SECTION_ICONS)) {
-    if (heading.includes(key)) return icon;
-  }
-  return <ChevronRight size={14} className="text-[var(--text-muted)]" />;
+function getIcon(heading: string): React.ReactNode {
+  const match = SECTION_ICONS.find((s) => heading.includes(s.key));
+  return <span className="text-text-tertiary">{match ? match.icon : <ChevronRight size={14} />}</span>;
 }
 
-function PrepSection({
-  heading,
-  content,
-  defaultOpen,
-}: {
-  heading: string;
-  content: string;
-  defaultOpen: boolean;
-}) {
+function PrepSection({ heading, content, defaultOpen }: { heading: string; content: string; defaultOpen: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
-
   return (
-    <div className="border-b border-[var(--border-subtle)] last:border-b-0">
+    <div className="border-b border-border-subtle last:border-b-0">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-[var(--surface-3)]/50 transition-colors"
+        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-surface-3"
       >
         {getIcon(heading)}
-        <span className="flex-1 text-sm font-medium text-[var(--text-primary)]">
-          {heading}
-        </span>
-        {open ? (
-          <ChevronDown size={14} className="text-[var(--text-muted)]" />
-        ) : (
-          <ChevronRight size={14} className="text-[var(--text-muted)]" />
-        )}
+        <span className="flex-1 text-[14px] font-semibold tracking-[-0.01em] text-text-primary">{heading}</span>
+        {open ? <ChevronDown size={14} className="text-text-muted" /> : <ChevronRight size={14} className="text-text-muted" />}
       </button>
       {open && (
-        <div className="px-4 pb-4 text-sm text-[var(--text-tertiary)] leading-relaxed whitespace-pre-wrap">
+        <div className="whitespace-pre-wrap px-4 pb-4 text-[13px] leading-relaxed text-text-tertiary">
           {renderMarkdown(content)}
         </div>
       )}
@@ -272,14 +213,13 @@ function PrepSection({
 }
 
 function highlightRecruiterTags(text: string): React.ReactNode {
-  // Split on recruiter/meeting notes markers and highlight them
   const parts = text.split(/(\(per (?:recruiter|meeting notes)\))/gi);
   if (parts.length === 1) return text;
   return parts.map((part, i) =>
     /^\(per (?:recruiter|meeting notes)\)$/i.test(part) ? (
       <span
         key={i}
-        className="inline-flex items-center rounded bg-violet-500/15 border border-violet-500/20 px-1.5 py-0 text-[10px] font-medium text-violet-400 ml-1"
+        className="ml-1 inline-flex items-center rounded-sm border border-violet-border bg-violet-dim px-1 py-0 text-[11px] font-medium text-violet"
       >
         {part}
       </span>
@@ -290,35 +230,52 @@ function highlightRecruiterTags(text: string): React.ReactNode {
 }
 
 function renderMarkdown(text: string) {
-  // Simple markdown rendering for interview prep content
   return text.split("\n").map((line, i) => {
-    // Headers (### level)
+    // Checkbox items (must come before the generic "- " case)
+    if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
+      const checked = line.startsWith("- [x] ");
+      return (
+        <label key={i} className="mt-1.5 ml-1 flex items-center gap-2">
+          <input
+            type="checkbox"
+            defaultChecked={checked}
+            className="h-3.5 w-3.5 shrink-0 rounded-sm accent-[var(--color-accent-strong)]"
+          />
+          <span className={checked ? "text-text-muted line-through" : ""}>{line.slice(6)}</span>
+        </label>
+      );
+    }
+    // ### headers — numbered ones (the "questions they'll ask") render as a numbered list, not 14 <h3>s
+    const numberedQ = line.match(/^### (\d+)\.\s+(.+)$/);
+    if (numberedQ) {
+      return (
+        <p key={i} className="mt-3">
+          <span className="mr-1.5 tabular-nums text-text-muted">{numberedQ[1]}.</span>
+          <span className="font-medium text-text-secondary">{numberedQ[2].replace(/\*\*/g, "")}</span>
+        </p>
+      );
+    }
     if (line.startsWith("### ")) {
       return (
-        <h3 key={i} className="mt-4 mb-1 text-sm font-semibold text-[var(--text-primary)]">
+        <h3 key={i} className="mt-4 mb-1 text-[13px] font-semibold tracking-[-0.01em] text-text-primary">
           {line.slice(4)}
         </h3>
       );
     }
-    // Bold text
+    // Bold label paragraphs
     if (line.startsWith("**") && line.includes(":**")) {
       const [label, ...rest] = line.split(":**");
       return (
         <p key={i} className="mt-1">
-          <span className="font-medium text-[var(--text-secondary)]">
-            {label.replace(/^\*\*/, "")}:
-          </span>{" "}
+          <span className="font-medium text-text-secondary">{label.replace(/^\*\*/, "")}:</span>{" "}
           <span>{rest.join(":**").replace(/\*\*/g, "")}</span>
         </p>
       );
     }
-    // Blockquotes
+    // Blockquotes — neutral left rule (a blockquote idiom, not card decoration)
     if (line.startsWith("> ")) {
       return (
-        <blockquote
-          key={i}
-          className="mt-1 border-l-2 border-indigo-500/30 pl-3 italic text-[var(--text-muted)]"
-        >
+        <blockquote key={i} className="mt-1 border-l-2 border-border-strong pl-3 italic text-text-muted">
           {line.slice(2).replace(/"/g, "")}
         </blockquote>
       );
@@ -340,43 +297,20 @@ function renderMarkdown(text: string) {
         </li>
       );
     }
-    // Checkbox items
-    if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
-      const checked = line.startsWith("- [x] ");
-      return (
-        <label key={i} className="flex items-center gap-2 mt-1 ml-2">
-          <input
-            type="checkbox"
-            defaultChecked={checked}
-            className="rounded border-[var(--border-subtle)] bg-[var(--surface-1)]"
-          />
-          <span className={checked ? "line-through text-[var(--text-muted)]" : ""}>
-            {line.slice(6)}
-          </span>
-        </label>
-      );
-    }
-    // Table rows (display as key-value)
+    // Table rows → key/value pair
     if (line.startsWith("| **") && line.includes("|")) {
-      const cols = line
-        .split("|")
-        .map((c) => c.trim())
-        .filter(Boolean);
+      const cols = line.split("|").map((c) => c.trim()).filter(Boolean);
       if (cols.length >= 2) {
         return (
           <div key={i} className="mt-1 flex gap-2">
-            <span className="font-medium text-[var(--text-secondary)] min-w-[80px]">
-              {cols[0].replace(/\*\*/g, "")}
-            </span>
+            <span className="min-w-[80px] font-medium text-text-secondary">{cols[0].replace(/\*\*/g, "")}</span>
             <span className="flex-1">{cols[1]}</span>
           </div>
         );
       }
     }
-    // Empty line
-    if (line.trim() === "" || line.startsWith("| Element") || line.startsWith("|--")) {
-      return null;
-    }
+    // Drop empty / table-chrome lines
+    if (line.trim() === "" || line.startsWith("| Element") || line.startsWith("|--")) return null;
     // Regular paragraph
     return line.trim() ? (
       <p key={i} className="mt-1">
@@ -397,19 +331,21 @@ export function InterviewsPage({
   signalCount,
   hasWarmLeads,
 }: InterviewsPageProps) {
-  const [selectedPrep, setSelectedPrep] = useState<string | null>(
-    preps.length > 0 ? preps[0].slug : null
-  );
+  const [selectedPrep, setSelectedPrep] = useState<string | null>(preps.length > 0 ? preps[0].slug : null);
   const [showStoryBank, setShowStoryBank] = useState(false);
 
   const currentPrep = preps.find((p) => p.slug === selectedPrep);
-
-  // Sections to show expanded by default
-  const prioritySections = [
-    "Why This Role Fits You",
-    "Questions THEY Will Ask You",
-    "Pre-Interview Checklist",
+  // Dedupe by URL — interviewRoles can carry the same posting twice (so `id`, a hash of the
+  // URL, collides) — keep the first.
+  const needsPrep = [
+    ...new Map(
+      interviewRoles
+        .filter((r) => !preps.some((p) => p.company.toLowerCase() === r.company.toLowerCase()))
+        .map((r) => [r.url, r])
+    ).values(),
   ];
+
+  const prioritySections = ["Why This Role Fits You", "Questions THEY Will Ask You", "Pre-Interview Checklist"];
 
   return (
     <Shell
@@ -419,121 +355,110 @@ export function InterviewsPage({
       signalCount={signalCount}
       hasWarmLeads={hasWarmLeads}
     >
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-[var(--text-primary)] flex items-center gap-2">
-            <Mic size={20} className="text-indigo-400" />
-            Interview Prep
-          </h1>
-          <div className="flex items-center gap-4 text-xs text-[var(--text-muted)]">
-            <span>{interviewCount} active interview{interviewCount !== 1 ? "s" : ""}</span>
-            <span>{preps.length} prep doc{preps.length !== 1 ? "s" : ""}</span>
-          </div>
-        </div>
+      <PageHeader
+        icon={<Mic size={16} className="text-text-tertiary" />}
+        title="Interview Prep"
+        subtitle={`${interviewCount} active interview${interviewCount !== 1 ? "s" : ""} · ${preps.length} prep doc${preps.length !== 1 ? "s" : ""}`}
+      />
 
+      <div className="space-y-6">
         {/* Interview roles without prep docs */}
-        {interviewRoles.filter((r) => !preps.some((p) => p.company.toLowerCase() === r.company.toLowerCase())).length > 0 && (
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-            <div className="text-xs font-medium text-amber-400 mb-2">Needs prep doc</div>
-            {interviewRoles
-              .filter((r) => !preps.some((p) => p.company.toLowerCase() === r.company.toLowerCase()))
-              .map((r) => (
-                <div key={r.id} className="flex items-center justify-between py-1">
-                  <span className="text-sm text-[var(--text-tertiary)]">
-                    {r.company} — {r.title}
-                  </span>
-                  <GeneratePrepButton
-                    company={r.company}
-                    role={r.title}
-                    url={r.url}
-                  />
+        {needsPrep.length > 0 && (
+          <div className="rounded-lg border border-border-subtle bg-surface-2 px-4 py-3">
+            <SectionLabel icon={<AlertTriangle size={12} className="text-amber" />} className="mb-2">
+              Needs prep doc
+            </SectionLabel>
+            <div className="space-y-1">
+              {needsPrep.map((r) => (
+                // key on the URL, not r.id — id is only the first ~9 chars of the URL base64'd,
+                // so every "https://b…" posting collides on it (a latent lib/data.ts bug).
+                <div key={r.url} className="flex items-center justify-between gap-3 py-1">
+                  <span className="text-[13px] text-text-tertiary">{r.company} — {r.title}</span>
+                  <GeneratePrepButton company={r.company} role={r.title} url={r.url} />
                 </div>
               ))}
+            </div>
           </div>
         )}
 
         {preps.length === 0 ? (
-          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-8 text-center">
-            <Mic size={32} className="mx-auto mb-3 text-[var(--text-muted)]" />
-            <p className="text-sm text-[var(--text-muted)]">
-              No interview prep docs yet. Run{" "}
-              <code className="rounded bg-[var(--border-subtle)] px-1.5 py-0.5 text-xs text-indigo-400">
-                /career-ops
-              </code>{" "}
-              with a role to generate one.
-            </p>
+          <div className="rounded-lg border border-border-subtle bg-surface-2">
+            <EmptyState
+              icon={<Mic size={28} />}
+              title="No interview prep docs yet"
+              description={
+                <>
+                  Run <code className="rounded-sm bg-surface-3 px-1.5 py-0.5 font-mono text-[11px] text-text-secondary">/career-ops</code> with a role to generate one.
+                </>
+              }
+            />
           </div>
         ) : (
           <div className="flex gap-6">
-            {/* Sidebar — prep doc list */}
-            <div className="w-56 flex-shrink-0 space-y-2">
-              {preps.map((p) => (
-                <button
-                  key={p.slug}
-                  onClick={() => {
-                    setSelectedPrep(p.slug);
-                    setShowStoryBank(false);
-                  }}
-                  className={`flex w-full flex-col items-start rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                    selectedPrep === p.slug && !showStoryBank
-                      ? "border-indigo-500/30 bg-indigo-500/10"
-                      : "border-[var(--border-subtle)] bg-[var(--surface-2)] hover:border-[#2e2e3e]"
-                  }`}
-                >
-                  <span className="text-sm font-medium text-[var(--text-primary)]">
-                    {p.company}
-                  </span>
-                  <span className="text-xs text-[var(--text-muted)] truncate w-full">
-                    {p.role}
-                  </span>
-                </button>
-              ))}
+            {/* Left rail — prep docs, then Story Bank under its own label */}
+            <div className="w-56 flex-shrink-0 space-y-5">
+              <div className="space-y-1">
+                <SectionLabel className="mb-2 px-1">Prep docs</SectionLabel>
+                {preps.map((p) => {
+                  const active = selectedPrep === p.slug && !showStoryBank;
+                  return (
+                    <button
+                      key={p.slug}
+                      type="button"
+                      onClick={() => { setSelectedPrep(p.slug); setShowStoryBank(false); }}
+                      aria-pressed={active}
+                      className={`flex w-full flex-col items-start rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                        active
+                          ? "border-accent-border bg-accent-dim"
+                          : "border-border-subtle bg-surface-2 hover:border-border-default hover:bg-surface-3"
+                      }`}
+                    >
+                      <span className="text-[13px] font-medium text-text-primary">{p.company}</span>
+                      <span className="w-full truncate text-[12px] text-text-muted">{p.role}</span>
+                    </button>
+                  );
+                })}
+              </div>
 
-              {/* Story Bank */}
               {storyBank && (
-                <button
-                  onClick={() => {
-                    setShowStoryBank(true);
-                    setSelectedPrep(null);
-                  }}
-                  className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                    showStoryBank
-                      ? "border-amber-500/30 bg-amber-500/10"
-                      : "border-[var(--border-subtle)] bg-[var(--surface-2)] hover:border-[#2e2e3e]"
-                  }`}
-                >
-                  <BookOpen size={14} className="text-amber-400" />
-                  <span className="text-sm font-medium text-[var(--text-primary)]">
-                    Story Bank
-                  </span>
-                </button>
+                <div className="space-y-1 border-t border-border-subtle pt-4">
+                  <SectionLabel className="mb-2 px-1">Reference</SectionLabel>
+                  <button
+                    type="button"
+                    onClick={() => { setShowStoryBank(true); setSelectedPrep(null); }}
+                    aria-pressed={showStoryBank}
+                    className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                      showStoryBank
+                        ? "border-accent-border bg-accent-dim"
+                        : "border-border-subtle bg-surface-2 hover:border-border-default hover:bg-surface-3"
+                    }`}
+                  >
+                    <BookOpen size={14} className="text-text-tertiary" />
+                    <span className="text-[13px] font-medium text-text-primary">Story Bank</span>
+                  </button>
+                </div>
               )}
             </div>
 
             {/* Main content */}
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               {showStoryBank ? (
-                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)]">
-                  <div className="border-b border-[var(--border-subtle)] px-4 py-3 flex items-center gap-2">
-                    <BookOpen size={16} className="text-amber-400" />
-                    <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-                      Story Bank
-                    </h2>
-                    <span className="text-xs text-[var(--text-muted)] ml-auto">
-                      Reusable STAR+R stories across all interviews
-                    </span>
+                <div className="rounded-lg border border-border-subtle bg-surface-2">
+                  <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
+                    <BookOpen size={14} className="text-text-tertiary" />
+                    <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-text-primary">Story Bank</h2>
+                    <span className="ml-auto text-[12px] text-text-muted">Reusable STAR+R stories across all interviews</span>
                   </div>
-                  <div className="p-4 text-sm text-[var(--text-tertiary)] leading-relaxed whitespace-pre-wrap">
+                  <div className="whitespace-pre-wrap p-4 text-[13px] leading-relaxed text-text-tertiary">
                     {renderMarkdown(storyBank)}
                   </div>
                 </div>
               ) : currentPrep ? (
-                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)]">
+                <div className="rounded-lg border border-border-subtle bg-surface-2">
                   {/* Prep header */}
-                  <div className="border-b border-[var(--border-subtle)] px-4 py-3">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-base font-semibold text-[var(--text-primary)]">
+                  <div className="border-b border-border-subtle px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-text-primary">
                         {currentPrep.company} — {currentPrep.role}
                       </h2>
                       {currentPrep.content.match(/\*\*URL:\*\*\s*(.+)/)?.[1] && (
@@ -541,38 +466,32 @@ export function InterviewsPage({
                           href={currentPrep.content.match(/\*\*URL:\*\*\s*(.+)/)?.[1]?.trim()}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300"
+                          className="flex shrink-0 items-center gap-1 text-[12px] text-accent transition-colors hover:underline"
                         >
                           <ExternalLink size={12} />
                           View JD
                         </a>
                       )}
                     </div>
-                    {/* Extract status line */}
-                    <div className="mt-1 flex items-center gap-3">
+                    <div className="mt-1 flex items-center gap-2">
                       {currentPrep.content.match(/\*\*Status:\*\*\s*(.+)/)?.[1] && (
-                        <span className="text-xs text-amber-400">
+                        <span className="text-[12px] text-amber">
                           {currentPrep.content.match(/\*\*Status:\*\*\s*(.+)/)?.[1]?.trim()}
                         </span>
                       )}
                       {currentPrep.content.match(/\*\*Enhanced:\*\*\s*(.+)/)?.[1] && (
-                        <span className="flex items-center gap-1 text-[10px] text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded px-1.5 py-0.5">
-                          <Sparkles size={10} />
+                        <Badge color="violet" icon={<Sparkles size={10} />}>
                           Enhanced {currentPrep.content.match(/\*\*Enhanced:\*\*\s*(.+)/)?.[1]?.trim()}
-                        </span>
+                        </Badge>
                       )}
                     </div>
                   </div>
 
-                  {/* Meeting notes input */}
                   <MeetingNotesBox
                     slug={currentPrep.slug}
-                    initialNotes={
-                      currentPrep.sections.find((s) => s.heading === "Meeting Notes")?.content || ""
-                    }
+                    initialNotes={currentPrep.sections.find((s) => s.heading === "Meeting Notes")?.content || ""}
                   />
 
-                  {/* Collapsible sections */}
                   <div>
                     {currentPrep.sections
                       .filter((s) => s.heading !== "Meeting Notes")
@@ -581,9 +500,7 @@ export function InterviewsPage({
                           key={i}
                           heading={section.heading}
                           content={section.content}
-                          defaultOpen={prioritySections.some((ps) =>
-                            section.heading.includes(ps)
-                          )}
+                          defaultOpen={prioritySections.some((ps) => section.heading.includes(ps))}
                         />
                       ))}
                   </div>

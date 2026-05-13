@@ -1,8 +1,10 @@
 "use client";
 
-import { Flame, Eye, Radio, ArrowRight, ExternalLink } from "lucide-react";
+import { Flame, Eye, Radio, Mic } from "lucide-react";
 import type { Signal } from "@/lib/types";
 import { Shell } from "@/components/Shell";
+import { useScan } from "@/components/ScanContext";
+import { PageHeader, SectionLabel, Badge, Button, TableContainer, Th, Tr, EmptyState } from "@/components/ui";
 
 interface SignalsPageProps {
   warmLeads: Signal[];
@@ -16,6 +18,24 @@ interface SignalsPageProps {
   activePursuing: number;
 }
 
+/** Lives inside <Shell> so it can pull the Signal-Scan action from context. */
+function SignalsHeader({ subtitle }: { subtitle: string }) {
+  const { runScan, scanRunning } = useScan();
+  return (
+    <PageHeader
+      icon={<Mic size={16} className="text-text-tertiary" />}
+      title="Signals"
+      subtitle={subtitle}
+      actions={
+        <Button variant="secondary" onClick={() => runScan("signal")} disabled={scanRunning} title="Funding + hiring-intent signals">
+          <Radio size={14} className={scanRunning ? "animate-spin" : ""} />
+          Signal Scan
+        </Button>
+      }
+    />
+  );
+}
+
 export function SignalsPage({
   warmLeads,
   monitoring,
@@ -27,6 +47,12 @@ export function SignalsPage({
   hasWarmLeads,
   activePursuing,
 }: SignalsPageProps) {
+  const monitorSorted = [...monitoring].sort((a, b) => {
+    const amtA = parseFloat((a.amount || "0").replace(/[^0-9.]/g, "")) || 0;
+    const amtB = parseFloat((b.amount || "0").replace(/[^0-9.]/g, "")) || 0;
+    return amtB - amtA;
+  });
+
   return (
     <Shell
       activePursuing={activePursuing}
@@ -35,44 +61,29 @@ export function SignalsPage({
       signalCount={signalCount}
       hasWarmLeads={hasWarmLeads}
     >
-      <div className="space-y-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Signals</h1>
-          <div className="flex items-center gap-4 text-[12px]" style={{ color: "var(--text-muted)" }}>
-            <span>{totalSignals} tracked</span>
-            <span>{highConviction} high conviction</span>
-            <span>{posting.length} posting</span>
-          </div>
-        </div>
+      <SignalsHeader subtitle={`${totalSignals} tracked · ${highConviction} high conviction · ${posting.length} posting`} />
 
+      <div className="space-y-6">
         {/* High Conviction */}
         {warmLeads.length > 0 && (
           <section>
-            <h2 className="mb-3 flex items-center gap-2 text-[12px] font-medium" style={{ color: "var(--amber)" }}>
-              <Flame size={14} />
+            <SectionLabel icon={<Flame size={12} className="text-amber" />} className="mb-3">
               High Conviction ({warmLeads.length})
-            </h2>
-            <div className="grid gap-2">
+            </SectionLabel>
+            <div className="grid gap-2 lg:grid-cols-2">
               {warmLeads.map((s) => (
                 <div
                   key={s.slug}
-                  className="flex items-center justify-between rounded-lg px-4 py-3"
-                  style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)", borderLeft: "2px solid var(--amber)" }}
+                  className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3"
                 >
-                  <div>
-                    <div className="font-medium" style={{ color: "var(--text-primary)" }}>{s.name}</div>
-                    <div className="flex items-center gap-2 mt-1 text-[12px]" style={{ color: "var(--text-muted)" }}>
-                      {s.amount && (
-                        <span className="rounded-md px-1.5 py-0.5 text-[11px]" style={{ background: "var(--amber-dim)", color: "var(--amber)", border: "1px solid rgba(251,191,36,0.2)" }}>
-                          {s.amount}
-                        </span>
-                      )}
+                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" title="High-conviction signal" />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-text-primary">{s.name}</div>
+                    <div className="mt-1 flex items-center gap-2 text-[12px] text-text-muted">
+                      {s.amount && <Badge color="amber">{s.amount}</Badge>}
                       Checked {s.lastChecked}
                     </div>
                   </div>
-                  <button className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors" style={{ background: "var(--amber-dim)", color: "var(--amber)", border: "1px solid rgba(251,191,36,0.2)" }}>
-                    Reach out <ArrowRight size={11} />
-                  </button>
                 </div>
               ))}
             </div>
@@ -82,24 +93,20 @@ export function SignalsPage({
         {/* Already Posting */}
         {posting.length > 0 && (
           <section>
-            <h2 className="mb-3 flex items-center gap-2 text-[12px] font-medium" style={{ color: "var(--emerald)" }}>
-              <Radio size={14} />
+            <SectionLabel icon={<Radio size={12} className="text-emerald" />} className="mb-3">
               Already Posting ({posting.length})
-            </h2>
-            <div className="grid gap-2">
+            </SectionLabel>
+            <div className="grid gap-2 lg:grid-cols-2">
               {posting.map((s) => (
                 <div
                   key={s.slug}
-                  className="flex items-center justify-between rounded-lg px-4 py-3"
-                  style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)", borderLeft: "2px solid var(--emerald)" }}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium" style={{ color: "var(--text-primary)" }}>{s.name}</span>
-                    {s.amount && <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>{s.amount}</span>}
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium text-text-primary">{s.name}</span>
+                    {s.amount && <span className="shrink-0 text-[12px] text-text-muted">{s.amount}</span>}
                   </div>
-                  <span className="rounded-md px-2 py-0.5 text-[11px]" style={{ background: "var(--emerald-dim)", color: "var(--emerald)", border: "1px solid rgba(52,211,153,0.2)" }}>
-                    Posting detected
-                  </span>
+                  <Badge color="emerald" className="shrink-0">Posting detected</Badge>
                 </div>
               ))}
             </div>
@@ -108,40 +115,39 @@ export function SignalsPage({
 
         {/* Monitor */}
         <section>
-          <h2 className="mb-3 flex items-center gap-2 text-[12px] font-medium" style={{ color: "var(--text-tertiary)" }}>
-            <Eye size={14} />
+          <SectionLabel icon={<Eye size={12} className="text-text-tertiary" />} className="mb-3">
             Monitor ({monitoring.length})
-          </h2>
-          <div className="overflow-x-auto rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)" }}>
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)", background: "var(--surface-1)" }}>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Company</th>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Funding</th>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>Last Checked</th>
+          </SectionLabel>
+          <TableContainer>
+            <thead className="border-b border-border-subtle bg-surface-1">
+              <tr>
+                <Th>Company</Th>
+                <Th>Funding</Th>
+                <Th>Last checked</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {monitorSorted.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="p-0">
+                    <EmptyState
+                      icon={<Eye size={28} />}
+                      title="Nothing on the radar"
+                      description="Companies you're watching for funding or hiring signals will show up here."
+                    />
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {[...monitoring].sort((a, b) => {
-                  const amtA = parseFloat((a.amount || "0").replace(/[^0-9.]/g, "")) || 0;
-                  const amtB = parseFloat((b.amount || "0").replace(/[^0-9.]/g, "")) || 0;
-                  return amtB - amtA;
-                }).map((s, idx) => (
-                  <tr
-                    key={s.slug}
-                    style={{ borderBottom: "1px solid var(--border-subtle)", background: idx % 2 === 1 ? "var(--surface-row)" : "transparent" }}
-                    className="transition-colors"
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-3)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = idx % 2 === 1 ? "var(--surface-row)" : "transparent"; }}
-                  >
-                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{s.name}</td>
-                    <td className="px-3 py-2 text-[12px] tabular-nums" style={{ color: "var(--text-muted)" }}>{s.amount || "—"}</td>
-                    <td className="px-3 py-2 text-[12px] tabular-nums" style={{ color: "var(--text-muted)" }}>{s.lastChecked}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ) : (
+                monitorSorted.map((s, idx) => (
+                  <Tr key={s.slug} className={idx % 2 === 1 ? "bg-surface-row" : ""}>
+                    <td className="px-3 py-2.5 text-text-secondary">{s.name}</td>
+                    <td className="px-3 py-2.5 text-[12px] tabular-nums text-text-muted">{s.amount || "—"}</td>
+                    <td className="px-3 py-2.5 text-[12px] tabular-nums text-text-muted">{s.lastChecked}</td>
+                  </Tr>
+                ))
+              )}
+            </tbody>
+          </TableContainer>
         </section>
       </div>
     </Shell>

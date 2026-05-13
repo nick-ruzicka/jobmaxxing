@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { RefreshCw, Radio } from "lucide-react";
 import type { Role, RoleStatus, ScanStats } from "@/lib/types";
 import { Shell } from "@/components/Shell";
 import { StatStrip } from "@/components/StatStrip";
 import { PipelineTable } from "@/components/PipelineTable";
+import { PageHeader, Button } from "@/components/ui";
+import { useScan } from "@/components/ScanContext";
 
 interface PipelinePageProps {
   roles: Role[];
@@ -12,6 +15,39 @@ interface PipelinePageProps {
   highConviction: number;
   companyCount: number;
   signalCount: number;
+}
+
+/** Lives inside <Shell> so it can read the scan controls from context. */
+function PipelineHeader({ roleCount }: { roleCount: number }) {
+  const { runScan, scanRunning } = useScan();
+  return (
+    <PageHeader
+      title="Pipeline"
+      subtitle={`${roleCount} ${roleCount === 1 ? "role" : "roles"}`}
+      actions={
+        <>
+          <Button
+            variant="secondary"
+            onClick={() => runScan("scan")}
+            disabled={scanRunning}
+            title="Job boards + Exa + Similar"
+          >
+            <RefreshCw size={14} className={scanRunning ? "animate-spin" : ""} />
+            Run Scan
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => runScan("signal")}
+            disabled={scanRunning}
+            title="Funding + hiring-intent signals"
+          >
+            <Radio size={14} />
+            Signal Scan
+          </Button>
+        </>
+      }
+    />
+  );
 }
 
 export function PipelinePage({
@@ -49,6 +85,12 @@ export function PipelinePage({
     };
   }, [roles, serverMeta]);
 
+  // Header count: the non-aggregator pipeline size (stable; the filter bar shows the filtered count).
+  const pipelineCount = useMemo(
+    () => roles.filter((r) => r.source_tier !== "aggregator").length,
+    [roles]
+  );
+
   function handleStatusChange(url: string, status: RoleStatus) {
     const role = roles.find((r) => r.url === url);
     setRoles((prev) => prev.map((r) => (r.url === url ? { ...r, status } : r)));
@@ -71,8 +113,8 @@ export function PipelinePage({
       signalCount={signalCount}
       hasWarmLeads={serverMeta.hasWarmLeads}
     >
+      <PipelineHeader roleCount={pipelineCount} />
       <div className="space-y-6">
-        <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Pipeline</h1>
         <StatStrip stats={stats} />
         <PipelineTable
           roles={roles}
