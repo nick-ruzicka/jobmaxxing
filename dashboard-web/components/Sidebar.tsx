@@ -11,6 +11,7 @@ import {
   Briefcase,
   BellDot,
   GraduationCap,
+  Activity,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -38,6 +39,7 @@ export function Sidebar({
     { href: "/", label: "Pipeline", icon: LayoutDashboard, badge: activePursuing || undefined },
     { href: "/signals", label: "Signals", icon: Zap, badge: highConviction || undefined },
     { href: "/companies", label: "Companies", icon: Building2 },
+    { href: "/sources", label: "Source Health", icon: Activity },
     { href: "/interviews", label: "Interview Prep", icon: GraduationCap },
   ];
 

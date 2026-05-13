@@ -18,6 +18,18 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { normalizeCompany } from "./lib/normalize-company.mjs";
+import {
+  extractComp,
+  applyExtraction,
+  shouldBackfill,
+  isRealComp,
+  hostnameOf,
+  jsonLdBlocks,
+  findJobPostings,
+  stripTags as stripTagsLd,
+} from "./lib/extract-comp.mjs";
+import { stripHtml } from "./lib/strip-html.mjs";
+import { createCooldownTracker, sleepUntil } from "./lib/host-cooldown.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -106,6 +118,7 @@ async function fetchAshbyJD(url) {
       department: job.department || "",
       team: job.team || "",
       comp: job.compensation,
+      rawHtml: job.descriptionHtml || "",
     };
   } catch {
     return null;
@@ -141,24 +154,16 @@ async function fetchGreenhouseJD(url) {
       department: (job.departments || []).map((d) => d.name).join(", "),
       team: "",
       comp: null,
+      rawHtml: job.content || "",
     };
   } catch {
     return null;
   }
 }
 
-function stripHtml(html) {
-  return html
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+// stripHtml moved to scripts/lib/strip-html.mjs (Fix #5 follow-up): the local
+// version dropped only tags and kept <script>/<style> bodies as text, pushing
+// real JD content past the 5KB truncation we feed Claude.
 
 async function fetchViaExa(url, title) {
   const apiKey = process.env.EXA_API_KEY;
@@ -193,6 +198,7 @@ async function fetchViaExa(url, title) {
       department: "",
       team: "",
       comp: null,
+      rawHtml: result.text || "",
     };
   } catch {
     return null;
@@ -226,6 +232,7 @@ async function fetchViaCompanyBoard(title, company) {
           department: match.department || "",
           team: match.team || "",
           comp: match.compensation,
+          rawHtml: match.descriptionHtml || "",
         };
       }
     }
@@ -257,6 +264,7 @@ async function fetchViaCompanyBoard(title, company) {
             department: (detail.departments || []).map((d) => d.name).join(", "),
             team: "",
             comp: null,
+            rawHtml: detail.content || "",
           };
         }
       }
@@ -266,12 +274,35 @@ async function fetchViaCompanyBoard(title, company) {
   return null;
 }
 
+// A real browser UA + a couple of headers — some hosts (BuiltIn, VC boards) serve richer markup
+// (incl. JSON-LD) to browser-like clients, and a bare UA under load tends to trip WAF 403s.
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const BROWSER_HEADERS = {
+  "User-Agent": BROWSER_UA,
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Cache-Control": "no-cache",
+};
+
+/** Pull the longest JSON-LD JobPosting `description` (full JD) out of a raw page, or "". */
+function ldJobDescription(html) {
+  let best = "";
+  for (const jp of jsonLdBlocks(html).flatMap(findJobPostings)) {
+    if (typeof jp.description === "string") {
+      const d = stripTagsLd(jp.description);
+      if (d.length > best.length) best = d;
+    }
+  }
+  return best;
+}
+
 async function fetchViaHtml(url, title) {
-  // Generic HTML fetch — works for BuiltIn, YC, VC boards, etc.
+  // Generic HTML fetch — works for BuiltIn, YC, VC boards, aggregators, etc.
   try {
     const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; career-ops/1.0)" },
-      signal: AbortSignal.timeout(10000),
+      headers: BROWSER_HEADERS,
+      signal: AbortSignal.timeout(12000),
       redirect: "follow",
     });
     if (!res.ok) return null;
@@ -285,9 +316,11 @@ async function fetchViaHtml(url, title) {
     const pageTitleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
     const pageTitle = pageTitleMatch ? pageTitleMatch[1].trim() : "";
 
-    // Try to find the JD section (heuristic: longest text block)
-    // For BuiltIn pages, the JD is usually after the company info
-    const jdText = text.length > 5000 ? text.slice(0, 5000) : text;
+    // Prefer the full JD from a JSON-LD JobPosting `description` over the truncated stripped-HTML
+    // blob — better quality for Claude, and it's the same JSON-LD extractComp() reads for comp.
+    const ldDesc = ldJobDescription(html);
+    const jdText =
+      ldDesc.length > 300 ? ldDesc.slice(0, 6000) : text.length > 5000 ? text.slice(0, 5000) : text;
 
     return {
       title: title || pageTitle,
@@ -298,6 +331,7 @@ async function fetchViaHtml(url, title) {
       department: "",
       team: "",
       comp: null,
+      rawHtml: html,
     };
   } catch {
     return null;
@@ -371,21 +405,37 @@ ${jdData.comp ? `**Compensation:** ${JSON.stringify(jdData.comp)}` : ""}
 ${jdText}
 
 ## Instructions
-Analyze this role against the candidate's profile. Return ONLY valid JSON with this exact structure:
+
+Analyze this role against the candidate's profile. Return ONLY a valid JSON object that matches the schema in the worked example below — same keys, same types, your values.
+
+Field semantics (apply these BEFORE filling the example shape; never copy these notes into the output):
+- comp_range: literal salary range as written in the JD (e.g. "$220K-$260K base"). If the JD has no salary, use the literal string "Not listed".
+- location: the city/region/remote policy as stated in the JD. If the JD does not state a location, use the literal string "Unknown". Do not invent or guess.
+- work_policy: one of "remote", "hybrid", "on-site", or "unknown".
+- stack: tools/platforms named in the JD. Empty array if none.
+- team_context: short factual phrase about reporting line and team size, only if the JD states it. Empty string otherwise.
+- green_flags / red_flags: arrays of short factual phrases grounded in the JD. Empty arrays if nothing applies. No speculation.
+- build_component: true if the role meaningfully involves building software/automations.
+- ai_signal: true if AI/ML is a stated part of the work.
+- company_stage: one of "Series A", "Series B", "Series C", "Series D+", "public", "private", or "unknown". Do not guess.
+- fit_score: integer 1-10.
+- verdict: 2-3 sentence factual assessment. No placeholder phrasing; if you cannot justify a claim from the JD, do not make it.
+
+Worked example (shape only — replace every value with your own analysis of this JD):
 
 {
-  "comp_range": "salary range if mentioned, or 'Not listed'",
-  "location": "NYC / Remote US / Hybrid NYC / San Francisco / On-site [City] / Remote — extract from JD text",
-  "work_policy": "remote / hybrid / on-site / not specified",
-  "stack": ["tool1", "tool2"],
-  "team_context": "who this reports to and team size if mentioned",
-  "green_flags": ["specific things from the JD that match the candidate's green flags"],
-  "red_flags": ["specific things from the JD that match the candidate's red flags, or gaps"],
-  "build_component": true or false,
-  "ai_signal": true or false,
-  "company_stage": "Series X / public / unknown — infer from JD if not stated",
-  "fit_score": 1-10 integer,
-  "verdict": "2-3 sentence assessment. Be specific about why this is or isn't a fit. Reference the candidate's actual experience and the JD's actual requirements."
+  "comp_range": "$220K-$260K base + 0.25% equity",
+  "location": "Remote US",
+  "work_policy": "remote",
+  "stack": ["Snowflake", "Hex", "dbt"],
+  "team_context": "Reports to Head of GTM Ops. Team of 4 RevOps engineers.",
+  "green_flags": ["RevOps-engineer title is an exact match", "early-stage SaaS, ~50 employees"],
+  "red_flags": ["Salesforce-only stack; no warehouse mentioned"],
+  "build_component": true,
+  "ai_signal": false,
+  "company_stage": "Series A",
+  "fit_score": 8,
+  "verdict": "Strong fit. The RevOps-engineering scope aligns with the candidate's prior GTM-systems work. Main gap is Salesforce-only tooling vs the warehouse-native stack the candidate has shipped on."
 }`;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -439,7 +489,179 @@ Analyze this role against the candidate's profile. Return ONLY valid JSON with t
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// CLI args + comp backfill mode (no Claude calls — just re-fetch HTML and re-run extractComp)
+// ---------------------------------------------------------------------------
+function argVal(name) {
+  const i = process.argv.indexOf(name);
+  return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined;
+}
+function parseArgs() {
+  const a = process.argv.slice(2);
+  // --cooldown-on-403 SECONDS: when a host returns 5+ consecutive 403s within
+  // 60s, pause that host for the given number of seconds before continuing.
+  // Default 90s. Set to 0 to disable. See scripts/lib/host-cooldown.mjs.
+  const cooldownArg = argVal("--cooldown-on-403");
+  const cooldownSecs = cooldownArg === undefined ? 90 : Math.max(0, Number(cooldownArg) || 0);
+  return {
+    backfillComp: a.includes("--backfill-comp"),
+    host: argVal("--host"),
+    dryRun: a.includes("--dry-run"),
+    limit: Number(argVal("--limit")) || Infinity,
+    concurrency: Math.max(1, Number(argVal("--concurrency")) || 5),
+    cooldownOn403Secs: cooldownSecs,
+  };
+}
+
+function hostMatches(urlHost, target) {
+  if (target === "all") return true;
+  return urlHost === target || urlHost.endsWith("." + target);
+}
+
+async function fetchRawHtml(url) {
+  try {
+    const res = await fetch(url, {
+      headers: BROWSER_HEADERS,
+      signal: AbortSignal.timeout(12000),
+      redirect: "follow",
+    });
+    if (!res.ok) return { dead: true, reason: `HTTP ${res.status}`, status: res.status };
+    const finalUrl = res.url || url;
+    const html = await res.text();
+    if (html.length < 700) return { dead: true, reason: "body too short", status: res.status };
+    const origHasJob = /\/jobs?\//.test(url);
+    const finalHasJob = /\/jobs?\//.test(finalUrl);
+    if (/[?&]error=true/.test(finalUrl) || (origHasJob && !finalHasJob)) {
+      return { dead: true, reason: "redirected away from posting", status: res.status };
+    }
+    return { dead: false, html, status: res.status };
+  } catch (e) {
+    // status: undefined — no HTTP response (network/timeout). Cooldown tracker
+    // treats any non-403 as a streak reset, which is correct here.
+    return { dead: true, reason: e?.name === "TimeoutError" ? "timeout" : e?.message || "fetch error" };
+  }
+}
+
+async function pMapLimit(items, limit, fn) {
+  for (let i = 0; i < items.length; i += limit) {
+    await Promise.all(items.slice(i, i + limit).map(fn));
+    if (i + limit < items.length) await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+function pctStr(n, d) {
+  return d ? `${Math.round((n / d) * 100)}%` : "0%";
+}
+function compCoverage(enrichments, host) {
+  let has = 0, enriched = 0;
+  for (const [url, e] of Object.entries(enrichments)) {
+    if (host !== "all" && !hostMatches(hostnameOf(url), host)) continue;
+    if (!e || typeof e !== "object" || "error" in e) continue;
+    enriched++;
+    if (isRealComp(e.comp_range)) has++;
+  }
+  return { has, enriched };
+}
+
+async function backfillComp(args) {
+  const host = (args.host || "builtin.com").toLowerCase();
+  console.log(`\n=== Comp Backfill — host=${host}${args.dryRun ? " (DRY-RUN)" : ""} — ${new Date().toISOString().slice(0, 10)} ===\n`);
+
+  const enrichments = loadJson(ENRICHMENT_PATH, {});
+  const targets = Object.keys(enrichments).filter((url) => hostMatches(hostnameOf(url), host));
+  console.log(`  Total enrichments: ${Object.keys(enrichments).length}`);
+  console.log(`  On host "${host}": ${targets.length}`);
+
+  const toFetch = [];
+  let nErr = 0, nStructured = 0;
+  for (const url of targets) {
+    const e = enrichments[url];
+    if (e && typeof e === "object" && "error" in e) { nErr++; continue; }
+    if (!shouldBackfill(e)) { nStructured++; continue; }
+    toFetch.push(url);
+  }
+  const slice = Number.isFinite(args.limit) ? toFetch.slice(0, args.limit) : toFetch;
+  console.log(`  Eligible (comp empty or Claude-sourced): ${toFetch.length}${slice.length < toFetch.length ? ` — processing ${slice.length} (--limit)` : ""}`);
+  console.log(`  Skipped — enrichment errors: ${nErr}, already structured: ${nStructured}\n`);
+  if (slice.length === 0) { console.log("  Nothing to do.\n"); return; }
+
+  const before = compCoverage(enrichments, host);
+  const stat = { recovered: 0, newlyHasComp: 0, qualitative: 0, stillNone: 0, dead: 0, bySource: {}, cooldowns: 0 };
+  let done = 0;
+
+  // Per-host 403 cooldown tracker. cooldownOn403Secs=0 disables (record() still
+  // runs but cooldownMs=0 means triggers expire immediately and nobody sleeps).
+  const tracker = createCooldownTracker({
+    cooldownMs: args.cooldownOn403Secs * 1000,
+    windowMs: 60_000,
+    threshold: 5,
+  });
+  if (args.cooldownOn403Secs > 0) {
+    console.log(`  Cooldown: 5+ consecutive 403s within 60s → pause that host ${args.cooldownOn403Secs}s\n`);
+  }
+
+  await pMapLimit(slice, args.concurrency, async (url) => {
+    const urlHost = hostnameOf(url);
+    // Gate: if this URL's host is currently in cooldown, sleep until it ends.
+    // Other hosts in the same batch are unaffected (their workers don't sleep).
+    if (args.cooldownOn403Secs > 0 && tracker.isInCooldown(urlHost, Date.now())) {
+      const until = tracker.cooldownUntil(urlHost);
+      const waitS = Math.ceil((until - Date.now()) / 1000);
+      process.stdout.write(`  [cooldown] ${urlHost} — waiting ${waitS}s\n`);
+      await sleepUntil(until);
+    }
+    const r = await fetchRawHtml(url);
+    if (args.cooldownOn403Secs > 0) {
+      const rec = tracker.record(urlHost, r.status, Date.now());
+      if (rec.triggered) {
+        stat.cooldowns++;
+        const waitS = Math.ceil((rec.cooldownUntil - Date.now()) / 1000);
+        process.stdout.write(`  [cooldown] ${urlHost} — 5 consecutive 403s, pausing ${waitS}s\n`);
+      }
+    }
+    done++;
+    const tag = `  [${String(done).padStart(String(slice.length).length)}/${slice.length}]`;
+    if (r.dead) { stat.dead++; process.stdout.write(`${tag} DEAD (${r.reason}) ${url}\n`); return; }
+    const ce = extractComp(r.html, url);
+    const prevReal = isRealComp(enrichments[url] && enrichments[url].comp_range);
+    const { changed, entry } = applyExtraction(enrichments[url], ce);
+    if (!changed) {
+      if (ce.comp_source === "none") stat.stillNone++;
+      process.stdout.write(`${tag} — (${ce.comp_source})\n`);
+      return;
+    }
+    if (ce.comp_source === "qualitative_only") {
+      stat.qualitative++;
+      process.stdout.write(`${tag} qualitative-only — tagged\n`);
+    } else {
+      stat.recovered++;
+      stat.bySource[ce.comp_source] = (stat.bySource[ce.comp_source] || 0) + 1;
+      if (!prevReal && isRealComp(entry.comp_range)) stat.newlyHasComp++;
+      process.stdout.write(`${tag} ${ce.comp_range}  [${ce.comp_source}]\n`);
+    }
+    if (!args.dryRun) {
+      enrichments[url] = entry;
+      if (done % 25 === 0) saveJson(ENRICHMENT_PATH, enrichments);
+    }
+  });
+
+  if (!args.dryRun) saveJson(ENRICHMENT_PATH, enrichments);
+  const afterHas = before.has + stat.newlyHasComp;
+
+  console.log(`\n  --- Summary (host=${host}${args.dryRun ? " — DRY-RUN, nothing written" : ""}) ---`);
+  console.log(`  Re-fetched:           ${slice.length}`);
+  console.log(`  Recovered:            ${stat.recovered}   by source: ${JSON.stringify(stat.bySource)}`);
+  console.log(`  Qualitative-only:     ${stat.qualitative} (tagged so they aren't re-fetched)`);
+  console.log(`  Still no comp:         ${stat.stillNone}`);
+  console.log(`  Dead / expired:       ${stat.dead}`);
+  if (stat.cooldowns > 0) console.log(`  403 cooldowns fired:  ${stat.cooldowns}`);
+  console.log(`  Comp coverage on "${host}": ${before.has}/${before.enriched} (${pctStr(before.has, before.enriched)})  →  ${afterHas}/${before.enriched} (${pctStr(afterHas, before.enriched)})\n`);
+}
+
 async function main() {
+  const args = parseArgs();
+  if (args.backfillComp) return backfillComp(args);
+
   console.log(`\n=== Role Enrichment — ${new Date().toISOString().slice(0, 10)} ===\n`);
 
   const seenUrls = loadJson(SEEN_PATH, {});
@@ -531,12 +753,29 @@ async function main() {
       continue;
     }
 
+    // Deterministic comp extraction over whatever HTML/text we fetched — overrides Claude's
+    // comp_range when it has a stronger signal (structured JSON-LD baseSalary, or a comp range
+    // when Claude found nothing). See scripts/lib/extract-comp.mjs.
+    const claudeComp = typeof analysis.comp_range === "string" ? analysis.comp_range.trim() : "";
+    let comp_range = isRealComp(claudeComp) ? claudeComp : "Not listed";
+    let comp_source = isRealComp(claudeComp) ? "claude_extracted" : "none";
+    const ce = extractComp(jdData.rawHtml || jdData.description || "", url);
+    if (ce.comp_source === "jsonld_basesalary" || (ce.comp_range && isRealComp(ce.comp_range) && !isRealComp(comp_range))) {
+      comp_range = ce.comp_range;
+      comp_source = ce.comp_source;
+    } else if (ce.comp_source === "qualitative_only" && !isRealComp(comp_range)) {
+      comp_range = "Not listed";
+      comp_source = "qualitative_only";
+    }
+
     enrichments[url] = {
       ...analysis,
+      comp_range,
+      comp_source,
       timestamp: new Date().toISOString(),
     };
 
-    process.stdout.write(` ${analysis.fit_score}/10 — ${analysis.verdict?.slice(0, 60)}...\n`);
+    process.stdout.write(` ${analysis.fit_score}/10 [${comp_source}] — ${analysis.verdict?.slice(0, 50)}...\n`);
     enriched++;
 
     // Small delay to avoid rate limiting
