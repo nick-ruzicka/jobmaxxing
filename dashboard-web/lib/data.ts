@@ -9,6 +9,8 @@ import type {
   Company,
   ScanStats,
 } from "./types";
+import { clusterForLocation, flattenLocation, parseLocationString } from "./location-clusters";
+import type { StructuredLocation } from "./location-clusters";
 
 const ROOT = join(process.cwd(), "..");
 
@@ -254,46 +256,42 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
     const enrichment = enrichments[url] as Record<string, unknown> | undefined;
     const hasEnrichment = enrichment && !enrichment.error;
 
-    // Location priority: scan report > stored in seen-urls > enrichment > text classifier
-    const storedLocation = (meta as Record<string, string>).location || "";
-    let location = scanData?.location || "";
-    if (!location || location === "Unknown") {
-      location = (storedLocation && storedLocation !== "Unknown") ? storedLocation : "";
-    }
-    if (!location || location === "Unknown") {
-      // Try enrichment's direct location field first
-      if (hasEnrichment && typeof enrichment.location === "string" && enrichment.location !== "Not specified") {
-        location = enrichment.location as string;
-      }
-    }
-    if (!location || location === "Unknown") {
-      // Fallback: extract from enrichment verdict/flags
-      if (hasEnrichment) {
+    // --- Location ---------------------------------------------------------
+    // Prefer the structured fields written by scan-jobs.mjs; fall back to parsing whatever
+    // string source we have (scan report → stored string → enrichment.location → enrichment
+    // text → title+url), then re-derive the display string and the filter cluster.
+    const m = meta as Record<string, unknown>;
+    let structured: StructuredLocation;
+    if (typeof m.location_workplace === "string") {
+      structured = {
+        workplace: m.location_workplace as StructuredLocation["workplace"],
+        city: (m.location_city as string | null) ?? null,
+        region: (m.location_region as string | null) ?? null,
+      };
+    } else {
+      // Legacy entry / fresh-from-enrichment — derive from the best string we can find.
+      const storedLocation = (m.location as string) || "";
+      const raw =
+        (scanData?.location && scanData.location !== "Unknown" && scanData.location) ||
+        (storedLocation && storedLocation !== "Unknown" && storedLocation) ||
+        (hasEnrichment && typeof enrichment.location === "string" &&
+          enrichment.location !== "Not specified" && (enrichment.location as string)) ||
+        "";
+      structured = parseLocationString(raw) as StructuredLocation;
+      if (structured.workplace === "unknown" && !structured.city && hasEnrichment) {
         const eText = [
-          enrichment.verdict,
-          enrichment.team_context,
-          ...(enrichment.green_flags as string[] || []),
-          ...(enrichment.red_flags as string[] || []),
-        ].filter(Boolean).join(" ").toLowerCase();
-
-        const nycSignals = ["new york", "nyc", "manhattan", "soho", "midtown"];
-        if (nycSignals.some((s) => eText.includes(s))) {
-          if (eText.includes("hybrid")) location = "Hybrid NYC";
-          else if (eText.includes("remote")) location = "Remote NYC";
-          else if (eText.includes("on-site") || eText.includes("onsite") || eText.includes("in-office") || eText.includes("in office")) location = "NYC";
-          else location = "NYC";
-        } else if (eText.includes("remote")) {
-          location = "Remote US";
-        } else if (eText.includes("hybrid")) {
-          location = "Hybrid";
-        } else if (eText.includes("on-site") || eText.includes("onsite")) {
-          location = "On-site";
-        }
+          enrichment.verdict, enrichment.team_context,
+          ...((enrichment.green_flags as string[]) || []),
+          ...((enrichment.red_flags as string[]) || []),
+        ].filter(Boolean).join(" ");
+        structured = parseLocationString(eText) as StructuredLocation;
+      }
+      if (structured.workplace === "unknown" && !structured.city) {
+        structured = parseLocationString(`${title} ${url}`) as StructuredLocation;
       }
     }
-    if (!location || location === "Unknown") {
-      location = classifyLocation(title, url);
-    }
+    const location = flattenLocation(structured);
+    const locationCluster = clusterForLocation(structured);
 
     // Score priority: application score > enrichment fit_score > scan report score > computed.
     // scoreProvenance records which branch won (drives the corner dot on the score pill).
@@ -366,6 +364,10 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
       title: cleanedTitle,
       company,
       location,
+      location_workplace: structured.workplace,
+      location_city: structured.city,
+      location_region: structured.region,
+      location_cluster: locationCluster,
       source: meta.source || scanData?.source || "Unknown",
       score,
       scoreProvenance,
@@ -497,12 +499,8 @@ export function getStats(): ScanStats {
     scores.length > 0
       ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
       : 0;
-  const nycCount = roles.filter(
-    (r) => r.location.includes("NYC") || r.location === "Hybrid NYC"
-  ).length;
-  const remoteCount = roles.filter((r) =>
-    r.location.toLowerCase().includes("remote")
-  ).length;
+  const nycCount = roles.filter((r) => r.location_cluster === "nyc").length;
+  const remoteCount = roles.filter((r) => r.location_cluster === "remote").length;
   const hasWarmLeads = signals.some((s) => s.result === "high");
 
   // Find latest scan date from reports
@@ -824,16 +822,6 @@ function extractCompanyFromUrl(url: string): string {
   } catch {
     return "";
   }
-}
-
-function classifyLocation(title: string, url: string): string {
-  const blob = `${title} ${url}`.toLowerCase();
-  const nycSignals = ["new york", "nyc", "manhattan", "brooklyn", "soho", "midtown"];
-  const remoteSignals = ["remote", "anywhere", "distributed"];
-
-  if (nycSignals.some((s) => blob.includes(s))) return "NYC";
-  if (remoteSignals.some((s) => blob.includes(s))) return "Remote US";
-  return "Unknown";
 }
 
 // URLs that are not job postings (blogs, newsletters, articles)
