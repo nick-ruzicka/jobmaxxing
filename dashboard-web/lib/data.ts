@@ -168,6 +168,18 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
     join(ROOT, "data", "enrichments.json"), {}
   );
 
+  // Manual eval overrides (data/score-overrides.json) — applied last, winning over the
+  // priority chain *and* the caps. Keyed by companyKey() = lowercase alphanumerics of the
+  // company name (matches scan-jobs.mjs `coKey`).
+  type OverrideEntry = { company?: string; score?: number | null; reason?: string };
+  const overrides = readJsonSafe<{
+    boost?: Record<string, OverrideEntry>;
+    penalize?: Record<string, OverrideEntry>;
+    block?: string[];
+  }>(join(ROOT, "data", "score-overrides.json"), { boost: {}, penalize: {}, block: [] });
+  const companyKey = (c: string) => (c || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const clampScore = (n: number) => Math.max(1, Math.min(10, Math.round(n)));
+
   // Parse latest scan report for scores and metadata
   const reportsDir = join(ROOT, "reports");
   const scanScoreMap = new Map<
@@ -311,6 +323,33 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
     }
     score = Math.round(score);
 
+    // Manual eval override (data/score-overrides.json) — the final word: wins over the
+    // priority chain and the caps. Precedence: block > boost > penalize. boost/penalize
+    // entries carry a /5 eval score, which we honor directly (×2 → /10) — more precise than
+    // scan-jobs.mjs' coarse +2 / min(4) (see Phase 11 TODO: reconcile the two scoring paths).
+    let scoreOverrideReason: string | undefined;
+    const ck = companyKey(company);
+    if (ck) {
+      if ((overrides.block || []).includes(ck)) {
+        score = 1;
+        scoreProvenance = "override";
+        scoreOverrideReason = "Blocked — eval ≤ 1.5/5";
+        scoreCapped = false;
+      } else if (overrides.boost?.[ck]) {
+        const o = overrides.boost[ck];
+        score = typeof o.score === "number" ? clampScore(o.score * 2) : clampScore(score + 2);
+        scoreProvenance = "override";
+        scoreOverrideReason = o.reason;
+        scoreCapped = false;
+      } else if (overrides.penalize?.[ck]) {
+        const o = overrides.penalize[ck];
+        score = typeof o.score === "number" ? clampScore(o.score * 2) : Math.min(score, 4);
+        scoreProvenance = "override";
+        scoreOverrideReason = o.reason;
+        scoreCapped = false;
+      }
+    }
+
     // Staleness detection: flag roles first seen more than 30 days ago
     const firstSeenDate = meta.firstSeen ? new Date(meta.firstSeen) : null;
     const daysSinceSeen = firstSeenDate ? (Date.now() - firstSeenDate.getTime()) / (1000 * 60 * 60 * 24) : 0;
@@ -331,6 +370,7 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
       score,
       scoreProvenance,
       scoreCapped,
+      scoreOverrideReason,
       status: appData?.status || "Discovered",
       firstSeen: meta.firstSeen || "",
       publishedDate: scanData?.posted || "",

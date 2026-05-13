@@ -128,6 +128,8 @@ export function ExpandedRow({ role, onStatusChange, onNotesChange }: ExpandedRow
           {/* Score provenance */}
           <div className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
             <span style={{ color: "var(--text-muted)" }}>Score {role.score}/10 — </span>
+            {role.scoreProvenance === "override" &&
+              "set manually" + (role.scoreOverrideReason ? `: ${role.scoreOverrideReason}` : "")}
             {role.scoreProvenance === "enriched" && "from Claude JD analysis"}
             {role.scoreProvenance === "application" && "from the application tracker"}
             {role.scoreProvenance === "heuristic" && "from title/location heuristic; JD not analyzed by Claude"}

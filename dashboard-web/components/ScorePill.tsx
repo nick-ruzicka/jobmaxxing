@@ -14,10 +14,11 @@ function getTier(score: number) {
   return "low";
 }
 
-// Corner-dot color + tooltip label per score provenance. ("override" joins this in Fix #4.)
+// Corner-dot color + tooltip label per score provenance.
 const PROVENANCE: Record<ScoreProvenance, { dot: string; label: string }> = {
-  enriched:    { dot: "#34d399",          label: "Score from Claude JD analysis" },          // emerald-500
-  application: { dot: "var(--accent)",    label: "Score from the application tracker" },      // indigo
+  override:    { dot: "#f59e0b",           label: "Score set manually (eval override)" },     // amber-500
+  enriched:    { dot: "#34d399",           label: "Score from Claude JD analysis" },          // emerald-500
+  application: { dot: "var(--accent)",     label: "Score from the application tracker" },      // indigo
   heuristic:   { dot: "var(--text-muted)", label: "Score from title/location heuristic — JD not analyzed" },
 };
 
@@ -25,15 +26,19 @@ export function ScorePill({
   score,
   provenance,
   scoreCapped,
+  overrideReason,
 }: {
   score: number;
   provenance?: ScoreProvenance;
   scoreCapped?: boolean;
+  overrideReason?: string;
 }) {
   const s = SCORE_STYLES[getTier(score)];
   const p = provenance ? PROVENANCE[provenance] : null;
   const title = p
-    ? p.label + (scoreCapped ? " — heuristic score capped at 7 (Claude has not analyzed this JD)" : "")
+    ? p.label
+        + (provenance === "override" && overrideReason ? ` — ${overrideReason}` : "")
+        + (scoreCapped ? " — heuristic score capped at 7 (Claude has not analyzed this JD)" : "")
     : undefined;
   return (
     <span

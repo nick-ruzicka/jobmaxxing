@@ -297,7 +297,7 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
                     {/* Score + signal dots */}
                     <td className="px-2 py-2.5">
                       <div className="flex items-center gap-1.5">
-                        <ScorePill score={role.score} provenance={role.scoreProvenance} scoreCapped={role.scoreCapped} />
+                        <ScorePill score={role.score} provenance={role.scoreProvenance} scoreCapped={role.scoreCapped} overrideReason={role.scoreOverrideReason} />
                         {(hasBuild || hasAI) && (
                           <span className="flex gap-0.5">
                             {hasBuild && (
