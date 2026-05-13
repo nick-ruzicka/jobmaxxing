@@ -21,9 +21,17 @@
     "scan-signals": "node scripts/scan-signals.mjs",
     "enrich": "node scripts/enrich-roles.mjs",
     "scan-and-enrich": "node scripts/scan-jobs.mjs && node scripts/enrich-roles.mjs",
-    "dashboard": "cd dashboard-web && npm run dev"
+    "dashboard": "cd dashboard-web && npm run dev",
+    "test:extract": "node --test scripts/lib/extract-comp.test.mjs",
+    "backfill-comp": "node scripts/enrich-roles.mjs --backfill-comp"
   },
-  "keywords": ["ai", "job-search", "claude-code", "career", "automation"],
+  "keywords": [
+    "ai",
+    "job-search",
+    "claude-code",
+    "career",
+    "automation"
+  ],
   "author": "Santiago Fernández de Valderrama <hi@santifer.io> (https://santifer.io)",
   "homepage": "https://santifer.io",
   "repository": {
