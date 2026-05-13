@@ -73,7 +73,7 @@ export function CompaniesPage({
 
   // Filter + sort with relevance scoring and watched pinning.
   const { watched, rest } = useMemo(() => {
-    let filtered = companies.filter((c) => {
+    const filtered = companies.filter((c) => {
       if (filter && !c.name.toLowerCase().includes(filter.toLowerCase())) return false;
       if (showMode === "with-roles" && c.rolesFound === 0) return false;
       if (showMode === "signals" && !c.signalStatus) return false;
