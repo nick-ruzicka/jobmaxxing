@@ -9,6 +9,16 @@ import type {
   Company,
   ScanStats,
 } from "./types";
+// Shared company-name normalization — single source of truth across the
+// scanner (scripts/scan-jobs.mjs), the enricher (scripts/enrich-roles.mjs),
+// the score-feedback sync (scripts/sync-score-feedback.mjs), and the
+// dashboard. See scripts/lib/normalize-company.mjs. tsconfig has
+// `allowJs: true` + `moduleResolution: bundler`, which lets us reach into
+// the sibling scripts/lib/ tree without a path alias.
+import { normalizeCompany, companyKey } from "../../scripts/lib/normalize-company.mjs";
+
+// Re-export for dashboard consumers (`import { companyKey } from "@/lib/data"`).
+export { normalizeCompany, companyKey };
 
 const ROOT = join(process.cwd(), "..");
 
@@ -177,7 +187,11 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
     penalize?: Record<string, OverrideEntry>;
     block?: string[];
   }>(join(ROOT, "data", "score-overrides.json"), { boost: {}, penalize: {}, block: [] });
-  const companyKey = (c: string) => (c || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  // `companyKey` is the shared helper from scripts/lib/normalize-company.mjs
+  // (imported at the top of this file). The local lambda used to live here —
+  // removed in favor of the centralized version so alias-mapped names
+  // (OpenAI Inc / OpenAI, X / xAI, Norminal.So / Nominal, …) collapse to the
+  // same override slot, matching scan-jobs.mjs + sync-score-feedback.mjs.
   const clampScore = (n: number) => Math.max(1, Math.min(10, Math.round(n)));
 
   // Parse latest scan report for scores and metadata
