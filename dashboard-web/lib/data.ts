@@ -3,6 +3,7 @@ import { join } from "path";
 import type {
   Role,
   RoleStatus,
+  ScoreProvenance,
   Signal,
   SignalResult,
   Company,
@@ -282,22 +283,31 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
       location = classifyLocation(title, url);
     }
 
-    // Score priority: enrichment fit_score > application score > scan report score > computed
+    // Score priority: application score > enrichment fit_score > scan report score > computed.
+    // scoreProvenance records which branch won (drives the corner dot on the score pill).
     let score: number;
+    let scoreProvenance: ScoreProvenance;
     if (appData?.score) {
       score = Math.round(appData.score * 2);
+      scoreProvenance = "application";
     } else if (hasEnrichment && typeof enrichment.fit_score === "number") {
       score = enrichment.fit_score;
+      scoreProvenance = "enriched";
     } else {
       score = scanData?.score || computeScore(cleanedTitle, company, location, allTrackedSlugs);
+      scoreProvenance = "heuristic";
     }
-    if (isFalsePositiveTitle(cleanedTitle)) {
-      score = Math.min(score, 3);
+    // Post-hoc clamps don't change provenance — they just cap the displayed number.
+    let scoreCapped = false;
+    if (isFalsePositiveTitle(cleanedTitle) && score > 3) {
+      score = 3;
+      scoreCapped = true;
     }
     // Pre-enrichment cap: roles without Claude analysis are capped at 7
     // to prevent title-only inflation. Enrichment fit_score or app score can raise above 7.
-    if (!hasEnrichment && !appData?.score) {
-      score = Math.min(score, 7);
+    if (!hasEnrichment && !appData?.score && score > 7) {
+      score = 7;
+      scoreCapped = true;
     }
     score = Math.round(score);
 
@@ -319,6 +329,8 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
       location,
       source: meta.source || scanData?.source || "Unknown",
       score,
+      scoreProvenance,
+      scoreCapped,
       status: appData?.status || "Discovered",
       firstSeen: meta.firstSeen || "",
       publishedDate: scanData?.posted || "",

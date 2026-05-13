@@ -7,6 +7,13 @@ export type RoleStatus =
   | "Rejected"
   | "Skipped";
 
+/** Where a role's score came from, in trust order:
+ *  "enriched"    — Claude analyzed the JD (enrichment.fit_score)
+ *  "application" — pulled from the application tracker (applications.md)
+ *  "heuristic"   — title/location/company keyword math, no JD read (scan report or computeScore)
+ *  ("override" will join this once score-overrides.json is wired in — Fix #4) */
+export type ScoreProvenance = "enriched" | "application" | "heuristic";
+
 export interface Role {
   id: string;
   url: string;
@@ -18,6 +25,11 @@ export interface Role {
    *  "trusted" = original ATS / job board / portfolio board. */
   source_tier: "aggregator" | "trusted";
   score: number;
+  /** Provenance of `score` — drives the corner dot on the score pill. */
+  scoreProvenance: ScoreProvenance;
+  /** True when a heuristic score was clamped down (≤7 for un-enriched roles, ≤3 for
+   *  false-positive titles) — i.e. the displayed number is artificially capped. */
+  scoreCapped: boolean;
   status: RoleStatus;
   firstSeen: string;
   publishedDate: string;
