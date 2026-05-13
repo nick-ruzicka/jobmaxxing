@@ -11,6 +11,27 @@ import type {
 
 const ROOT = join(process.cwd(), "..");
 
+// Re-syndicator hosts (RevOps Careers, Lensa, WhatJobs, …): unreliable location/company
+// metadata, frequently corrupted JD scrapes. Roles from these hosts are tagged
+// source_tier:"aggregator" and hidden from default views (toggle in the pipeline filter bar
+// to show them). Keep in sync with scripts/scan-jobs.mjs AGGREGATOR_HOSTS.
+const AGGREGATOR_HOSTS = [
+  "revopscareers.com",
+  "lensa.com",
+  "whatjobs.com",
+  "jobright.ai",
+  "jobgether.com",
+];
+
+function isAggregatorHost(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, "");
+    return AGGREGATOR_HOSTS.some((a) => h === a || h.endsWith("." + a));
+  } catch {
+    return false;
+  }
+}
+
 function readJsonSafe<T>(path: string, fallback: T): T {
   try {
     if (!existsSync(path)) return fallback;
@@ -135,7 +156,7 @@ function parseScanReport(
 // ---------------------------------------------------------------------------
 // Get all roles (merge seen-urls + scan reports + applications)
 // ---------------------------------------------------------------------------
-export function getRoles(): Role[] {
+export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
   const seenUrls = readJsonSafe<
     Record<string, { firstSeen: string; title: string; source: string }>
   >(join(ROOT, "data", "seen-urls.json"), {});
@@ -306,6 +327,9 @@ export function getRoles(): Role[] {
       notes: appData?.notes || "",
       stale: isStale,
       closed: !!(meta as Record<string, unknown>).closed,
+      source_tier: ((meta as Record<string, unknown>).source_tier === "aggregator" || isAggregatorHost(url))
+        ? "aggregator"
+        : "trusted",
       enrichment: hasEnrichment ? {
         comp_range: enrichment.comp_range as string | undefined,
         stack: enrichment.stack as string[] | undefined,
@@ -322,7 +346,8 @@ export function getRoles(): Role[] {
   }
 
   roles.sort((a, b) => b.score - a.score);
-  return roles;
+  if (opts.includeAggregator) return roles;
+  return roles.filter((r) => r.source_tier !== "aggregator");
 }
 
 // ---------------------------------------------------------------------------

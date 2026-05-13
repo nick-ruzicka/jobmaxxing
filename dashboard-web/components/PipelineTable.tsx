@@ -62,6 +62,7 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
     requireBuild: false,
     requireAI: false,
     hasComp: false,
+    includeAggregator: false,
   });
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
@@ -71,6 +72,11 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
 
   const sorted = useMemo(() => {
     let filtered = roles;
+
+    // Aggregator quarantine — hidden unless the toggle is on
+    if (!filters.includeAggregator) {
+      filtered = filtered.filter((r) => r.source_tier !== "aggregator");
+    }
 
     // Text search
     if (filters.search) {
@@ -124,7 +130,7 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange }: Pipeline
   }, [roles, sortKey, sortDir, filters]);
 
   // Reset pagination when filters change
-  const filtersKey = JSON.stringify([filters.search, filters.status, filters.minScore, filters.requireBuild, filters.requireAI, filters.hasComp, [...filters.locations]]);
+  const filtersKey = JSON.stringify([filters.search, filters.status, filters.minScore, filters.requireBuild, filters.requireAI, filters.hasComp, filters.includeAggregator, [...filters.locations]]);
   useEffect(() => { setVisibleCount(50); }, [filtersKey]);
 
   function toggleSort(key: SortKey) {

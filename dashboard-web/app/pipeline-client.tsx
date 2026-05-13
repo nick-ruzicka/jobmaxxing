@@ -24,23 +24,26 @@ export function PipelinePage({
   const [roles, setRoles] = useState(initialRoles);
 
   const stats: ScanStats = useMemo(() => {
-    const active = roles.filter((r) => r.status !== "Rejected" && r.status !== "Skipped");
+    // Stat strip always reflects the non-aggregator pipeline (aggregator results are
+    // re-syndicated noise; including them inflates counts and tanks the average).
+    const r0 = roles.filter((r) => r.source_tier !== "aggregator");
+    const active = r0.filter((r) => r.status !== "Rejected" && r.status !== "Skipped");
     const pursuing = active.filter((r) => r.status !== "Discovered");
-    const interviews = roles.filter((r) => r.status === "Interview");
-    const scores = roles.map((r) => r.score).filter((s) => s > 0);
+    const interviews = r0.filter((r) => r.status === "Interview");
+    const scores = r0.map((r) => r.score).filter((s) => s > 0);
     const avgScore = scores.length > 0
       ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
       : 0;
 
-    const actionable = roles.filter((r) => r.score >= 4);
+    const actionable = r0.filter((r) => r.score >= 4);
 
     return {
       totalDiscovered: actionable.length,
       activelyPursuing: pursuing.length,
       interviews: interviews.length,
       avgScore,
-      nycCount: roles.filter((r) => r.location.includes("NYC")).length,
-      remoteCount: roles.filter((r) => r.location.toLowerCase().includes("remote")).length,
+      nycCount: r0.filter((r) => r.location.includes("NYC")).length,
+      remoteCount: r0.filter((r) => r.location.toLowerCase().includes("remote")).length,
       hasWarmLeads: serverMeta.hasWarmLeads,
       lastScanDate: serverMeta.lastScanDate,
     };

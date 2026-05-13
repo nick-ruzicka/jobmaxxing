@@ -124,6 +124,18 @@ const NON_JOB_URL_PATTERNS = [
   /businessinsider\.com/,
   /markets\.businessinsider/,
   /napblog\.com/,
+  // --- SEO link-farms (added 2026-05, Fix #1 aggregator-quarantine sweep) ---
+  // Thin re-spun job-title pages with no real JD content; never produced a fit-≥6 role.
+  // Also blocked at the Exa level via EXCLUDE_DOMAINS below — these regexes catch them
+  // when they arrive via non-Exa tiers (Google Search, RevOps Co-op, etc.).
+  /liveblog365\.com/,            // hirevector.liveblog365.com, jobflarely.liveblog365.com
+  /totalh\.net/,                 // remotica.totalh.net
+  /\.wuaze\.com/,                // hirepath.wuaze.com (+ the specific subdomains in EXCLUDE_DOMAINS)
+  /\.page\.gd/,                  // *.page.gd free-host spam
+  /saashero\.net/,
+  /2x\.marketing/,
+  /anywhereremotejobs\.com/,
+  /kickstartremote\.com/,
 ];
 
 const NON_JOB_TITLE_PATTERNS = [
@@ -162,7 +174,11 @@ function isNonJobContent(title, url) {
   return false;
 }
 
-// Exa spam domains to exclude
+// Exa spam domains to exclude (passed as Exa `excludeDomains`; subdomain-inclusive).
+// Each entry is a SEO/content-farm host that re-spins job titles into thin pages with no
+// real JD content. None has ever produced a fit-≥6 role in data/enrichments.json, so they're
+// blocked at scan time. NON_JOB_URL_PATTERNS above catches them for non-Exa tiers too.
+// DO NOT remove an entry without first checking enrichments.json — that's why they're here.
 const EXCLUDE_DOMAINS = [
   "flexionis.wuaze.com",
   "novaedge.page.gd",
@@ -176,6 +192,15 @@ const EXCLUDE_DOMAINS = [
   "snagajob.com",
   "simplyhired.com",
   "jobrapido.com",
+  // --- Added 2026-05 (Fix #1, aggregator-quarantine sweep) — zero useful content, ever ---
+  "liveblog365.com",        // hirevector.liveblog365.com + jobflarely.liveblog365.com (17 URLs, avg fit ~1)
+  "totalh.net",             // remotica.totalh.net (8 URLs, avg fit ~1)
+  "wuaze.com",              // hirepath.wuaze.com etc. (broader than the two specific subdomains above)
+  "page.gd",                // *.page.gd free-host spam (broader than novaedge.page.gd above)
+  "saashero.net",           // 4 URLs, no JD content per the data
+  "2x.marketing",           // 2 URLs, marketing-blog spam, not job postings
+  "anywhereremotejobs.com", // 2 URLs, generic remote-job aggregator spam
+  "kickstartremote.com",    // 3 URLs, generic remote-job aggregator spam
 ];
 
 // Tier 2: Exa broad discovery queries (keep existing)
@@ -419,6 +444,26 @@ const AGGREGATOR_SUFFIXES = [
   /\s*[-–—|]\s*(?:Jobright\.AI|Remocate|Remotehunter|Jobgether|Built ?In\w*|RevOps Careers|Comeet|Sara's List|WeLoveProduct).*$/i,
   /\s*\|\s*.*$/,  // "Company | Aggregator"
 ];
+
+// Hosts that RE-SYNDICATE other sites' postings (vs. original ATS/board pages). Their
+// location/company metadata is unreliable (URLs always end "...-new-york-ny-united-states"
+// regardless of the real location) and their scraped JD content is often corrupted. We still
+// ADD these to seen-urls.json (tagged source_tier:"aggregator") so the dashboard can toggle
+// them on, but they're hidden by default. Keep in sync with dashboard-web/lib/data.ts AGGREGATOR_HOSTS.
+const AGGREGATOR_HOSTS = [
+  "revopscareers.com",
+  "lensa.com",
+  "whatjobs.com",
+  "jobright.ai",
+  "jobgether.com",
+];
+
+function classifySourceTier(url) {
+  let host;
+  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { return undefined; }
+  if (AGGREGATOR_HOSTS.some((h) => host === h || host.endsWith("." + h))) return "aggregator";
+  return undefined;
+}
 
 function cleanAggregatorCompany(company) {
   let cleaned = company;
@@ -1583,12 +1628,14 @@ async function main() {
 
   // STEP 5: Write validated entries to seen-urls
   for (const r of dedupedNew) {
+    const tier = classifySourceTier(r.url);
     seen[r.url] = {
       firstSeen: today(),
       title: r.title,
       source: r.source,
       company: r.company,
       location: r.location || "Unknown",
+      ...(tier ? { source_tier: tier } : {}),
     };
   }
 

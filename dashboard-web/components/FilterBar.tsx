@@ -15,6 +15,8 @@ interface Filters {
   requireBuild: boolean;
   requireAI: boolean;
   hasComp: boolean;
+  /** Off by default — aggregator-sourced (re-syndicated) roles are hidden until toggled on. */
+  includeAggregator: boolean;
 }
 
 interface FilterBarProps {
@@ -85,6 +87,7 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
   let aiCount = 0;
   let compCount = 0;
   let staleCount = 0;
+  let aggCount = 0;
 
   for (const r of roles) {
     statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
@@ -95,6 +98,7 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
     if (r.enrichment?.comp_range && r.enrichment.comp_range !== "Not listed") compCount++;
     if (r.comp) compCount++;
     if (r.stale) staleCount++;
+    if (r.source_tier === "aggregator") aggCount++;
   }
 
   const activeFilterCount =
@@ -104,6 +108,7 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
     (filters.requireBuild ? 1 : 0) +
     (filters.requireAI ? 1 : 0) +
     (filters.hasComp ? 1 : 0) +
+    (filters.includeAggregator ? 1 : 0) +
     (filters.search ? 1 : 0);
 
   function toggleLocation(bucket: string) {
@@ -121,6 +126,7 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
       requireBuild: false,
       requireAI: false,
       hasComp: false,
+      includeAggregator: false,
     });
   }
 
@@ -223,6 +229,15 @@ export function FilterBar({ roles, filters, onChange, resultCount }: FilterBarPr
           active={filters.hasComp}
           onClick={() => update({ hasComp: !filters.hasComp })}
         />
+        {aggCount > 0 && (
+          <Chip
+            label="Aggregator"
+            count={aggCount}
+            active={filters.includeAggregator}
+            onClick={() => update({ includeAggregator: !filters.includeAggregator })}
+            color="var(--red-dim)"
+          />
+        )}
 
         <span className="mx-1" style={{ color: "var(--border-default)" }}>|</span>
 

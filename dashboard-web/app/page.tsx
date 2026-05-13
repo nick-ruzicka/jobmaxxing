@@ -4,7 +4,10 @@ import { PipelinePage } from "./pipeline-client";
 export const dynamic = "force-dynamic";
 
 export default function Page() {
-  const roles = getRoles();
+  // Fetch *all* roles (incl. aggregator-sourced) so the pipeline view can offer an
+  // "Include aggregator results" toggle; the table hides source_tier:"aggregator" by default
+  // and the stat strip computes from the non-aggregator subset.
+  const roles = getRoles({ includeAggregator: true });
   const signals = getSignals();
   const config = getConfig();
   const stats = getStats();

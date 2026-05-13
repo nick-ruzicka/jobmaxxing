@@ -14,6 +14,9 @@ export interface Role {
   company: string;
   location: string;
   source: string;
+  /** "aggregator" = re-syndicator host (RevOps Careers etc.) — hidden from default views.
+   *  "trusted" = original ATS / job board / portfolio board. */
+  source_tier: "aggregator" | "trusted";
   score: number;
   status: RoleStatus;
   firstSeen: string;
