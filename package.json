@@ -23,6 +23,8 @@
     "scan-and-enrich": "node scripts/scan-jobs.mjs && node scripts/enrich-roles.mjs",
     "dashboard": "cd dashboard-web && npm run dev",
     "test:extract": "node --test scripts/lib/extract-comp.test.mjs",
+    "test:strip-html": "node --test scripts/lib/strip-html.test.mjs",
+    "test": "node --test scripts/lib/*.test.mjs",
     "backfill-comp": "node scripts/enrich-roles.mjs --backfill-comp"
   },
   "keywords": [

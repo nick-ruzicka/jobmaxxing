@@ -28,6 +28,7 @@ import {
   findJobPostings,
   stripTags as stripTagsLd,
 } from "./lib/extract-comp.mjs";
+import { stripHtml } from "./lib/strip-html.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -159,18 +160,9 @@ async function fetchGreenhouseJD(url) {
   }
 }
 
-function stripHtml(html) {
-  return html
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+// stripHtml moved to scripts/lib/strip-html.mjs (Fix #5 follow-up): the local
+// version dropped only tags and kept <script>/<style> bodies as text, pushing
+// real JD content past the 5KB truncation we feed Claude.
 
 async function fetchViaExa(url, title) {
   const apiKey = process.env.EXA_API_KEY;
