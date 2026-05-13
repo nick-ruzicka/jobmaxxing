@@ -13,6 +13,7 @@ import {
   GraduationCap,
   Activity,
 } from "lucide-react";
+import { Button } from "@/components/ui";
 
 interface SidebarProps {
   activePursuing: number;
@@ -96,31 +97,21 @@ export function Sidebar({
       </nav>
 
       {/* Actions */}
-      <div className="space-y-1.5 px-3 py-4" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-        <button
-          onClick={() => onScanStart("scan")}
-          disabled={scanRunning}
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-all disabled:opacity-40"
-          style={{ background: "var(--surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
-        >
+      <div className="space-y-1.5 border-t border-border-subtle px-3 py-4">
+        <Button variant="secondary" onClick={() => onScanStart("scan")} disabled={scanRunning} className="w-full">
           <RefreshCw size={14} className={scanRunning ? "animate-spin" : ""} />
-          <div className="text-left">
-            <div>Run Job Scan</div>
-            <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>Boards + Exa + Similar</div>
-          </div>
-        </button>
-        <button
-          onClick={() => onScanStart("signal")}
-          disabled={scanRunning}
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-all disabled:opacity-40"
-          style={{ background: "var(--surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
-        >
+          <span className="text-left leading-tight">
+            <span className="block">Run Job Scan</span>
+            <span className="block text-[11px] text-text-muted">Boards + Exa + Similar</span>
+          </span>
+        </Button>
+        <Button variant="secondary" onClick={() => onScanStart("signal")} disabled={scanRunning} className="w-full">
           <Radio size={14} />
-          <div className="text-left">
-            <div>Signal Scan</div>
-            <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>Funding + hiring intent</div>
-          </div>
-        </button>
+          <span className="text-left leading-tight">
+            <span className="block">Signal Scan</span>
+            <span className="block text-[11px] text-text-muted">Funding + hiring intent</span>
+          </span>
+        </Button>
       </div>
 
       {/* Footer */}
