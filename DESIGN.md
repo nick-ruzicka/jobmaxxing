@@ -243,14 +243,21 @@ Extract these. Today they're re-implemented 5–15× each with drift (two "prima
 
 ---
 
-## Implementation order (after this doc is approved — one commit per chunk)
+## Implementation order — one commit per chunk
 
-1. `feat(design): adopt @theme tokens + reset (color-scheme, focus, reduced-motion, form-font-inherit)` — `globals.css`. Keep old `:root` vars temporarily aliased so nothing breaks.
-2. `feat(design): primitives — Button, Badge, SectionLabel, EmptyState, PageHeader, Skeleton`
-3. `feat(design): DataTable / Th / Tr — CSS-only hover & zebra; delete JS hover handlers`
-4. `refactor(pipeline): PageHeader + new filter bar + tightened table + ScoreDot/provenance` — Pipeline page onto the system.
-5. `refactor(signals): rebuild high-conviction & posting cards (no left-borders, compact grid); wire/remove the "Reach out" button; SectionLabel headers`
-6. `refactor(companies): hide empty Funding/Signal columns; EmptyState; drop per-row Building icon; new DataTable`
-7. `refactor(interviews): migrate off Tailwind-palette/hardcoded colors onto tokens; normalize headings; questions as a numbered list; separate Story Bank`
-8. `feat(design): app/loading.tsx, app/error.tsx, app/not-found.tsx`
-9. `chore(design): retire old --surface-* aliases; final pass; update CLAUDE.md with the "read DESIGN.md" note`
+Branch: **`design-system`** (in worktree `~/projects/job-search/nick-career-ops-design`, on top of `main` @ `82b0197`). Dev server: `npm run dev -- -p 3001` from that worktree's `dashboard-web/` (`node_modules` is symlinked from `../../nick-career-ops/dashboard-web/node_modules`; the gitignored data dirs — `data/{applications,enrichments,pipeline,seen-urls,signal-seen}.*`, `output/`, `reports/*.md`, `interview-prep/*.md` — are symlinked from `../../nick-career-ops/` so the dashboard has live data; none of that shows in `git status`).
+
+**DONE:**
+1. ✅ `685f808` — `feat(design): adopt @theme tokens + reset; add DESIGN.md + /design-system preview` — `globals.css` (@theme tokens + legacy `:root` aliases + reset: `color-scheme:dark`, `font:inherit` on form controls, one focus ring, `prefers-reduced-motion` guard).
+2. ✅ `bad0b38` — `feat(design): component primitives — Button, Badge, SectionLabel, PageHeader, EmptyState, Skeleton` — `dashboard-web/components/ui/`. Demo adoption: Sidebar scan buttons → `<Button variant="secondary">`.
+3. ✅ `b98d899` — `feat(design): table primitives — TableContainer, Th, Tr (CSS-only hover & zebra)` — `dashboard-web/components/ui/Table.tsx`.
+
+**REMAINING — start at 4:**
+4. `refactor(pipeline): PageHeader + new filter bar + tightened table + ScoreDot/provenance` — Pipeline page onto the system. Includes: `<PageHeader title="Pipeline" subtitle={count} actions={<scan buttons>} />` — **move the scan buttons here from the Sidebar**, threading `onScanStart`/`scanRunning` Shell→PipelinePage→PageHeader and removing them from `Sidebar.tsx`; rebuild `FilterBar.tsx`; tighten `PipelineTable.tsx` (use `Tr`/`Th`, ~40px rows, **delete the `onMouseEnter`/`onMouseLeave` JS hover**, drop the `line-through` on dimmed rows, use `<Badge>` for ScorePill/LocationTag/StatusDropdown chips, ScoreDot + provenance dots); **fold in two pre-existing fixes**: the `key={role.url}` dup-key warning and the `opacity` number-vs-string hydration mismatch in `PipelineTable.tsx`. (If the filter-bar rebuild balloons, split into 4a "header+table" / 4b "filter bar".)
+5. `refactor(signals): rebuild high-conviction & posting cards (no left-borders, compact grid); wire/remove the "Reach out" no-op button; SectionLabel headers; give h1 a Mic icon; add the Monitor EmptyState; delete JS hover in the Monitor table`
+6. `refactor(companies): hide empty Funding/Signal columns; add the no-match EmptyState; drop the per-row Building icon; use TableContainer/Th/Tr (delete JS hover, fix the var(--surface-row, transparent) artifact); ~40px rows; use <Badge> for the tier/signal badges`
+7. `refactor(interviews): migrate the whole page off Tailwind-palette/hardcoded colors (text-indigo-400, bg-violet-500/15, #2e2e3e) onto @theme tokens / primitives; normalize headings to the scale; render the 14 questions as a numbered list not 14 <h3>s; separate Story Bank from the prep-doc list; neutralize the decorative per-section icon colors; style the native checkboxes` — the messiest one (the warning's in this doc's decisions log).
+8. `feat(design): app/loading.tsx (Skeleton rows), app/error.tsx ({error,reset} → EmptyState + Try again), app/not-found.tsx` — **read `node_modules/next/dist/docs/` first** per `dashboard-web/AGENTS.md` (Next 16 conventions may differ).
+9. `chore(design): retire the old --surface-*/--shadow-*/etc. :root aliases (after all components migrate); final consistency pass; update CLAUDE.md with the "read DESIGN.md before UI changes" note`
+
+The other parallel work (`fix/builtin-scan-recall` in `../nick-career-ops-scan`, `fix/sync-score-feedback-reconciler` in `../nick-career-ops-sync`) is in separate worktrees — no conflicts with this branch.
