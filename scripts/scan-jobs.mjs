@@ -21,6 +21,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { cleanTitle } from "./lib/title-cleanup.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -1666,6 +1667,30 @@ async function main() {
   }
   if (noCompanySkipped > 0) {
     console.log(`  Rejected (no company): ${noCompanySkipped}`);
+  }
+
+  // STEP 2b: Title cleanup — strip source-attribution suffixes ("| Built In NYC",
+  // "| LinkedIn", " at <Company>") *before* the cross-company dedup so the
+  // dedup keys are computed on the canonical role title. Without this, two
+  // identical roles scraped from different aggregators (e.g. one direct Built
+  // In page and one Exa-syndicated copy) survive dedup as separate entries.
+  let titlesCleaned = 0;
+  for (const r of withCompany) {
+    const before = r.title;
+    const cleaned = cleanTitle(r.title, { company: r.company });
+    if (cleaned && cleaned !== before) {
+      r.title = cleaned;
+      titlesCleaned++;
+    }
+    // r.roleTitle was extracted earlier from the *raw* title. Re-clean it too
+    // so any source-attribution residue gets removed for dedup keying.
+    if (r.roleTitle) {
+      const rtCleaned = cleanTitle(r.roleTitle, { company: r.company });
+      if (rtCleaned) r.roleTitle = rtCleaned;
+    }
+  }
+  if (titlesCleaned > 0) {
+    console.log(`  Title cleanup: ${titlesCleaned} titles stripped of source-attribution suffixes`);
   }
 
   // STEP 3: Cross-company dedup — skip if same company + similar role already in pipeline
