@@ -69,3 +69,15 @@ MORNING_REPORT_FINAL.md
 
 # Keep dashboard-web lockfile despite the global package-lock.json ignore
 !dashboard-web/package-lock.json
+
+# ─── Analytics ────────────────────────────────────────────────────────────────
+# Per-machine runtime data — high volume, per-day rotation. Never committed.
+# See docs/analytics/ANALYTICS.md for details.
+data/events/
+data/analytics/
+data/auto-promotions/
+WORK_LOG_ANALYTICS.md
+# Personal data dirs surfaced by symlinks in this worktree
+data/briefings
+data/chats
+# ─────────────────────────────────────────────────────────────────────────────
