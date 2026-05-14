@@ -86,12 +86,18 @@ export interface SourceDetail {
   totals: {
     urls_total: number;
     urls_in_range: number;
+    /** Enrichments (success + error) whose timestamp falls in `range`. */
     enriched_total: number;
+    /** Successful enrichments in `range`. */
     enriched_real: number;
     enrich_errors: number;
     fit_6plus: number;
     fit_7plus: number;
     has_comp: number;
+    /** Real arithmetic mean of fit_score over `range`. `null` when no enrichments. */
+    avg_fit: number | null;
+    /** Fraction of `enriched_real` whose comp_range was a real number. */
+    has_comp_coverage: number;
     open: number;
     closed: number;
   };
@@ -104,6 +110,39 @@ export interface SourceDetail {
   suggested_actions: string[];
 }
 
+// Keep in lockstep with scripts/lib/analytics-rollup.mjs:hasRealComp.
+const EMPTY_COMP_VALUES = new Set([
+  "",
+  "not listed",
+  "none",
+  "n/a",
+  "na",
+  "not specified",
+  "not disclosed",
+  "unknown",
+]);
+const QUALITATIVE_COMP_RE =
+  /^(competitive|market|top of market|industry[- ]standard|commensurate|negotiable|doe\b|depends on experience)/i;
+function hasRealComp(comp_range: string | undefined): boolean {
+  if (typeof comp_range !== "string") return false;
+  const c = comp_range.trim();
+  if (!c) return false;
+  if (EMPTY_COMP_VALUES.has(c.toLowerCase())) return false;
+  if (QUALITATIVE_COMP_RE.test(c) && !/[$\d]/.test(c)) return false;
+  return /[$\d]/.test(c);
+}
+
+function daysAgoFrom(today: Date, n: number): string {
+  const d = new Date(today);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+function rangeStartDate(range: Range): string {
+  const days = { "7d": 7, "30d": 30, "60d": 60, "90d": 90 }[range];
+  return daysAgoFrom(new Date(), days - 1);
+}
+
 export function getSourceDetail(host: string, range: Range): SourceDetail {
   const seenUrls = readJsonSafe<Record<string, SeenEntry>>(
     join(ROOT, "data", "seen-urls.json"),
@@ -114,6 +153,8 @@ export function getSourceDetail(host: string, range: Range): SourceDetail {
     {},
   );
 
+  const rangeStart = rangeStartDate(range);
+
   // -- Per-URL state for this host -------------------------------------------
   const matchHost = (h: string | null) => h === host || (h !== null && h.endsWith("." + host));
   const allUrls: Array<{ url: string; meta: SeenEntry }> = [];
@@ -121,6 +162,15 @@ export function getSourceDetail(host: string, range: Range): SourceDetail {
     if (matchHost(hostOf(url))) allUrls.push({ url, meta });
   }
 
+  // Range-filtered URL set — used for everything except the all-time totals.
+  // Falls back to firstSeen on the seen-urls entry; if absent, we leave it out
+  // of the range bucket (it can't be placed in time).
+  const urlsInRange = allUrls.filter(
+    (x) => (x.meta.firstSeen || "") >= rangeStart,
+  );
+
+  // Enrichments tied to in-range URLs (urls discovered in window OR enriched in window).
+  // We use the enrichment's own timestamp when available; that's the more honest signal.
   const enriched: Array<{
     url: string;
     meta: SeenEntry;
@@ -128,17 +178,30 @@ export function getSourceDetail(host: string, range: Range): SourceDetail {
   }> = [];
   for (const { url, meta } of allUrls) {
     const e = enrichments[url];
-    if (e) enriched.push({ url, meta, e });
+    if (!e) continue;
+    const ts = (e.timestamp || "").slice(0, 10);
+    if (ts && ts < rangeStart) continue; // out of window
+    enriched.push({ url, meta, e });
   }
 
   const enrichedReal = enriched.filter((x) => !x.e.error);
   const enrichErrors = enriched.filter((x) => x.e.error);
   const fit6 = enrichedReal.filter((x) => (x.e.fit_score ?? 0) >= 6);
   const fit7 = enrichedReal.filter((x) => (x.e.fit_score ?? 0) >= 7);
-  const hasComp = enrichedReal.filter(
-    (x) => x.e.comp_range && !/^(not listed|n\/?a|unknown|none)$/i.test(x.e.comp_range),
-  );
+  const hasCompList = enrichedReal.filter((x) => hasRealComp(x.e.comp_range));
   const closed = allUrls.filter((x) => x.meta.closed).length;
+
+  const fitScores = enrichedReal
+    .map((x) => x.e.fit_score)
+    .filter((s): s is number => typeof s === "number");
+  const avgFit =
+    fitScores.length > 0
+      ? Math.round((fitScores.reduce((a, b) => a + b, 0) / fitScores.length) * 10) / 10
+      : null;
+  const hasCompCoverage =
+    enrichedReal.length > 0
+      ? Math.round((hasCompList.length / enrichedReal.length) * 10000) / 10000
+      : 0;
 
   // -- Daily series filtered to this host ------------------------------------
   const rollups = loadRollups(range);
@@ -167,8 +230,8 @@ export function getSourceDetail(host: string, range: Range): SourceDetail {
     .map((r) => ({ date: r.date, ...(r.by_source[host] || {}) }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // -- Recent role samples ---------------------------------------------------
-  const sortedByDate = [...allUrls].sort((a, b) =>
+  // -- Recent role samples — RANGE-FILTERED so they match the page header ---
+  const sortedByDate = [...urlsInRange].sort((a, b) =>
     (b.meta.firstSeen || "").localeCompare(a.meta.firstSeen || ""),
   );
   const recent_roles: SourceDetailRole[] = sortedByDate.slice(0, 25).map((x) => ({
@@ -214,25 +277,21 @@ export function getSourceDetail(host: string, range: Range): SourceDetail {
     enrichedReal: enrichedReal.length,
   });
 
-  // Compute urls_in_range (URLs whose firstSeen falls inside the date window).
-  const rangeStart = daily[0]?.date || "";
-  const urls_in_range = rangeStart
-    ? allUrls.filter((x) => (x.meta.firstSeen || "") >= rangeStart).length
-    : allUrls.length;
-
   return {
     host,
     range,
     found: allUrls.length > 0,
     totals: {
       urls_total: allUrls.length,
-      urls_in_range,
+      urls_in_range: urlsInRange.length,
       enriched_total: enriched.length,
       enriched_real: enrichedReal.length,
       enrich_errors: enrichErrors.length,
       fit_6plus: fit6.length,
       fit_7plus: fit7.length,
-      has_comp: hasComp.length,
+      has_comp: hasCompList.length,
+      avg_fit: avgFit,
+      has_comp_coverage: hasCompCoverage,
       open: allUrls.length - closed,
       closed,
     },

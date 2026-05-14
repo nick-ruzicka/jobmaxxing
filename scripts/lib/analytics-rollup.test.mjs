@@ -122,6 +122,52 @@ test("Fit distribution bucketing", () => {
   assert.equal(r.by_source["builtin.com"].hit_rate_fit_6plus, 0.6);
 });
 
+test("avg_fit: mean of fit_score over enrich.complete events", () => {
+  const events = [
+    evt("enrich.complete", { host: "builtin.com", fit_score: 2 }),
+    evt("enrich.complete", { host: "builtin.com", fit_score: 4 }),
+    evt("enrich.complete", { host: "builtin.com", fit_score: 6 }),
+    evt("enrich.complete", { host: "builtin.com", fit_score: 8 }),
+  ];
+  const r = computeRollup(events, { date: "2026-05-13" });
+  assert.equal(r.totals.avg_fit, 5); // (2+4+6+8)/4
+  assert.equal(r.totals.fit_score_count, 4);
+  assert.equal(r.by_source["builtin.com"].avg_fit, 5);
+});
+
+test("avg_fit: null when no scores recorded", () => {
+  const events = [
+    evt("enrich.complete", { host: "builtin.com" }), // no fit_score
+  ];
+  const r = computeRollup(events, { date: "2026-05-13" });
+  assert.equal(r.totals.avg_fit, null);
+  assert.equal(r.by_source["builtin.com"].avg_fit, null);
+});
+
+test("has_comp_coverage: counts real comp_range strings, ignores qualitative", () => {
+  const events = [
+    evt("enrich.complete", { host: "builtin.com", fit_score: 7, comp_range: "$150,000 – $200,000" }),
+    evt("enrich.complete", { host: "builtin.com", fit_score: 6, comp_range: "$130k base" }),
+    evt("enrich.complete", { host: "builtin.com", fit_score: 5, comp_range: "Not listed" }),
+    evt("enrich.complete", { host: "builtin.com", fit_score: 4, comp_range: "Competitive" }),
+    evt("enrich.complete", { host: "builtin.com", fit_score: 3, comp_range: "" }),
+  ];
+  const r = computeRollup(events, { date: "2026-05-13" });
+  // 2 of 5 carry a real number
+  assert.equal(r.totals.has_comp_count, 2);
+  assert.equal(r.totals.has_comp_coverage, 0.4);
+  assert.equal(r.by_source["builtin.com"].has_comp_count, 2);
+  assert.equal(r.by_source["builtin.com"].has_comp_coverage, 0.4);
+});
+
+test("has_comp_coverage: qualitative-with-number counts (e.g. 'Competitive + $150k bonus')", () => {
+  const events = [
+    evt("enrich.complete", { host: "x.com", fit_score: 5, comp_range: "Competitive + $20k bonus" }),
+  ];
+  const r = computeRollup(events, { date: "2026-05-13" });
+  assert.equal(r.totals.has_comp_count, 1);
+});
+
 test("Funnel: roles_after_dedup and roles_after_filter derived", () => {
   const events = [
     evt("scrape.role_discovered", { host: "builtin.com" }),

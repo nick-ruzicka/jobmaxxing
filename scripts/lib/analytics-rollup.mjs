@@ -104,12 +104,23 @@ export function computeRollup(events, { date }) {
         if (src) src.roles_enriched += 1;
         if (typeof e.fit_score === "number") {
           bumpFitDist(fitDistTotals, e.fit_score);
+          totals.fit_score_sum += e.fit_score;
+          totals.fit_score_count += 1;
           if (e.fit_score >= FIT_THRESHOLD) totals.roles_fit_6plus += 1;
           if (e.fit_score >= FIT_THRESHOLD_STRICT) totals.roles_fit_7plus += 1;
           if (src) {
             bumpFitDist(src.fit_distribution, e.fit_score);
+            src.fit_score_sum += e.fit_score;
+            src.fit_score_count += 1;
             if (e.fit_score >= FIT_THRESHOLD) src.roles_fit_6plus += 1;
           }
+        }
+        // Comp coverage — count enrichments whose comp_range carries a real number,
+        // not "Not listed" / "Competitive" / etc. Kept in lockstep with the
+        // hasRealComp() implementation in dashboard-web/lib/source-health.ts.
+        if (hasRealComp(e.comp_range)) {
+          totals.has_comp_count += 1;
+          if (src) src.has_comp_count += 1;
         }
         break;
       case "enrich.claude_call":
@@ -163,6 +174,14 @@ export function computeRollup(events, { date }) {
   totals.exa_cost_usd = round6(totals.exa_cost_usd);
   totals.total_cost_usd = round6(totals.total_cost_usd);
   totals.fit_distribution = fitDistTotals;
+  totals.avg_fit =
+    totals.fit_score_count > 0
+      ? round4(totals.fit_score_sum / totals.fit_score_count)
+      : null;
+  totals.has_comp_coverage =
+    totals.roles_enriched > 0
+      ? round4(totals.has_comp_count / totals.roles_enriched)
+      : 0;
 
   // Roles after dedup / filter — derived from the funnel
   totals.roles_after_dedup =
@@ -177,6 +196,14 @@ export function computeRollup(events, { date }) {
     s.claude_cost_usd = round6(s.claude_cost_usd);
     s.hit_rate_fit_6plus =
       s.roles_enriched > 0 ? round4(s.roles_fit_6plus / s.roles_enriched) : 0;
+    s.avg_fit =
+      s.fit_score_count > 0
+        ? round4(s.fit_score_sum / s.fit_score_count)
+        : null;
+    s.has_comp_coverage =
+      s.roles_enriched > 0
+        ? round4(s.has_comp_count / s.roles_enriched)
+        : 0;
   }
   for (const [, t] of byTier) {
     t.exa_cost_usd = round6(t.exa_cost_usd);
@@ -342,6 +369,11 @@ function freshTotals() {
     auto_promotions: 0,
     duration_total_ms: 0,
     roles_dedup_skipped: 0,
+    fit_score_sum: 0,
+    fit_score_count: 0,
+    avg_fit: null,
+    has_comp_count: 0,
+    has_comp_coverage: 0,
   };
 }
 
@@ -364,6 +396,11 @@ function freshSourceBucket() {
     exa_cost_usd: 0,
     fit_distribution: freshFitDist(),
     hit_rate_fit_6plus: 0,
+    fit_score_sum: 0,
+    fit_score_count: 0,
+    avg_fit: null,
+    has_comp_count: 0,
+    has_comp_coverage: 0,
   };
 }
 
@@ -399,6 +436,31 @@ function safeHost(url) {
   } catch {
     return null;
   }
+}
+
+// Mirror of dashboard-web/lib/source-health.ts:hasRealComp — keep these in sync.
+// "Real comp" means a string that carries a numeric range or amount; "Not listed",
+// "Competitive", or qualitative-only entries don't count.
+const EMPTY_COMP_VALUES = new Set([
+  "",
+  "not listed",
+  "none",
+  "n/a",
+  "na",
+  "not specified",
+  "not disclosed",
+  "unknown",
+]);
+const QUALITATIVE_COMP_RE =
+  /^(competitive|market|top of market|industry[- ]standard|commensurate|negotiable|doe\b|depends on experience)/i;
+
+function hasRealComp(comp_range) {
+  if (typeof comp_range !== "string") return false;
+  const c = comp_range.trim();
+  if (!c) return false;
+  if (EMPTY_COMP_VALUES.has(c.toLowerCase())) return false;
+  if (QUALITATIVE_COMP_RE.test(c) && !/[$\d]/.test(c)) return false;
+  return /[$\d]/.test(c);
 }
 
 function round6(n) {
