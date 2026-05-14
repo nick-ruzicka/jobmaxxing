@@ -35,6 +35,7 @@ import type {
   SurfacedAnomaly,
   DataCompleteness,
 } from "@/lib/analytics";
+import { KNOWN_TIERS } from "@/lib/known-tiers";
 
 // -----------------------------------------------------------------------------
 // 1. Hero metrics
@@ -594,35 +595,87 @@ export function PipelineFunnel({ totals }: { totals: AggregatedTotals }) {
 // -----------------------------------------------------------------------------
 
 export function TierBreakdown({ tiers }: { tiers: TierAggregate[] }) {
-  if (tiers.length === 0) {
-    return (
-      <EmptyState
-        title="No tier-level events captured yet."
-        description="Tier health appears after instrumentation is wired into scan-jobs.mjs (see WORK_LOG_ANALYTICS.md)."
-      />
-    );
-  }
+  // Merge actual tier data with the KNOWN_TIERS topology so all 12 expected
+  // tiers show even when none have wired instrumentation yet. Anything from
+  // by_tier that ISN'T in KNOWN_TIERS still shows (e.g. a tier_13_lever
+  // added by a future change) — it just lacks a friendly label.
+  const byId = new Map<string, TierAggregate>();
+  for (const t of tiers) byId.set(t.tier, t);
+
+  const known = KNOWN_TIERS.map((k) => ({
+    known: k,
+    data: byId.get(k.tier_id) || null,
+  }));
+  // Anything observed but NOT in KNOWN_TIERS (future tiers / typos) tacked on at end
+  const knownIds = new Set(KNOWN_TIERS.map((k) => k.tier_id));
+  const extras = tiers.filter((t) => !knownIds.has(t.tier));
+
+  const wiredCount = tiers.filter((t) => t.runs > 0).length;
+  const totalCount = KNOWN_TIERS.length + extras.length;
+
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {tiers.map((t) => (
-        <div key={t.tier} className="rounded-lg border border-border-subtle bg-surface-2 p-3">
-          <div className="flex items-center justify-between">
-            <div className="font-mono text-[12px] text-text-secondary">{t.tier}</div>
-            <Badge color={t.last_exit_status === "ok" ? "emerald" : t.last_exit_status === "error" ? "red" : "neutral"}>
-              {t.last_exit_status ?? "—"}
-            </Badge>
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
-            <Metric label="Runs" value={fmtInt(t.runs)} />
-            <Metric
-              label="Avg dur"
-              value={t.runs > 0 ? `${(t.duration_ms / t.runs / 1000).toFixed(1)}s` : "—"}
-            />
-            <Metric label="Roles" value={fmtInt(t.roles_discovered)} />
-            <Metric label="Exa $" value={fmtUsd(t.exa_cost_usd)} />
-          </div>
+    <div className="space-y-3">
+      <div className="text-[12px] text-text-muted">
+        {wiredCount === 0
+          ? `${totalCount} expected tiers, none wired yet. Instrumentation lives in scripts/lib/scan-jobs-instrumentation.mjs — see docs/analytics/ANALYTICS.md § "Wiring instrumentation".`
+          : `${wiredCount} of ${totalCount} tiers wired. ${totalCount - wiredCount} still awaiting instrumentation.`}
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {known.map(({ known, data }) => (
+          <TierCard key={known.tier_id} tierId={known.tier_id} label={known.label} description={known.description} data={data} />
+        ))}
+        {extras.map((t) => (
+          <TierCard key={t.tier} tierId={t.tier} label={t.tier} description="(not in KNOWN_TIERS — added by future change?)" data={t} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TierCard({
+  tierId,
+  label,
+  description,
+  data,
+}: {
+  tierId: string;
+  label: string;
+  description: string;
+  data: TierAggregate | null;
+}) {
+  const wired = data !== null && data.runs > 0;
+  return (
+    <div
+      className={`rounded-lg border bg-surface-2 p-3 ${
+        wired ? "border-border-subtle" : "border-border-subtle/60 opacity-70"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[13px] font-medium text-text-primary">{label}</div>
+          <div className="font-mono text-[10px] text-text-muted">{tierId}</div>
         </div>
-      ))}
+        {wired ? (
+          <Badge color={data!.last_exit_status === "ok" ? "emerald" : data!.last_exit_status === "error" ? "red" : "neutral"}>
+            {data!.last_exit_status ?? "—"}
+          </Badge>
+        ) : (
+          <Badge color="neutral">awaiting</Badge>
+        )}
+      </div>
+      {wired ? (
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
+          <Metric label="Runs" value={fmtInt(data!.runs)} />
+          <Metric
+            label="Avg dur"
+            value={data!.runs > 0 ? `${(data!.duration_ms / data!.runs / 1000).toFixed(1)}s` : "—"}
+          />
+          <Metric label="Roles" value={fmtInt(data!.roles_discovered)} />
+          <Metric label="Exa $" value={fmtUsd(data!.exa_cost_usd)} />
+        </div>
+      ) : (
+        <div className="mt-2 text-[11px] leading-relaxed text-text-muted">{description}</div>
+      )}
     </div>
   );
 }

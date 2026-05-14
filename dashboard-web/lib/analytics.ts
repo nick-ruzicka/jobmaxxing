@@ -59,6 +59,13 @@ export interface TierBucket {
   last_exit_status: string | null;
 }
 
+// The KNOWN_TIERS topology lives in its own file (lib/known-tiers.ts) so client
+// components can import it without dragging this module's fs imports through
+// the bundler. Re-exported here as a convenience for callers that already
+// import from analytics.
+export { KNOWN_TIERS } from "./known-tiers";
+export type { KnownTier } from "./known-tiers";
+
 export interface Anomaly {
   type: string;
   severity: "low" | "medium" | "high";
