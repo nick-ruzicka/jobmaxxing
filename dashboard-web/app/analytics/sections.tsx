@@ -109,22 +109,24 @@ export function AnomaliesPanel({ anomalies }: { anomalies: SurfacedAnomaly[] }) 
   const high = anomalies.filter((a) => a.severity === "high");
   if (anomalies.length === 0) {
     return (
-      <section className="rounded-lg border border-emerald-border bg-emerald-dim/40 p-3 text-[13px] text-emerald">
+      <section className="rounded-lg border border-emerald-border bg-emerald-dim/40 px-3 py-2 text-[13px] text-emerald">
         ✓ No anomalies in the last 7 days. Scraper is behaving.
       </section>
     );
   }
   return (
     <section
-      className={`rounded-lg border ${high.length > 0 ? "border-red-border bg-red-dim/40" : "border-amber-border bg-amber-dim/30"}`}
+      className={`overflow-hidden rounded-lg border ${
+        high.length > 0 ? "border-red-border bg-red-dim/40" : "border-amber-border bg-amber-dim/30"
+      }`}
     >
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
       >
-        <span className="flex items-center gap-2 text-[14px] font-medium text-text-primary">
+        <span className="flex items-center gap-2 text-[13px] font-medium text-text-primary">
           <AlertTriangle
-            className={`h-4 w-4 ${high.length > 0 ? "text-red" : "text-amber"}`}
+            className={`h-3.5 w-3.5 ${high.length > 0 ? "text-red" : "text-amber"}`}
           />
           {anomalies.length} anomal{anomalies.length === 1 ? "y" : "ies"} active
           {high.length > 0 && (
@@ -142,7 +144,7 @@ export function AnomaliesPanel({ anomalies }: { anomalies: SurfacedAnomaly[] }) 
       {open && (
         <div className="border-t border-border-subtle">
           {anomalies.map((a, i) => (
-            <AnomalyRow key={i} a={a} />
+            <AnomalyRow key={`${a.type}-${a.source ?? ""}-${a.tier ?? ""}-${i}`} a={a} />
           ))}
         </div>
       )}
@@ -150,29 +152,57 @@ export function AnomaliesPanel({ anomalies }: { anomalies: SurfacedAnomaly[] }) 
   );
 }
 
+/**
+ * One anomaly = one slim row. Collapsed by default: severity dot + type +
+ * source + truncated action on a single line. Click to expand → full action
+ * text + first/last/count metadata.
+ */
 function AnomalyRow({ a }: { a: SurfacedAnomaly }) {
-  const color: "red" | "amber" | "neutral" =
+  const [expanded, setExpanded] = useState(false);
+  const dotColor: "red" | "amber" | "neutral" =
     a.severity === "high" ? "red" : a.severity === "medium" ? "amber" : "neutral";
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-border-subtle px-3 py-2.5 last:border-0">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-[13px] font-medium text-text-primary">
-          <Badge color={color}>{a.severity}</Badge>
-          <span className="font-mono text-[12px] text-text-secondary">{a.type}</span>
-          {a.source && (
-            <Link
-              href={`/analytics/${encodeURIComponent(a.source)}`}
-              className="text-[12px] text-accent hover:underline"
-            >
-              {a.source}
-            </Link>
-          )}
+    <div className="border-b border-border-subtle last:border-0">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] hover:bg-surface-3/40"
+        aria-expanded={expanded}
+      >
+        {/* severity dot — single 8px element instead of a chip */}
+        <span
+          className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+            dotColor === "red" ? "bg-red" : dotColor === "amber" ? "bg-amber" : "bg-text-muted"
+          }`}
+          aria-label={`${a.severity} severity`}
+        />
+        <span className="shrink-0 font-mono text-[11px] text-text-secondary">{a.type}</span>
+        {a.source && (
+          <Link
+            href={`/analytics/${encodeURIComponent(a.source)}`}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 text-[12px] text-accent hover:underline"
+          >
+            {a.source}
+          </Link>
+        )}
+        <span className="min-w-0 flex-1 truncate text-text-muted">
+          {a.suggested_action}
+        </span>
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 shrink-0 text-text-tertiary" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0 text-text-tertiary" />
+        )}
+      </button>
+      {expanded && (
+        <div className="border-t border-border-subtle bg-surface-1/40 px-3 py-2 text-[12px] text-text-secondary">
+          <div>{a.suggested_action}</div>
+          <div className="mt-1 text-[11px] text-text-muted">
+            first seen {a.first_seen} · last seen {a.last_seen} · {a.occurrence_count}× occurred
+          </div>
         </div>
-        <div className="mt-1 text-[13px] text-text-secondary">{a.suggested_action}</div>
-        <div className="mt-1 text-[11px] text-text-muted">
-          first seen {a.first_seen} · last seen {a.last_seen} · {a.occurrence_count}× occurred
-        </div>
-      </div>
+      )}
     </div>
   );
 }
