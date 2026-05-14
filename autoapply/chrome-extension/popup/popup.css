@@ -1,0 +1,90 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 14px 16px;
+  width: 320px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+header h1 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+#ats-detected {
+  margin: 0 0 12px;
+  color: gray;
+  font-size: 12px;
+}
+
+section {
+  padding: 8px 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+section:first-of-type {
+  border-top: none;
+}
+
+button {
+  display: inline-block;
+  padding: 6px 10px;
+  margin: 4px 0;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#fill-btn {
+  background: color-mix(in srgb, royalblue 75%, transparent);
+  color: white;
+  border-color: transparent;
+  font-weight: 500;
+}
+
+#fill-btn:disabled {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: color-mix(in srgb, currentColor 60%, transparent);
+}
+
+.hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: gray;
+}
+
+#results h2 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: gray;
+}
+
+#results-output {
+  margin: 0;
+  padding: 8px;
+  max-height: 240px;
+  overflow: auto;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

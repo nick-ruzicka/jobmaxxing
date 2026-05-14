@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AutoApply</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>AutoApply</h1>
+    <p id="ats-detected">Detecting ATS…</p>
+  </header>
+
+  <main>
+    <section id="profile-block">
+      <p id="profile-status">Profile: <span id="profile-status-value">checking…</span></p>
+      <button id="set-test-profile-btn" type="button">Use test profile</button>
+    </section>
+
+    <section id="fill-block">
+      <button id="fill-btn" type="button" disabled>Fill form</button>
+      <p class="hint">
+        Fills standard fields only. Never clicks submit. Verify the form in the page,
+        then submit yourself.
+      </p>
+    </section>
+
+    <section id="results">
+      <h2>Results</h2>
+      <pre id="results-output">(no run yet)</pre>
+    </section>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
