@@ -1,0 +1,39 @@
+{
+  "_comment": "Canonical source-classification lists. Single source of truth for AGGREGATOR_HOSTS (re-syndicator hosts that get quarantined — kept in pipeline but hidden by default) and EXCLUDE_DOMAINS (content-farm / SEO-spam hosts blocked at scan time). Read by scripts/lib/source-classification.mjs (Node) and dashboard-web/lib/source-classification.ts (TypeScript). Do NOT duplicate these arrays in code — import from the loaders.",
+  "_format": {
+    "aggregator_hosts": "Re-syndicators of other sites' postings — location/company metadata unreliable, URLs always end '...-new-york-ny-united-states' regardless of real location. Saved to seen-urls.json but tagged source_tier:'aggregator' and hidden by default.",
+    "exclude_domains": "Content-farm / SEO-spam hosts that emit thin pages with no real JD content. None has ever produced a fit-≥6 role in enrichments.json. Passed to Exa as excludeDomains; blocked subdomain-inclusively for non-Exa tiers via NON_JOB_URL_PATTERNS in scan-jobs.mjs."
+  },
+  "aggregator_hosts": [
+    "revopscareers.com",
+    "lensa.com",
+    "whatjobs.com",
+    "jobright.ai",
+    "jobgether.com"
+  ],
+  "exclude_domains": [
+    "flexionis.wuaze.com",
+    "novaedge.page.gd",
+    "hireza.wuaze.com",
+    "joborix.us",
+    "jobsgemach.com",
+    "talent.com",
+    "jooble.org",
+    "recruit.net",
+    "careerbuilder.com",
+    "snagajob.com",
+    "simplyhired.com",
+    "jobrapido.com",
+    "liveblog365.com",
+    "totalh.net",
+    "wuaze.com",
+    "page.gd",
+    "saashero.net",
+    "2x.marketing",
+    "anywhereremotejobs.com",
+    "kickstartremote.com",
+    "trabajo.org",
+    "jobsora.com",
+    "jora.com"
+  ]
+}

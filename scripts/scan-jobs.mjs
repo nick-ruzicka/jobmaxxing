@@ -24,6 +24,19 @@ import { fileURLToPath } from "url";
 import { locationFields, structuredLocationFields } from "./lib/location.mjs";
 import { cleanTitle } from "./lib/title-cleanup.mjs";
 import { companyKey } from "./lib/normalize-company.mjs";
+import {
+  AGGREGATOR_HOSTS,
+  EXCLUDE_DOMAINS,
+  classifySource,
+} from "./lib/source-classification.mjs";
+import { loadCompaniesGrouped } from "./lib/companies-load.mjs";
+import {
+  createPromotionRunState,
+  processRolePromotion,
+  PROMOTION_CAP_PER_RUN,
+} from "./lib/promote-company.mjs";
+import { scanLever } from "./lib/lever-scraper.mjs";
+import { scanYc } from "./lib/yc-scraper.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -48,25 +61,12 @@ function loadEnv() {
 }
 loadEnv();
 
-// Load company slugs from config
+// Load tracked companies from the structured config/companies.yml schema. Returns
+// { ashby: [slug, ...], greenhouse: [slug, ...], lever: [slug, ...], all: [entry, ...] }.
+// Paused entries (paused: true) are excluded from the per-ATS slug arrays but
+// included in `all` so the auto-promotion engine can see them for dedup.
 function loadCompanies() {
-  const configPath = join(ROOT, "config", "companies.yml");
-  if (!existsSync(configPath)) return { ashby: [], greenhouse: [] };
-  const raw = readFileSync(configPath, "utf-8");
-
-  const parseList = (key) => {
-    const match = raw.match(new RegExp(`${key}:\\s*\\n([\\s\\S]*?)(?=\\n\\w|$)`));
-    if (!match) return [];
-    return match[1]
-      .split("\n")
-      .map((l) => l.replace(/^\s*-\s*/, "").replace(/#.*$/, "").trim())
-      .filter((l) => l && !l.startsWith("#"));
-  };
-
-  return {
-    ashby: parseList("ashby_slugs"),
-    greenhouse: parseList("greenhouse_slugs"),
-  };
+  return loadCompaniesGrouped();
 }
 
 // --- Title relevance: anchor + role-token matcher ---------------------------
@@ -204,34 +204,9 @@ function isNonJobContent(title, url) {
   return false;
 }
 
-// Exa spam domains to exclude (passed as Exa `excludeDomains`; subdomain-inclusive).
-// Each entry is a SEO/content-farm host that re-spins job titles into thin pages with no
-// real JD content. None has ever produced a fit-≥6 role in data/enrichments.json, so they're
-// blocked at scan time. NON_JOB_URL_PATTERNS above catches them for non-Exa tiers too.
-// DO NOT remove an entry without first checking enrichments.json — that's why they're here.
-const EXCLUDE_DOMAINS = [
-  "flexionis.wuaze.com",
-  "novaedge.page.gd",
-  "hireza.wuaze.com",
-  "joborix.us",
-  "jobsgemach.com",
-  "talent.com",
-  "jooble.org",
-  "recruit.net",
-  "careerbuilder.com",
-  "snagajob.com",
-  "simplyhired.com",
-  "jobrapido.com",
-  // --- Added 2026-05 (Fix #1, aggregator-quarantine sweep) — zero useful content, ever ---
-  "liveblog365.com",        // hirevector.liveblog365.com + jobflarely.liveblog365.com (17 URLs, avg fit ~1)
-  "totalh.net",             // remotica.totalh.net (8 URLs, avg fit ~1)
-  "wuaze.com",              // hirepath.wuaze.com etc. (broader than the two specific subdomains above)
-  "page.gd",                // *.page.gd free-host spam (broader than novaedge.page.gd above)
-  "saashero.net",           // 4 URLs, no JD content per the data
-  "2x.marketing",           // 2 URLs, marketing-blog spam, not job postings
-  "anywhereremotejobs.com", // 2 URLs, generic remote-job aggregator spam
-  "kickstartremote.com",    // 3 URLs, generic remote-job aggregator spam
-];
+// EXCLUDE_DOMAINS / AGGREGATOR_HOSTS now imported from ./lib/source-classification.mjs —
+// canonical source of truth is config/source-classification.json. To add a new entry,
+// edit the JSON; both Node scripts and the dashboard pick it up automatically.
 
 // Tier 2: Exa broad discovery queries (keep existing)
 const EXA_QUERIES = [
@@ -426,24 +401,10 @@ const AGGREGATOR_SUFFIXES = [
   /\s*\|\s*.*$/,  // "Company | Aggregator"
 ];
 
-// Hosts that RE-SYNDICATE other sites' postings (vs. original ATS/board pages). Their
-// location/company metadata is unreliable (URLs always end "...-new-york-ny-united-states"
-// regardless of the real location) and their scraped JD content is often corrupted. We still
-// ADD these to seen-urls.json (tagged source_tier:"aggregator") so the dashboard can toggle
-// them on, but they're hidden by default. Keep in sync with dashboard-web/lib/data.ts AGGREGATOR_HOSTS.
-const AGGREGATOR_HOSTS = [
-  "revopscareers.com",
-  "lensa.com",
-  "whatjobs.com",
-  "jobright.ai",
-  "jobgether.com",
-];
-
+// AGGREGATOR_HOSTS imported above. Quarantined re-syndicators are still stored in
+// seen-urls.json (tagged source_tier:"aggregator") so the dashboard can toggle them on.
 function classifySourceTier(url) {
-  let host;
-  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { return undefined; }
-  if (AGGREGATOR_HOSTS.some((h) => host === h || host.endsWith("." + h))) return "aggregator";
-  return undefined;
+  return classifySource(url).type === "aggregator" ? "aggregator" : undefined;
 }
 
 function cleanAggregatorCompany(company) {
@@ -937,6 +898,8 @@ function generateReport(roles, stats) {
   md += `|------|--------|-------------------|---------|--------|\n`;
   md += `| 1 | Ashby API | ${stats.ashby.checked} companies | ${stats.ashby.matches} | ${stats.ashby.failed.length} 404s |\n`;
   md += `| 1 | Greenhouse API | ${stats.greenhouse.checked} companies | ${stats.greenhouse.matches} | ${stats.greenhouse.failed.length} 404s |\n`;
+  md += `| 1 | Lever API | ${stats.lever.checked} companies | ${stats.lever.matches} | ${stats.lever.failed.length} 404s |\n`;
+  md += `| 1 | YC direct | ${stats.ycDirect.queries} queries | ${stats.ycDirect.matches} | ${stats.ycDirect.failed.length} errors |\n`;
   md += `| 2 | Exa broad | ${stats.exa.queries} queries | ${stats.exa.matches} | — |\n`;
   md += `| 3 | Exa VC portfolios | ${stats.vc.queries} queries | ${stats.vc.matches} | — |\n`;
   md += `| 3 | Exa HN/YC | ${stats.hn.queries} queries | ${stats.hn.matches} | — |\n`;
@@ -957,6 +920,9 @@ function generateReport(roles, stats) {
   }
   if (stats.greenhouse.failed.length > 0) {
     md += `**Greenhouse 404s:** ${stats.greenhouse.failed.join(", ")}  \n`;
+  }
+  if (stats.lever.failed.length > 0) {
+    md += `**Lever 404s:** ${stats.lever.failed.join(", ")}  \n`;
   }
   md += `\n---\n\n`;
 
@@ -1133,11 +1099,16 @@ async function main() {
 
   const seen = loadSeen();
   const companies = loadCompanies();
-  const allTrackedSlugs = [...companies.ashby, ...companies.greenhouse];
+  const allTrackedSlugs = [
+    ...companies.ashby,
+    ...companies.greenhouse,
+    ...companies.lever,
+  ];
 
   const stats = {
     ashby: { checked: 0, matches: 0, failed: [] },
     greenhouse: { checked: 0, matches: 0, failed: [] },
+    lever: { checked: 0, matches: 0, failed: [] },
     exa: { queries: EXA_QUERIES.length, matches: 0 },
     vc: { queries: VC_QUERIES.length, matches: 0 },
     hn: { queries: HN_QUERIES.length, matches: 0 },
@@ -1149,6 +1120,7 @@ async function main() {
     deep: { queries: 3, matches: 0 },
     builtin: { queries: BUILTIN_SEARCHES.length, matches: 0 },
     yc: { queries: YC_SEARCHES.length, matches: 0 },
+    ycDirect: { queries: YC_SEARCHES.length, matches: 0, failed: [] },
     vcBoards: { queries: VC_BOARD_CONFIGS.length * VC_BOARD_SEARCHES.length, matches: 0 },
     google: { queries: GOOGLE_QUERIES.length, matches: 0 },
   };
@@ -1172,6 +1144,47 @@ async function main() {
   stats.greenhouse.matches = gh.results.length;
   allResults.push(...gh.results);
   console.log(`  Found ${gh.results.length} matching roles (${gh.failed.length} 404s)\n`);
+
+  // --- Tier 1.5: YC Work at a Startup (direct scrape) ---
+  // The audit's strongest signal:effort gap — ycombinator.com had a 100% hit rate
+  // (4/4 enriched ≥ fit-7) but only leaked in via Exa Tier 6 at 5 URLs cumulative.
+  // Direct crawl uses the same YC_SEARCHES keyword set as the legacy Tier-10 Exa
+  // path; both run, dedup catches overlap. Tagged "Tier 1: YC" so dedup gives it
+  // shortcut treatment.
+  console.log(`[Tier 1] YC Work at a Startup direct — ${YC_SEARCHES.length} searches`);
+  const ycDirect = await scanYc(YC_SEARCHES);
+  stats.ycDirect.matches = ycDirect.results.length;
+  stats.ycDirect.failed = ycDirect.failed;
+  // Title gate applied here, same as Lever (YC API returns ALL postings for a query).
+  const ycDirectFiltered = ycDirect.results.filter(
+    (r) => titleMatchesPositive(r.title) && !titleMatchesNegative(r.title),
+  );
+  stats.ycDirect.matches = ycDirectFiltered.length;
+  allResults.push(...ycDirectFiltered);
+  console.log(
+    `  Found ${ycDirectFiltered.length} matching roles (${ycDirect.failed.length} query errors, ${ycDirect.results.length} total before title filter)\n`,
+  );
+
+  // --- Tier 1: Lever ---
+  // Lever is structurally identical to Ashby/Greenhouse — public per-company API,
+  // no auth. Per autoapply/SCRAPER_AUDIT.md surprise finding: zero Lever URLs in
+  // 1,251 seen-urls, despite Lever hosting Plaid, PostHog, Pinecone, Modal Labs,
+  // and others squarely in our ICP. Title filtering done downstream in the same
+  // dedup+filter pass as Ashby/GH (Tier-1 results are flagged "Tier 1: Lever" and
+  // get the same shortcut treatment as the other two).
+  console.log(`[Tier 1] Lever API — ${companies.lever.length} companies`);
+  const lever = await scanLever(companies.lever);
+  stats.lever.checked = lever.checked;
+  stats.lever.failed = lever.failed;
+  // scanLever returns ALL postings; apply the same title gate Ashby/GH apply inline.
+  const leverFiltered = lever.results.filter(
+    (r) => titleMatchesPositive(r.title) && !titleMatchesNegative(r.title),
+  );
+  stats.lever.matches = leverFiltered.length;
+  allResults.push(...leverFiltered);
+  console.log(
+    `  Found ${leverFiltered.length} matching roles (${lever.failed.length} 404s, ${lever.results.length} total before title filter)\n`,
+  );
 
   // --- Tier 2: Exa broad ---
   console.log(`[Tier 2] Exa neural search — ${EXA_QUERIES.length} queries`);
@@ -1208,12 +1221,22 @@ async function main() {
   allResults.push(...revopsCoopResults);
   console.log(`  Total RevOps Co-op: ${revopsCoopResults.length}\n`);
 
-  // --- Tier 5: Social signals ---
-  console.log(`[Tier 5] Social signals — ${SOCIAL_QUERIES.length} queries`);
-  const socialResults = await runExaQueries(SOCIAL_QUERIES, "Social Signal");
-  stats.social.matches = socialResults.length;
-  allResults.push(...socialResults);
-  console.log(`  Total Social signals: ${socialResults.length}\n`);
+  // --- Tier 5: Social signals (gated behind ENABLE_SOCIAL_SIGNALS=true) ---
+  // Audit finding: 7 URLs cumulative over 1,251 total, 0 high-fit, 0 applied. Costs
+  // 3 Exa queries × 2 runs/day = 180 queries/month for zero high-fit. Disabled by
+  // default; re-enable via env flag for experiments. See autoapply/SCRAPER_AUDIT.md
+  // §7 quick-win #3 / structural change "Sources to deprecate".
+  if (process.env.ENABLE_SOCIAL_SIGNALS === "true") {
+    console.log(`[Tier 5] Social signals — ${SOCIAL_QUERIES.length} queries (gated ON)`);
+    const socialResults = await runExaQueries(SOCIAL_QUERIES, "Social Signal");
+    stats.social.matches = socialResults.length;
+    allResults.push(...socialResults);
+    console.log(`  Total Social signals: ${socialResults.length}\n`);
+  } else {
+    console.log(
+      `[Tier 5] Social signals — SKIPPED (set ENABLE_SOCIAL_SIGNALS=true to re-enable)\n`,
+    );
+  }
 
   // --- Tier 6: Similar search (find more like your best roles) ---
   // Use top-scoring Tier 1 roles as seeds for "find similar"
@@ -1673,6 +1696,59 @@ async function main() {
   }
 
   console.log(`  Validated net-new: ${dedupedNew.length}`);
+
+  // --- Auto-promotion: BuiltIn / YC discovery → direct ATS tracking ---
+  // For each new role whose URL is already a recognized ATS endpoint AND whose
+  // source channel is a promotable aggregator (BuiltIn, YC), add the company to
+  // config/companies.yml so future scans hit it via Tier 1. Capped at
+  // PROMOTION_CAP_PER_RUN to defend against pathological inputs.
+  //
+  // The BuiltIn→ATS redirect-resolution case (a builtin.com URL whose apply form
+  // lives on Ashby/GH/Lever — the audit's textbook example) is handled at enrich
+  // time by enrich-roles.mjs; this scan-time pass catches the cases where the
+  // discovered URL is *already* an ATS URL (Tier 6 Similar surfacing
+  // jobs.ashbyhq.com URLs adjacent to BuiltIn discoveries, etc.).
+  const promotionRunState = createPromotionRunState();
+  const PROMOTABLE_SOURCE_HOSTS = {
+    BuiltIn: "builtin.com",
+    "Tier 6: Similar": null, // host varies — set per-role from r.url
+    YC: "workatastartup.com",
+    "Tier 1: YC": "workatastartup.com",
+  };
+  let promotedCount = 0;
+  for (const r of dedupedNew) {
+    if (!r || !r.url || !r.source) continue;
+    // Only consider promotable sources. For Tier 6: Similar, we need a notion of
+    // a "discovery channel" — use builtin.com when the seed was a Tier-1/BuiltIn
+    // role (we don't track the seed per result here; conservative skip).
+    if (!Object.prototype.hasOwnProperty.call(PROMOTABLE_SOURCE_HOSTS, r.source)) continue;
+    const sourceHost = PROMOTABLE_SOURCE_HOSTS[r.source];
+    if (!sourceHost) continue;
+
+    const result = processRolePromotion({
+      url: r.url,
+      sourceHost,
+      canonicalName: r.company,
+      fitScore: undefined, // fit is only known post-enrichment; rely on minFitScore default
+      existingCompanies: companies.all,
+      runState: promotionRunState,
+      minFitScore: 0, // pre-enrichment we don't know fit; skip the gate
+    });
+    if (result.action === "promoted") {
+      promotedCount++;
+      console.log(
+        `  AUTO-PROMOTED: ${result.entry.canonical_name} → ${result.entry.ats}/${result.entry.slug} (from ${sourceHost})`,
+      );
+    }
+  }
+  if (promotionRunState.capped) {
+    console.log(
+      `  WARNING: hit per-run auto-promotion cap (${PROMOTION_CAP_PER_RUN}); further candidates were skipped this run.`,
+    );
+  }
+  if (promotedCount > 0) {
+    console.log(`  Promoted ${promotedCount} new companies into config/companies.yml.`);
+  }
 
   // Use dedupedNew as the final list for reporting
   const validatedNew = dedupedNew;

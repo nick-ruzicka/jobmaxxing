@@ -1,0 +1,41 @@
+{
+  "_comment": "Synthetic YC postings hydration. Mirrors the structure of YC's __NEXT_DATA__ payload when the workatastartup.com /jobs page renders server-side.",
+  "props": {
+    "pageProps": {
+      "initialState": {
+        "jobs": [
+          {
+            "id": 9001,
+            "title": "Founding GTM Engineer",
+            "company": { "name": "Relace", "batch": "W24", "stage": "Series A", "team_size": 12 },
+            "hosted_url": "https://www.workatastartup.com/jobs/9001",
+            "apply_url": "https://jobs.ashbyhq.com/relace/founding-gtm",
+            "location": "New York, NY",
+            "work_type": "hybrid",
+            "salary_min": 180000,
+            "salary_max": 240000,
+            "description": "<p>Build the GTM stack from zero…</p>",
+            "created_at": "2026-05-01T00:00:00Z"
+          },
+          {
+            "id": 9002,
+            "title": "GTM Engineer",
+            "company": { "name": "Weave", "batch": "S23", "stage": "Seed", "team_size": 8 },
+            "hosted_url": "https://www.workatastartup.com/jobs/9002",
+            "location": "Remote",
+            "work_type": "remote",
+            "description": "<p>GTM automation, Python + Clay + Salesforce.</p>",
+            "created_at": "2026-05-03T00:00:00Z"
+          },
+          {
+            "id": 9003,
+            "title": "Software Engineer",
+            "company": { "name": "Glimpse" },
+            "hosted_url": "https://www.workatastartup.com/jobs/9003",
+            "_note": "should be filtered out by title gate — 'software engineer' is in TITLE_NEGATIVE"
+          }
+        ]
+      }
+    }
+  }
+}

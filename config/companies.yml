@@ -1,57 +1,269 @@
-# companies.yml — Tracked companies for Tier 1 structured scanning
+# config/companies.yml — Tracked companies for Tier-1 ATS scanning.
 #
-# Ashby API: https://api.ashbyhq.com/posting-api/job-board/{slug}
-# Greenhouse API: https://boards-api.greenhouse.io/v1/boards/{slug}/jobs
+# Supported ATS: ashby, greenhouse, lever.
+# Schema: see scripts/lib/companies-schema.mjs.
+# Loader/writer: scripts/lib/companies-load.mjs.
 #
-# Add new slugs as you discover companies worth tracking.
-# The scanner hits each slug every run and filters by title keywords.
-# Slugs that 404 are logged and skipped silently.
-#
-# Last verified: 2026-04-09
+# DO NOT hand-edit while a scrape run is in progress — the auto-promotion
+# engine will rewrite this file atomically. Hand-edits during a write window
+# may be overwritten.
 
-ashby_slugs:
-  # Verified working (20 companies)
-  - rillet           # 33 jobs — AI-native ERP, Sequoia/a16z
-  - hebbia-ai        # Ashby slug is hebbia-ai, not hebbia
-  - eliseai          # 112 jobs — AI for housing/healthcare
-  - zip              # 119 jobs — AI procurement, $2.2B
-  - ramp             # 132 jobs — corporate cards/spend
-  - notion           # 160 jobs — productivity/docs
-  - linear           # 20 jobs — project management
-  - mercury          # fintech banking
-  - deel             # 270 jobs — global HR/payroll
-  - runway           # 4 jobs — AI video
-  - vercel           # frontend cloud
-  - supabase         # 41 jobs — open source Firebase
-  - superhuman       # email client
-  - pave             # comp benchmarking
-  - resend           # 7 jobs — email API
-  - raycast          # developer tools
-  - causal           # 2 jobs — planning/modeling
-  - sardine          # 28 jobs — fraud/compliance
-  - replit           # 81 jobs — AI coding
-  - plain            # 15 jobs — customer support
-  - incident         # incident.io — slug is "incident" not "incident-io"
-  - snowflake        # on Ashby, not Greenhouse
-  - airbyte          # on Ashby, not Greenhouse
-  - qualified        # on Ashby, not Greenhouse
-  - chilipiper       # on Ashby, not Greenhouse
-  # Not on Ashby (use Greenhouse or other): attentive, rippling, brex, carta, lattice, descript, commandbar, june, pipes, scaleai
-
-greenhouse_slugs:
-  # Verified working (11 companies)
-  - hebbia           # also on Ashby as hebbia-ai
-  - attentive        # SMS marketing — on Greenhouse, not Ashby
-  - gongio           # Gong slug is "gongio" not "gong"
-  - apolloio         # 47 jobs — sales intelligence (slug is apolloio, not apollo)
-  - salesloft        # 32 jobs — sales engagement
-  - fivetran         # 164 jobs — data integration
-  - hubspotjobs      # 72 jobs — CRM/marketing (slug is hubspotjobs, not hubspot)
-  - intercom         # 187 jobs — customer messaging
-  - mixpanel         # 51 jobs — product analytics
-  - amplitude        # 38 jobs — product analytics
-  - braze            # 183 jobs — customer engagement
-  - iterable         # 44 jobs — marketing automation
-  - klaviyo          # 243 jobs — email/SMS marketing
-  - sendbird         # 19 jobs — chat API
-  # Not on Greenhouse (moved to Ashby or other): snowflake, airbyte, clearbit, segment, drift, qualified, chilipiper, outreach
+companies:
+  - canonical_name: Rillet
+    ats: ashby
+    slug: rillet
+    source: manual
+    added_date: 2026-05-12
+    notes: 33 jobs — AI-native ERP, Sequoia/a16z
+  - canonical_name: Hebbia
+    ats: ashby
+    slug: hebbia-ai
+    source: manual
+    added_date: 2026-05-12
+    notes: Ashby slug is hebbia-ai, not hebbia
+  - canonical_name: EliseAI
+    ats: ashby
+    slug: eliseai
+    source: manual
+    added_date: 2026-05-12
+    notes: 112 jobs — AI for housing/healthcare
+  - canonical_name: Zip
+    ats: ashby
+    slug: zip
+    source: manual
+    added_date: 2026-05-12
+    notes: 119 jobs — AI procurement, $2.2B
+  - canonical_name: Ramp
+    ats: ashby
+    slug: ramp
+    source: manual
+    added_date: 2026-05-12
+    notes: 132 jobs — corporate cards/spend
+  - canonical_name: Notion
+    ats: ashby
+    slug: notion
+    source: manual
+    added_date: 2026-05-12
+    notes: 160 jobs — productivity/docs
+  - canonical_name: Linear
+    ats: ashby
+    slug: linear
+    source: manual
+    added_date: 2026-05-12
+    notes: 20 jobs — project management
+  - canonical_name: Mercury
+    ats: ashby
+    slug: mercury
+    source: manual
+    added_date: 2026-05-12
+    notes: fintech banking
+  - canonical_name: Deel
+    ats: ashby
+    slug: deel
+    source: manual
+    added_date: 2026-05-12
+    notes: 270 jobs — global HR/payroll
+  - canonical_name: Runway
+    ats: ashby
+    slug: runway
+    source: manual
+    added_date: 2026-05-12
+    notes: 4 jobs — AI video
+  - canonical_name: Vercel
+    ats: ashby
+    slug: vercel
+    source: manual
+    added_date: 2026-05-12
+    notes: frontend cloud
+  - canonical_name: Supabase
+    ats: ashby
+    slug: supabase
+    source: manual
+    added_date: 2026-05-12
+    notes: 41 jobs — open source Firebase
+  - canonical_name: Superhuman
+    ats: ashby
+    slug: superhuman
+    source: manual
+    added_date: 2026-05-12
+    notes: email client
+  - canonical_name: Pave
+    ats: ashby
+    slug: pave
+    source: manual
+    added_date: 2026-05-12
+    notes: comp benchmarking
+  - canonical_name: Resend
+    ats: ashby
+    slug: resend
+    source: manual
+    added_date: 2026-05-12
+    notes: 7 jobs — email API
+  - canonical_name: Raycast
+    ats: ashby
+    slug: raycast
+    source: manual
+    added_date: 2026-05-12
+    notes: developer tools
+  - canonical_name: Causal
+    ats: ashby
+    slug: causal
+    source: manual
+    added_date: 2026-05-12
+    notes: 2 jobs — planning/modeling
+  - canonical_name: Sardine
+    ats: ashby
+    slug: sardine
+    source: manual
+    added_date: 2026-05-12
+    notes: 28 jobs — fraud/compliance
+  - canonical_name: Replit
+    ats: ashby
+    slug: replit
+    source: manual
+    added_date: 2026-05-12
+    notes: 81 jobs — AI coding
+  - canonical_name: Plain
+    ats: ashby
+    slug: plain
+    source: manual
+    added_date: 2026-05-12
+    notes: 15 jobs — customer support
+  - canonical_name: incident.io
+    ats: ashby
+    slug: incident
+    source: manual
+    added_date: 2026-05-12
+    notes: slug is incident not incident-io
+  - canonical_name: Snowflake
+    ats: ashby
+    slug: snowflake
+    source: manual
+    added_date: 2026-05-12
+    notes: on Ashby, not Greenhouse
+  - canonical_name: Airbyte
+    ats: ashby
+    slug: airbyte
+    source: manual
+    added_date: 2026-05-12
+    notes: on Ashby, not Greenhouse
+  - canonical_name: Qualified
+    ats: ashby
+    slug: qualified
+    source: manual
+    added_date: 2026-05-12
+    notes: on Ashby, not Greenhouse
+  - canonical_name: Chili Piper
+    ats: ashby
+    slug: chilipiper
+    source: manual
+    added_date: 2026-05-12
+    notes: on Ashby, not Greenhouse
+  - canonical_name: Hebbia
+    ats: greenhouse
+    slug: hebbia
+    source: manual
+    added_date: 2026-05-12
+    notes: also on Ashby as hebbia-ai
+  - canonical_name: Attentive
+    ats: greenhouse
+    slug: attentive
+    source: manual
+    added_date: 2026-05-12
+    notes: SMS marketing — on Greenhouse, not Ashby
+  - canonical_name: Gong
+    ats: greenhouse
+    slug: gongio
+    source: manual
+    added_date: 2026-05-12
+    notes: Gong slug is gongio not gong
+  - canonical_name: Apollo.io
+    ats: greenhouse
+    slug: apolloio
+    source: manual
+    added_date: 2026-05-12
+    notes: 47 jobs — sales intelligence (slug is apolloio, not apollo)
+  - canonical_name: Salesloft
+    ats: greenhouse
+    slug: salesloft
+    source: manual
+    added_date: 2026-05-12
+    notes: 32 jobs — sales engagement
+  - canonical_name: Fivetran
+    ats: greenhouse
+    slug: fivetran
+    source: manual
+    added_date: 2026-05-12
+    notes: 164 jobs — data integration
+  - canonical_name: HubSpot
+    ats: greenhouse
+    slug: hubspotjobs
+    source: manual
+    added_date: 2026-05-12
+    notes: 72 jobs — CRM/marketing (slug is hubspotjobs, not hubspot)
+  - canonical_name: Intercom
+    ats: greenhouse
+    slug: intercom
+    source: manual
+    added_date: 2026-05-12
+    notes: 187 jobs — customer messaging
+  - canonical_name: Mixpanel
+    ats: greenhouse
+    slug: mixpanel
+    source: manual
+    added_date: 2026-05-12
+    notes: 51 jobs — product analytics
+  - canonical_name: Amplitude
+    ats: greenhouse
+    slug: amplitude
+    source: manual
+    added_date: 2026-05-12
+    notes: 38 jobs — product analytics
+  - canonical_name: Braze
+    ats: greenhouse
+    slug: braze
+    source: manual
+    added_date: 2026-05-12
+    notes: 183 jobs — customer engagement
+  - canonical_name: Iterable
+    ats: greenhouse
+    slug: iterable
+    source: manual
+    added_date: 2026-05-12
+    notes: 44 jobs — marketing automation
+  - canonical_name: Klaviyo
+    ats: greenhouse
+    slug: klaviyo
+    source: manual
+    added_date: 2026-05-12
+    notes: 243 jobs — email/SMS marketing
+  - canonical_name: Sendbird
+    ats: greenhouse
+    slug: sendbird
+    source: manual
+    added_date: 2026-05-12
+    notes: 19 jobs — chat API
+  - canonical_name: Plaid
+    ats: lever
+    slug: plaid
+    source: manual
+    added_date: 2026-05-14
+    notes: fintech infrastructure
+  - canonical_name: PostHog
+    ats: lever
+    slug: posthog
+    source: manual
+    added_date: 2026-05-14
+    notes: product analytics, open source
+  - canonical_name: Pinecone
+    ats: lever
+    slug: pinecone
+    source: manual
+    added_date: 2026-05-14
+    notes: vector DB; needs_slug_verification if 404
+  - canonical_name: Modal Labs
+    ats: lever
+    slug: modal-labs
+    source: manual
+    added_date: 2026-05-14
+    notes: serverless compute for AI/ML

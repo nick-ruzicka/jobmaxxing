@@ -55,21 +55,10 @@ const RECHECK_DAYS = 14;
 // Delay between Exa calls (ms) to respect rate limits
 const QUERY_DELAY_MS = 300;
 
-// Exa spam domains to exclude
-const EXCLUDE_DOMAINS = [
-  "flexionis.wuaze.com",
-  "novaedge.page.gd",
-  "hireza.wuaze.com",
-  "joborix.us",
-  "jobsgemach.com",
-  "talent.com",
-  "jooble.org",
-  "recruit.net",
-  "careerbuilder.com",
-  "snagajob.com",
-  "simplyhired.com",
-  "jobrapido.com",
-];
+// Exa spam domains: canonical list from ./lib/source-classification.mjs
+// (config/source-classification.json). The old scan-signals.mjs copy was a 12-entry
+// subset, missing the post-2026-05 additions — importing closes that drift.
+import { EXCLUDE_DOMAINS } from "./lib/source-classification.mjs";
 
 // Crypto/web3 keywords — skip unless big raise
 const CRYPTO_KEYWORDS = [

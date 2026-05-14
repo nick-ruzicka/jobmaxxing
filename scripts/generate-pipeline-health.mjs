@@ -22,25 +22,16 @@ import {
 } from "./generate-briefing.mjs";
 
 // ---------------------------------------------------------------------------
-// Aggregator / spam classifications. Kept in sync with
-// dashboard-web/lib/source-health.ts AGGREGATOR_HOSTS and EXCLUDE_DOMAINS.
-// We duplicate (not import) because lib/source-health.ts is TypeScript and
-// this script needs to run from plain Node.
+// Aggregator / spam classifications. Canonical lists live in
+// config/source-classification.json — imported via scripts/lib/source-classification.mjs.
+// Wrapped here as a subdomain-inclusive predicate to match the original behavior
+// (the old code used exact-host Sets; the new code matches subdomains too, which
+// extends coverage e.g. hirevector.liveblog365.com now classifies as spam-blocked).
 // ---------------------------------------------------------------------------
-const AGGREGATOR_HOSTS = new Set([
-  "revopscareers.com",
-  "lensa.com",
-  "whatjobs.com",
-  "jobright.ai",
-  "jobgether.com",
-]);
-
-const EXCLUDE_DOMAINS = new Set([
-  "us.jooble.org",
-  "trabajo.org",
-  "jobsora.com",
-  "jora.com",
-]);
+import {
+  isAggregatorHost,
+  isExcludedHost,
+} from "./lib/source-classification.mjs";
 
 function hostnameOf(url) {
   try {
@@ -145,8 +136,9 @@ function aggregateHosts(seenUrls, enrichments) {
         : null;
     const maxFit = h.fitScores.length > 0 ? Math.max(...h.fitScores) : null;
     let status = "healthy";
-    if (AGGREGATOR_HOSTS.has(h.host)) status = "quarantined";
-    else if (EXCLUDE_DOMAINS.has(h.host)) status = "spam-blocked";
+    // Subdomain-inclusive — pass a synthetic https://<host>/ URL into the classifier.
+    if (isAggregatorHost(`https://${h.host}/`)) status = "quarantined";
+    else if (isExcludedHost(`https://${h.host}/`)) status = "spam-blocked";
     else if (scrapeErrorRate > 0.4 && enrichedReal + scrapeFailures > 10) status = "broken-scrape";
     else if (
       enrichedReal >= 10 &&
