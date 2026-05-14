@@ -270,9 +270,6 @@ companies:
     added_date: 2026-05-14
     needs_slug_verification: true
     notes: 404 via api.lever.co on 2026-05-14; variations tried (none worked) modal / modallabs / modalcompute / modallabsinc / modal-labs-inc / modal-com. Likely on Greenhouse — verify before re-classifying.
-  # ---- Lever companies added during 12h session (Task B, 2026-05-14) ----
-  # Each entry below was verified with curl https://api.lever.co/v0/postings/<slug>?mode=json
-  # returning HTTP 200 immediately before commit.
   - canonical_name: Attentive
     ats: lever
     slug: attentive
@@ -309,3 +306,15 @@ companies:
     source: manual
     added_date: 2026-05-14
     notes: Verified 2026-05-14 via api.lever.co (HTTP 200) — enterprise data, FDE roles
+  - canonical_name: Infisical
+    ats: ashby
+    slug: infisical
+    source: auto_promoted_from_builtin
+    added_date: 2026-05-14
+    notes: "Auto-promoted from https://jobs.ashbyhq.com/infisical/b9bf8d09-878b-488d-990f-f177b7417270 on 2026-05-14"
+  - canonical_name: SEON
+    ats: ashby
+    slug: seon
+    source: auto_promoted_from_builtin
+    added_date: 2026-05-14
+    notes: "Auto-promoted from https://jobs.ashbyhq.com/seon/bf1155c5-531c-4432-82b4-2aabedf54105?utm_source=dq3BMDoPxZ on 2026-05-14"
