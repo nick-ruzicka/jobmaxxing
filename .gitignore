@@ -69,3 +69,11 @@ MORNING_REPORT_FINAL.md
 
 # Keep dashboard-web lockfile despite the global package-lock.json ignore
 !dashboard-web/package-lock.json
+
+# autoapply (browser-harness based)
+autoapply/.venv/
+autoapply/__pycache__/
+autoapply/**/__pycache__/
+autoapply/*.log
+autoapply/.env
+autoapply/browser-harness/
