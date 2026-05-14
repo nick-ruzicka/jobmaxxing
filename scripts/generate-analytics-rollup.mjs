@@ -116,7 +116,13 @@ function writeRollup(date, rollup) {
 async function rollupOneDay(date) {
   const events = readEventsForDate(date);
   if (events === null) {
-    // No event log for this date — emit a stub so the dashboard can render it gracefully.
+    // No event log for this date. Preserve any pre-existing rollup that
+    // already has data (e.g. reconstructed via backfill-analytics-from-state.mjs)
+    // — overwriting it with a no_data stub would silently destroy history.
+    const existing = readRollupSafe(date);
+    if (existing && existing.data_completeness !== "no_data") {
+      return { date, status: "preserved", events: 0 };
+    }
     const stub = {
       date,
       generated_at: new Date().toISOString(),
@@ -129,6 +135,10 @@ async function rollupOneDay(date) {
     writeRollup(date, stub);
     return { date, status: "stub", events: 0 };
   }
+  // Events exist — but if a 'full' rollup already exists, don't overwrite blindly
+  // either. We still recompute from the events (events are the source of truth),
+  // but only when there ARE events. The check above guarantees we never destroy
+  // history with an empty stub.
 
   const rollup = computeRollup(events, { date });
 
@@ -187,17 +197,23 @@ async function main() {
   console.log(`Generating rollups for ${dates.length} day(s) [fit threshold=${FIT_THRESHOLD}]`);
   let ok = 0;
   let stub = 0;
+  let preserved = 0;
   for (const d of dates) {
     const r = await rollupOneDay(d);
     if (r.status === "ok") {
       ok++;
       console.log(`  ✓ ${d}  events=${r.events}  anomalies=${r.anomalies}`);
+    } else if (r.status === "preserved") {
+      preserved++;
+      console.log(`  · ${d}  (no events; preserved existing reconstructed rollup)`);
     } else {
       stub++;
       console.log(`  · ${d}  (no events; wrote no_data stub)`);
     }
   }
-  console.log(`\nDone. ${ok} with data, ${stub} stubs.`);
+  console.log(
+    `\nDone. ${ok} with data, ${preserved} preserved, ${stub} new stubs.`,
+  );
 }
 
 main().catch((err) => {
