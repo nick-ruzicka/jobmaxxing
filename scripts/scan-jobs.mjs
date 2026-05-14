@@ -30,6 +30,11 @@ import {
   classifySource,
 } from "./lib/source-classification.mjs";
 import { loadCompaniesGrouped } from "./lib/companies-load.mjs";
+import {
+  createPromotionRunState,
+  processRolePromotion,
+  PROMOTION_CAP_PER_RUN,
+} from "./lib/promote-company.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -1627,6 +1632,58 @@ async function main() {
   }
 
   console.log(`  Validated net-new: ${dedupedNew.length}`);
+
+  // --- Auto-promotion: BuiltIn / YC discovery → direct ATS tracking ---
+  // For each new role whose URL is already a recognized ATS endpoint AND whose
+  // source channel is a promotable aggregator (BuiltIn, YC), add the company to
+  // config/companies.yml so future scans hit it via Tier 1. Capped at
+  // PROMOTION_CAP_PER_RUN to defend against pathological inputs.
+  //
+  // The BuiltIn→ATS redirect-resolution case (a builtin.com URL whose apply form
+  // lives on Ashby/GH/Lever — the audit's textbook example) is handled at enrich
+  // time by enrich-roles.mjs; this scan-time pass catches the cases where the
+  // discovered URL is *already* an ATS URL (Tier 6 Similar surfacing
+  // jobs.ashbyhq.com URLs adjacent to BuiltIn discoveries, etc.).
+  const promotionRunState = createPromotionRunState();
+  const PROMOTABLE_SOURCE_HOSTS = {
+    BuiltIn: "builtin.com",
+    "Tier 6: Similar": null, // host varies — set per-role from r.url
+    YC: "workatastartup.com",
+  };
+  let promotedCount = 0;
+  for (const r of dedupedNew) {
+    if (!r || !r.url || !r.source) continue;
+    // Only consider promotable sources. For Tier 6: Similar, we need a notion of
+    // a "discovery channel" — use builtin.com when the seed was a Tier-1/BuiltIn
+    // role (we don't track the seed per result here; conservative skip).
+    if (!Object.prototype.hasOwnProperty.call(PROMOTABLE_SOURCE_HOSTS, r.source)) continue;
+    const sourceHost = PROMOTABLE_SOURCE_HOSTS[r.source];
+    if (!sourceHost) continue;
+
+    const result = processRolePromotion({
+      url: r.url,
+      sourceHost,
+      canonicalName: r.company,
+      fitScore: undefined, // fit is only known post-enrichment; rely on minFitScore default
+      existingCompanies: companies.all,
+      runState: promotionRunState,
+      minFitScore: 0, // pre-enrichment we don't know fit; skip the gate
+    });
+    if (result.action === "promoted") {
+      promotedCount++;
+      console.log(
+        `  AUTO-PROMOTED: ${result.entry.canonical_name} → ${result.entry.ats}/${result.entry.slug} (from ${sourceHost})`,
+      );
+    }
+  }
+  if (promotionRunState.capped) {
+    console.log(
+      `  WARNING: hit per-run auto-promotion cap (${PROMOTION_CAP_PER_RUN}); further candidates were skipped this run.`,
+    );
+  }
+  if (promotedCount > 0) {
+    console.log(`  Promoted ${promotedCount} new companies into config/companies.yml.`);
+  }
 
   // Use dedupedNew as the final list for reporting
   const validatedNew = dedupedNew;
