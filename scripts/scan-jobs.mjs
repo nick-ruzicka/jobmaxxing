@@ -39,6 +39,7 @@ import { scanLever } from "./lib/lever-scraper.mjs";
 import { scanYc } from "./lib/yc-scraper.mjs";
 import {
   tierTimer,
+  loggedFetch,
   recordExaCall,
   flushEvents,
 } from "./lib/scan-jobs-instrumentation.mjs";
@@ -589,8 +590,10 @@ async function scanAshby(slugs) {
   for (const slug of slugs) {
     checked++;
     try {
-      const res = await fetch(
-        `https://api.ashbyhq.com/posting-api/job-board/${slug}?includeCompensation=true`
+      const res = await loggedFetch(
+        `https://api.ashbyhq.com/posting-api/job-board/${slug}?includeCompensation=true`,
+        {},
+        { tier: "tier_1_ashby", source: "Tier 1: Ashby" },
       );
       if (!res.ok) {
         if (res.status === 404) failed.push(slug);
@@ -645,8 +648,10 @@ async function scanGreenhouse(slugs) {
   for (const slug of slugs) {
     checked++;
     try {
-      const res = await fetch(
-        `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`
+      const res = await loggedFetch(
+        `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`,
+        {},
+        { tier: "tier_1_greenhouse", source: "Tier 1: Greenhouse" },
       );
       if (!res.ok) {
         if (res.status === 404) failed.push(slug);
@@ -1051,11 +1056,15 @@ async function scanBuiltIn() {
     try {
       for (let page = 1; page <= BUILTIN_MAX_PAGES; page++) {
         const url = `${BUILTIN_BASE}/jobs?search=${encodeURIComponent(query)}&page=${page}`;
-        const res = await fetch(url, {
-          headers: { "User-Agent": BUILTIN_UA, Accept: "text/html" },
-          signal: AbortSignal.timeout(15000),
-          redirect: "follow",
-        });
+        const res = await loggedFetch(
+          url,
+          {
+            headers: { "User-Agent": BUILTIN_UA, Accept: "text/html" },
+            signal: AbortSignal.timeout(15000),
+            redirect: "follow",
+          },
+          { tier: "tier_9_builtin", source: "BuiltIn" },
+        );
         if (!res.ok) {
           process.stdout.write(` HTTP ${res.status}`);
           break;
@@ -1144,7 +1153,7 @@ async function main() {
 
   // --- Tier 1: Ashby ---
   console.log(`[Tier 1] Ashby API — ${companies.ashby.length} companies`);
-  const ashby = await scanAshby(companies.ashby);
+  const ashby = await tierTimer("tier_1_ashby", () => scanAshby(companies.ashby));
   stats.ashby.checked = ashby.checked;
   stats.ashby.failed = ashby.failed;
   stats.ashby.matches = ashby.results.length;
@@ -1153,7 +1162,9 @@ async function main() {
 
   // --- Tier 1: Greenhouse ---
   console.log(`[Tier 1] Greenhouse API — ${companies.greenhouse.length} companies`);
-  const gh = await scanGreenhouse(companies.greenhouse);
+  const gh = await tierTimer("tier_1_greenhouse", () =>
+    scanGreenhouse(companies.greenhouse),
+  );
   stats.greenhouse.checked = gh.checked;
   stats.greenhouse.failed = gh.failed;
   stats.greenhouse.matches = gh.results.length;
@@ -1167,7 +1178,13 @@ async function main() {
   // path; both run, dedup catches overlap. Tagged "Tier 1: YC" so dedup gives it
   // shortcut treatment.
   console.log(`[Tier 1] YC Work at a Startup direct — ${YC_SEARCHES.length} searches`);
-  const ycDirect = await scanYc(YC_SEARCHES);
+  // Inject a tier-aware fetch into scanYc so its per-query GET to workatastartup.com
+  // emits scrape.http_request events with tier=tier_1_5_yc.
+  const ycTierFetch = (url, init) =>
+    loggedFetch(url, init, { tier: "tier_1_5_yc", source: "Tier 1: YC" });
+  const ycDirect = await tierTimer("tier_1_5_yc", () =>
+    scanYc(YC_SEARCHES, { fetch: ycTierFetch }),
+  );
   stats.ycDirect.matches = ycDirect.results.length;
   stats.ycDirect.failed = ycDirect.failed;
   // Title gate applied here, same as Lever (YC API returns ALL postings for a query).
@@ -1188,7 +1205,11 @@ async function main() {
   // dedup+filter pass as Ashby/GH (Tier-1 results are flagged "Tier 1: Lever" and
   // get the same shortcut treatment as the other two).
   console.log(`[Tier 1] Lever API — ${companies.lever.length} companies`);
-  const lever = await scanLever(companies.lever);
+  const leverTierFetch = (url, init) =>
+    loggedFetch(url, init, { tier: "tier_1_lever", source: "Tier 1: Lever" });
+  const lever = await tierTimer("tier_1_lever", () =>
+    scanLever(companies.lever, { fetch: leverTierFetch }),
+  );
   stats.lever.checked = lever.checked;
   stats.lever.failed = lever.failed;
   // scanLever returns ALL postings; apply the same title gate Ashby/GH apply inline.
@@ -1335,7 +1356,7 @@ async function main() {
 
   // --- Tier 9: BuiltIn — direct search scrape (builtin.com/jobs?search=…) ---
   console.log(`[Tier 9] BuiltIn — ${BUILTIN_SEARCHES.length} searches (direct scrape)`);
-  const builtinResults = await scanBuiltIn();
+  const builtinResults = await tierTimer("tier_9_builtin", () => scanBuiltIn());
   stats.builtin.matches = builtinResults.length;
   allResults.push(...builtinResults);
   console.log(`  Total BuiltIn: ${builtinResults.length}\n`);
