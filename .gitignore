@@ -77,3 +77,15 @@ autoapply/**/__pycache__/
 autoapply/*.log
 autoapply/.env
 autoapply/browser-harness/
+
+# ─── Analytics ────────────────────────────────────────────────────────────────
+# Per-machine runtime data — high volume, per-day rotation. Never committed.
+# See docs/analytics/ANALYTICS.md for details.
+data/events/
+data/analytics/
+data/auto-promotions/
+WORK_LOG_ANALYTICS.md
+# Personal data dirs surfaced by symlinks in this worktree
+data/briefings
+data/chats
+# ─────────────────────────────────────────────────────────────────────────────

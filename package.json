@@ -27,7 +27,10 @@
     "test": "node --test scripts/lib/*.test.mjs",
     "backfill-comp": "node scripts/enrich-roles.mjs --backfill-comp",
     "briefing": "node scripts/generate-briefing.mjs",
-    "briefing:dry": "node scripts/generate-briefing.mjs --dry-run"
+    "briefing:dry": "node scripts/generate-briefing.mjs --dry-run",
+    "analytics:rollup": "node scripts/generate-analytics-rollup.mjs",
+    "analytics": "node scripts/analytics-cli.mjs",
+    "analytics:summary": "node scripts/analytics-cli.mjs summary"
   },
   "keywords": [
     "ai",

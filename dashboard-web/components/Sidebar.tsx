@@ -11,6 +11,7 @@ import {
   GraduationCap,
   Activity,
   Sun,
+  BarChart3,
 } from "lucide-react";
 import { Badge, SectionLabel } from "@/components/ui";
 
@@ -41,6 +42,7 @@ export function Sidebar({
     { href: "/signals", label: "Signals", icon: Zap, badge: highConviction || undefined },
     { href: "/companies", label: "Companies", icon: Building2 },
     { href: "/sources", label: "Source Health", icon: Activity },
+    { href: "/analytics", label: "Analytics", icon: BarChart3 },
     { href: "/interviews", label: "Interview Prep", icon: GraduationCap },
   ];
 
