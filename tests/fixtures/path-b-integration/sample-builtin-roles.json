@@ -1,0 +1,99 @@
+{
+  "_comment": "Synthetic BuiltIn-surfaced roles for path-b integration tests. Some apply URLs resolve to recognized ATS (should trigger promotion), some don't (should be skipped with reason='url-not-ats').",
+  "roles": [
+    {
+      "id": "builtin-1",
+      "source": "BuiltIn",
+      "title": "GTM Engineer",
+      "company": "Hebbia",
+      "discovery_url": "https://builtin.com/job/gtm-engineer/hebbia/12345",
+      "apply_url": "https://jobs.ashbyhq.com/hebbia-ai/abc-123",
+      "fit_score": 7
+    },
+    {
+      "id": "builtin-2",
+      "source": "BuiltIn",
+      "title": "Revenue Operations Manager",
+      "company": "Notion",
+      "discovery_url": "https://builtin.com/job/revops-manager/notion/67890",
+      "apply_url": "https://boards.greenhouse.io/notion/jobs/9876543",
+      "fit_score": 6
+    },
+    {
+      "id": "builtin-3",
+      "source": "BuiltIn",
+      "title": "GTM Engineer",
+      "company": "EliseAI",
+      "discovery_url": "https://builtin.com/job/gtm-engineer/eliseai/11111",
+      "apply_url": "https://jobs.ashbyhq.com/eliseai/some-id",
+      "fit_score": 8
+    },
+    {
+      "id": "builtin-4",
+      "source": "BuiltIn",
+      "title": "Sales Operations Manager",
+      "company": "AssetWatch",
+      "discovery_url": "https://builtin.com/job/sales-ops-manager/assetwatch/22222",
+      "apply_url": "https://assetwatch.com/careers/sales-ops-manager",
+      "fit_score": 3,
+      "_note": "apply URL is company-direct, NOT an ATS — should be skipped"
+    },
+    {
+      "id": "builtin-5",
+      "source": "BuiltIn",
+      "title": "Founding GTM Engineer",
+      "company": "Modal Labs",
+      "discovery_url": "https://builtin.com/job/founding-gtm/modal/33333",
+      "apply_url": "https://jobs.lever.co/modal-labs/founding-gtm-id",
+      "fit_score": 7
+    },
+    {
+      "id": "builtin-6",
+      "source": "BuiltIn",
+      "title": "Revenue Engineer",
+      "company": "Hebbia",
+      "discovery_url": "https://builtin.com/job/revenue-engineer/hebbia/44444",
+      "apply_url": "https://jobs.ashbyhq.com/hebbia-ai/different-job-id",
+      "fit_score": 6,
+      "_note": "duplicate company (hebbia-ai already promoted by builtin-1) — second promotion should be skipped with reason='already-tracked'"
+    },
+    {
+      "id": "builtin-7",
+      "source": "BuiltIn",
+      "title": "RevOps Engineer",
+      "company": "Vercel",
+      "discovery_url": "https://builtin.com/job/revops/vercel/55555",
+      "apply_url": "https://jobs.ashbyhq.com/vercel/abc",
+      "fit_score": 5
+    },
+    {
+      "id": "builtin-8",
+      "source": "BuiltIn",
+      "title": "GTM Systems Lead",
+      "company": "Anthropic",
+      "discovery_url": "https://builtin.com/job/gtm-systems-lead/anthropic/66666",
+      "apply_url": "https://jobs.lever.co/anthropic/gtm-lead-id",
+      "fit_score": 8
+    },
+    {
+      "id": "builtin-9",
+      "source": "BuiltIn",
+      "title": "Director, Revenue Operations",
+      "company": "Pinecone",
+      "discovery_url": "https://builtin.com/job/director-revops/pinecone/77777",
+      "apply_url": "https://jobs.lever.co/pinecone/director-revops",
+      "fit_score": 6,
+      "_note": "pinecone is already in companies.yml seed — should be skipped with reason='already-tracked'"
+    },
+    {
+      "id": "builtin-10",
+      "source": "BuiltIn",
+      "title": "GTM Engineer (Growth)",
+      "company": "Linear",
+      "discovery_url": "https://builtin.com/job/gtm-growth/linear/88888",
+      "apply_url": "https://jobs.ashbyhq.com/linear/abc",
+      "fit_score": 7,
+      "_note": "linear is already in companies.yml (ashby slug) — should be skipped with reason='already-tracked'"
+    }
+  ]
+}

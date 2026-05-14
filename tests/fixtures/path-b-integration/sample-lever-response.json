@@ -1,0 +1,42 @@
+{
+  "_comment": "Mocked Lever API response for jobs.lever.co/<slug>?mode=json. Three companies, each with a couple of postings, including some that should be filtered out by the title gate.",
+  "plaid": [
+    {
+      "id": "abc-123-plaid",
+      "text": "Senior GTM Engineer",
+      "hostedUrl": "https://jobs.lever.co/plaid/abc-123-plaid",
+      "categories": {
+        "team": "Revenue",
+        "location": "New York, NY",
+        "department": "Revenue",
+        "allLocations": ["New York, NY", "Remote"]
+      },
+      "createdAt": 1714425600000,
+      "workplaceType": "hybrid",
+      "salaryRange": { "min": 200000, "max": 280000, "currency": "USD", "interval": "per-year-salary" },
+      "descriptionPlain": "Build the GTM tech stack for Plaid's revenue org."
+    },
+    {
+      "id": "def-456-plaid",
+      "text": "Senior Software Engineer, Backend",
+      "hostedUrl": "https://jobs.lever.co/plaid/def-456-plaid",
+      "categories": { "team": "Engineering", "location": "San Francisco, CA" },
+      "createdAt": 1714425600000,
+      "workplaceType": "on-site",
+      "descriptionPlain": "Backend infra — not a GTM role; should be filtered by title gate."
+    }
+  ],
+  "posthog": [
+    {
+      "id": "ghi-789-posthog",
+      "text": "GTM Engineering Manager",
+      "hostedUrl": "https://jobs.lever.co/posthog/ghi-789-posthog",
+      "categories": { "team": "Revenue", "location": "Remote" },
+      "createdAt": 1714425600000,
+      "workplaceType": "remote",
+      "salaryRange": { "min": 220000, "max": 280000, "currency": "USD" },
+      "descriptionPlain": "Lead the GTM engineering team."
+    }
+  ],
+  "not-real-co": null
+}

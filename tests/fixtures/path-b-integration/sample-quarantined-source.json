@@ -1,0 +1,45 @@
+{
+  "_comment": "Synthetic seen-urls.json entries that should be SKIPPED by enrich-roles.mjs because their hosts are quarantined or spam-blocked. Pairs with the enrichment-gate verification in the integration test.",
+  "seenUrls": {
+    "https://revopscareers.com/job/mural-revenue-operations-business-partner-united-states": {
+      "firstSeen": "2026-05-13",
+      "title": "Revenue Operations Business Partner",
+      "source": "Tier 2: Exa",
+      "company": "Mural",
+      "source_tier": "aggregator"
+    },
+    "https://hirevector.liveblog365.com/job/revenue-operations-analyst-26": {
+      "firstSeen": "2026-04-25",
+      "title": "Revenue Operations Analyst",
+      "source": "Tier 2: Exa",
+      "company": "Hirevector"
+    },
+    "https://www.lensa.com/jobs/some-role-12345": {
+      "firstSeen": "2026-05-10",
+      "title": "GTM Engineer",
+      "source": "Tier 2: Exa",
+      "company": "Foo",
+      "source_tier": "aggregator"
+    },
+    "https://saashero.net/job/x": {
+      "firstSeen": "2026-04-22",
+      "title": "Sales Operations Manager",
+      "source": "Tier 2: Exa",
+      "company": "SaaS Hero"
+    },
+    "https://jobs.ashbyhq.com/eliseai/abc": {
+      "firstSeen": "2026-05-13",
+      "title": "GTM Engineer",
+      "source": "Tier 1: Ashby",
+      "company": "EliseAI",
+      "_note": "this one is healthy — should NOT be skipped"
+    },
+    "https://builtin.com/job/gtm-engineer/eliseai/123": {
+      "firstSeen": "2026-05-13",
+      "title": "GTM Engineer",
+      "source": "BuiltIn",
+      "company": "EliseAI",
+      "_note": "BuiltIn is the aggregator-style discovery channel but it's NOT in AGGREGATOR_HOSTS — should NOT be skipped"
+    }
+  }
+}
