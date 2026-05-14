@@ -20,6 +20,8 @@ interface SparklineProps {
   labels?: string[];
   /** When provided, fixes the y-axis to [0, yMax] rather than autoscaling. */
   yMax?: number;
+  /** When provided, renders the max value as faint text in the top-right. */
+  showMaxLabel?: (max: number) => string;
 }
 
 const COLOR_VAR: Record<BadgeColor, string> = {
@@ -39,6 +41,7 @@ export function Sparkline({
   width = 200,
   labels,
   yMax,
+  showMaxLabel,
 }: SparklineProps) {
   if (data.length === 0) {
     return (
@@ -125,6 +128,29 @@ export function Sparkline({
           }
           return null;
         })()}
+      {/* Faint max-value annotation top-right */}
+      {showMaxLabel && numeric.length > 0 && (
+        <>
+          <line
+            x1={pad}
+            y1={pad}
+            x2={width - pad}
+            y2={pad}
+            stroke="var(--color-border-subtle)"
+            strokeWidth={1}
+            strokeDasharray="2 3"
+          />
+          <text
+            x={width - pad}
+            y={pad - 1}
+            fontSize="10"
+            fill="var(--color-text-muted)"
+            textAnchor="end"
+          >
+            max {showMaxLabel(max)}
+          </text>
+        </>
+      )}
       {/* Hover targets */}
       {points.map((p, i) =>
         p === null ? null : (
