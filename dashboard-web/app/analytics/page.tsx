@@ -18,6 +18,7 @@ import {
   ApplicationAttribution,
   AutoPromotionLog,
 } from "./sections";
+import { CollapsibleSection } from "./CollapsibleSection";
 import type {
   AggregatedTotals,
   SourceAggregate,
@@ -93,11 +94,11 @@ export default function AnalyticsPage() {
       <PageHeader
         icon={<BarChart3 className="h-4 w-4 text-text-tertiary" />}
         title="Analytics"
-        subtitle={
-          lastUpdated ? `updated ${lastUpdated.toLocaleTimeString()}` : "loading…"
-        }
         actions={
           <>
+            <span className="hidden text-[12px] tabular-nums text-text-tertiary sm:inline">
+              {lastUpdated ? `Refreshed ${formatTime(lastUpdated)}` : "loading…"}
+            </span>
             <RangeChips value={range} onChange={setRange} />
             <Button variant="secondary" onClick={fetchAll}>
               <RefreshCw className="h-3.5 w-3.5" />
@@ -127,25 +128,97 @@ export default function AnalyticsPage() {
             </div>
           )}
 
+          {/* ──────────────────────────────────────────────────────────────────
+              ABOVE THE FOLD — always visible, no collapse.
+              These are the three things you need to read in one glance:
+              what the totals are, what's broken, what the funnel looks like.
+              ────────────────────────────────────────────────────────────── */}
+
           <HeroMetrics totals={data.totals} />
 
           {anomalies && <AnomaliesPanel anomalies={anomalies.anomalies} />}
 
-          <SourcePerformance sources={data.by_source} />
+          <CollapsibleSection
+            id="funnel"
+            title="Pipeline funnel"
+            subtitle={`${data.totals.roles_discovered.toLocaleString()} → ${data.totals.applications_attributed.toLocaleString()} over ${range}`}
+            defaultOpen
+          >
+            <PipelineFunnel totals={data.totals} />
+          </CollapsibleSection>
 
-          <CostTrends daily={data.by_date} />
+          {/* ──────────────────────────────────────────────────────────────────
+              BELOW THE FOLD — collapsible, open/closed state persists in
+              localStorage so morning-Nick's preferences stick across sessions.
+              ────────────────────────────────────────────────────────────── */}
 
-          <PipelineFunnel totals={data.totals} />
+          <CollapsibleSection
+            id="cost-trends"
+            title="Cost trends"
+            subtitle={`${data.by_date.length} days · total ${fmtUsdHeader(data.totals.total_cost_usd)}`}
+            defaultOpen
+          >
+            <CostTrends daily={data.by_date} />
+          </CollapsibleSection>
 
-          <TierBreakdown tiers={data.by_tier} />
+          <CollapsibleSection
+            id="source-perf"
+            title="Source performance"
+            count={data.by_source.length}
+            subtitle={
+              data.by_source[0]
+                ? `top: ${data.by_source[0].host} (${Math.round(
+                    (data.by_source[0].hit_rate_fit_6plus || 0) * 100,
+                  )}% hit)`
+                : undefined
+            }
+          >
+            <SourcePerformance sources={data.by_source} />
+          </CollapsibleSection>
 
-          <ApplicationAttribution sources={data.by_source} />
+          <CollapsibleSection
+            id="tier-health"
+            title="Tier health"
+            count={data.by_tier.length}
+          >
+            <TierBreakdown tiers={data.by_tier} />
+          </CollapsibleSection>
 
-          <AutoPromotionLog count={autoPromoteCount} />
+          <CollapsibleSection
+            id="app-attribution"
+            title="Application attribution"
+            count={data.totals.applications_attributed}
+            subtitle={
+              data.totals.applications_attributed > 0
+                ? `across ${data.by_source.filter((s) => (s.applications_attributed || 0) > 0).length} sources`
+                : undefined
+            }
+            defaultOpen={data.totals.applications_attributed > 0}
+          >
+            <ApplicationAttribution sources={data.by_source} />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            id="auto-promo"
+            title="Auto-promotion log"
+            count={autoPromoteCount || undefined}
+          >
+            <AutoPromotionLog count={autoPromoteCount} />
+          </CollapsibleSection>
         </>
       )}
     </div>
   );
+}
+
+function formatTime(d: Date): string {
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function fmtUsdHeader(n: number): string {
+  if (Math.abs(n) >= 1000) return `$${Math.round(n).toLocaleString("en-US")}`;
+  if (Math.abs(n) >= 1) return `$${n.toFixed(2)}`;
+  return `$${n.toFixed(4)}`;
 }
 
 function RangeChips({ value, onChange }: { value: Range; onChange: (r: Range) => void }) {
@@ -160,8 +233,8 @@ function RangeChips({ value, onChange }: { value: Range; onChange: (r: Range) =>
             onClick={() => onChange(r)}
             className={
               active
-                ? "rounded-md bg-surface-3 px-2.5 py-1 text-[12px] font-medium text-text-primary"
-                : "rounded-md px-2.5 py-1 text-[12px] text-text-tertiary hover:text-text-secondary"
+                ? "rounded-md border border-accent-border bg-accent-dim px-2.5 py-1 text-[12px] font-medium text-accent"
+                : "rounded-md border border-transparent px-2.5 py-1 text-[12px] text-text-tertiary hover:text-text-secondary"
             }
           >
             {r}
