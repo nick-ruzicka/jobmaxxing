@@ -30,6 +30,10 @@ import {
 } from "./lib/extract-comp.mjs";
 import { stripHtml } from "./lib/strip-html.mjs";
 import { createCooldownTracker, sleepUntil } from "./lib/host-cooldown.mjs";
+import {
+  isAggregatorHost,
+  isExcludedHost,
+} from "./lib/source-classification.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -676,8 +680,28 @@ async function main() {
   // Find URLs that need enrichment: new ones + previously failed API errors (not no_jd)
   const SKIP_DOMAINS = ["substack.com", "medium.com", "bvp.com", "twitter.com", "youtube.com", "x.com"];
   const toEnrich = [];
+  // Bleeding-wound fix (autoapply/SCRAPER_AUDIT.md): respect 'quarantined' /
+  // 'spam-blocked' classification at the enrichment gate. The dashboard already
+  // hides these from default views, but until now we were still spending Claude
+  // tokens enriching all of them — 248 revopscareers URLs/month for 0 high-fit,
+  // 0 applied. Skip aggregator hosts (revopscareers, lensa, jobgether, …) and
+  // excluded spam hosts (liveblog365, wuaze, saashero, …) entirely.
+  let quarantinedSkipped = 0;
+  let excludedSkipped = 0;
   for (const [url, meta] of Object.entries(seenUrls)) {
     if (SKIP_DOMAINS.some((d) => url.includes(d))) continue;
+
+    // SKIP enrichment for quarantined / spam-blocked sources. They're already
+    // tagged source_tier:'aggregator' in seen-urls.json by the scanner; this
+    // saves the Claude API call.
+    if (isExcludedHost(url)) {
+      excludedSkipped++;
+      continue;
+    }
+    if (isAggregatorHost(url)) {
+      quarantinedSkipped++;
+      continue;
+    }
 
     const existing = enrichments[url];
     if (existing) {
@@ -692,6 +716,11 @@ async function main() {
 
   console.log(`  Total seen URLs: ${Object.keys(seenUrls).length}`);
   console.log(`  Already enriched: ${Object.keys(enrichments).length}`);
+  if (quarantinedSkipped > 0 || excludedSkipped > 0) {
+    console.log(
+      `  Skipped quarantined sources: ${quarantinedSkipped}, spam-blocked: ${excludedSkipped} (saved Claude API calls)`,
+    );
+  }
   console.log(`  To enrich: ${toEnrich.length}\n`);
 
   if (toEnrich.length === 0) {

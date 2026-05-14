@@ -1221,12 +1221,22 @@ async function main() {
   allResults.push(...revopsCoopResults);
   console.log(`  Total RevOps Co-op: ${revopsCoopResults.length}\n`);
 
-  // --- Tier 5: Social signals ---
-  console.log(`[Tier 5] Social signals — ${SOCIAL_QUERIES.length} queries`);
-  const socialResults = await runExaQueries(SOCIAL_QUERIES, "Social Signal");
-  stats.social.matches = socialResults.length;
-  allResults.push(...socialResults);
-  console.log(`  Total Social signals: ${socialResults.length}\n`);
+  // --- Tier 5: Social signals (gated behind ENABLE_SOCIAL_SIGNALS=true) ---
+  // Audit finding: 7 URLs cumulative over 1,251 total, 0 high-fit, 0 applied. Costs
+  // 3 Exa queries × 2 runs/day = 180 queries/month for zero high-fit. Disabled by
+  // default; re-enable via env flag for experiments. See autoapply/SCRAPER_AUDIT.md
+  // §7 quick-win #3 / structural change "Sources to deprecate".
+  if (process.env.ENABLE_SOCIAL_SIGNALS === "true") {
+    console.log(`[Tier 5] Social signals — ${SOCIAL_QUERIES.length} queries (gated ON)`);
+    const socialResults = await runExaQueries(SOCIAL_QUERIES, "Social Signal");
+    stats.social.matches = socialResults.length;
+    allResults.push(...socialResults);
+    console.log(`  Total Social signals: ${socialResults.length}\n`);
+  } else {
+    console.log(
+      `[Tier 5] Social signals — SKIPPED (set ENABLE_SOCIAL_SIGNALS=true to re-enable)\n`,
+    );
+  }
 
   // --- Tier 6: Similar search (find more like your best roles) ---
   // Use top-scoring Tier 1 roles as seeds for "find similar"
