@@ -243,3 +243,27 @@ companies:
     source: manual
     added_date: 2026-05-12
     notes: 19 jobs — chat API
+  - canonical_name: Plaid
+    ats: lever
+    slug: plaid
+    source: manual
+    added_date: 2026-05-14
+    notes: fintech infrastructure
+  - canonical_name: PostHog
+    ats: lever
+    slug: posthog
+    source: manual
+    added_date: 2026-05-14
+    notes: product analytics, open source
+  - canonical_name: Pinecone
+    ats: lever
+    slug: pinecone
+    source: manual
+    added_date: 2026-05-14
+    notes: vector DB; needs_slug_verification if 404
+  - canonical_name: Modal Labs
+    ats: lever
+    slug: modal-labs
+    source: manual
+    added_date: 2026-05-14
+    notes: serverless compute for AI/ML

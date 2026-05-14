@@ -35,6 +35,7 @@ import {
   processRolePromotion,
   PROMOTION_CAP_PER_RUN,
 } from "./lib/promote-company.mjs";
+import { scanLever } from "./lib/lever-scraper.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -896,6 +897,7 @@ function generateReport(roles, stats) {
   md += `|------|--------|-------------------|---------|--------|\n`;
   md += `| 1 | Ashby API | ${stats.ashby.checked} companies | ${stats.ashby.matches} | ${stats.ashby.failed.length} 404s |\n`;
   md += `| 1 | Greenhouse API | ${stats.greenhouse.checked} companies | ${stats.greenhouse.matches} | ${stats.greenhouse.failed.length} 404s |\n`;
+  md += `| 1 | Lever API | ${stats.lever.checked} companies | ${stats.lever.matches} | ${stats.lever.failed.length} 404s |\n`;
   md += `| 2 | Exa broad | ${stats.exa.queries} queries | ${stats.exa.matches} | — |\n`;
   md += `| 3 | Exa VC portfolios | ${stats.vc.queries} queries | ${stats.vc.matches} | — |\n`;
   md += `| 3 | Exa HN/YC | ${stats.hn.queries} queries | ${stats.hn.matches} | — |\n`;
@@ -916,6 +918,9 @@ function generateReport(roles, stats) {
   }
   if (stats.greenhouse.failed.length > 0) {
     md += `**Greenhouse 404s:** ${stats.greenhouse.failed.join(", ")}  \n`;
+  }
+  if (stats.lever.failed.length > 0) {
+    md += `**Lever 404s:** ${stats.lever.failed.join(", ")}  \n`;
   }
   md += `\n---\n\n`;
 
@@ -1092,11 +1097,16 @@ async function main() {
 
   const seen = loadSeen();
   const companies = loadCompanies();
-  const allTrackedSlugs = [...companies.ashby, ...companies.greenhouse];
+  const allTrackedSlugs = [
+    ...companies.ashby,
+    ...companies.greenhouse,
+    ...companies.lever,
+  ];
 
   const stats = {
     ashby: { checked: 0, matches: 0, failed: [] },
     greenhouse: { checked: 0, matches: 0, failed: [] },
+    lever: { checked: 0, matches: 0, failed: [] },
     exa: { queries: EXA_QUERIES.length, matches: 0 },
     vc: { queries: VC_QUERIES.length, matches: 0 },
     hn: { queries: HN_QUERIES.length, matches: 0 },
@@ -1131,6 +1141,27 @@ async function main() {
   stats.greenhouse.matches = gh.results.length;
   allResults.push(...gh.results);
   console.log(`  Found ${gh.results.length} matching roles (${gh.failed.length} 404s)\n`);
+
+  // --- Tier 1: Lever ---
+  // Lever is structurally identical to Ashby/Greenhouse — public per-company API,
+  // no auth. Per autoapply/SCRAPER_AUDIT.md surprise finding: zero Lever URLs in
+  // 1,251 seen-urls, despite Lever hosting Plaid, PostHog, Pinecone, Modal Labs,
+  // and others squarely in our ICP. Title filtering done downstream in the same
+  // dedup+filter pass as Ashby/GH (Tier-1 results are flagged "Tier 1: Lever" and
+  // get the same shortcut treatment as the other two).
+  console.log(`[Tier 1] Lever API — ${companies.lever.length} companies`);
+  const lever = await scanLever(companies.lever);
+  stats.lever.checked = lever.checked;
+  stats.lever.failed = lever.failed;
+  // scanLever returns ALL postings; apply the same title gate Ashby/GH apply inline.
+  const leverFiltered = lever.results.filter(
+    (r) => titleMatchesPositive(r.title) && !titleMatchesNegative(r.title),
+  );
+  stats.lever.matches = leverFiltered.length;
+  allResults.push(...leverFiltered);
+  console.log(
+    `  Found ${leverFiltered.length} matching roles (${lever.failed.length} 404s, ${lever.results.length} total before title filter)\n`,
+  );
 
   // --- Tier 2: Exa broad ---
   console.log(`[Tier 2] Exa neural search — ${EXA_QUERIES.length} queries`);
