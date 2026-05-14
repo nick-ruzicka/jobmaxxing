@@ -685,7 +685,9 @@ async function scanGreenhouse(slugs) {
 // Tier 2 & 3: Exa neural search
 // ---------------------------------------------------------------------------
 
-async function exaSearch(query) {
+// `tier` is threaded through from runExaQueries so per-call analytics get the
+// right tier slug (was hardcoded to tier_2_broad — conflated Tiers 2/3/4/7).
+async function exaSearch(query, tier = "tier_2_broad") {
   const apiKey = process.env.EXA_API_KEY;
   if (!apiKey) {
     console.error("ERROR: EXA_API_KEY not set. Add it to .env and retry.");
@@ -720,12 +722,12 @@ async function exaSearch(query) {
   }
 
   const data = await res.json();
-  recordExaCall(data, { query_type: "neural", query, tier: "tier_2_broad" });
+  recordExaCall(data, { query_type: "neural", query, tier });
   return data.results || [];
 }
 
 // Deep search — slower but more thorough (agentic, query expansion)
-async function exaDeepSearch(query) {
+async function exaDeepSearch(query, tier = "tier_8_deep") {
   const apiKey = process.env.EXA_API_KEY;
   if (!apiKey) return [];
 
@@ -749,6 +751,7 @@ async function exaDeepSearch(query) {
     });
     if (!res.ok) return [];
     const data = await res.json();
+    recordExaCall(data, { query_type: "auto", query, tier });
     return data.results || [];
   } catch {
     return [];
@@ -756,7 +759,7 @@ async function exaDeepSearch(query) {
 }
 
 // Similar search — "find me more like this URL"
-async function exaSimilarSearch(url, numResults = 10) {
+async function exaSimilarSearch(url, numResults = 10, tier = "tier_6_similar") {
   const apiKey = process.env.EXA_API_KEY;
   if (!apiKey) return [];
 
@@ -782,6 +785,7 @@ async function exaSimilarSearch(url, numResults = 10) {
       return [];
     }
     const data = await res.json();
+    recordExaCall(data, { query_type: "similar", query: url, tier });
     return data.results || [];
   } catch {
     return [];
@@ -857,13 +861,17 @@ async function exaKeywordSearch(query) {
   return data.results || [];
 }
 
-async function runExaQueries(queries, tierLabel) {
+// `tierLabel` is the display string written into each result's `source` field
+// (e.g. "Tier 2: Exa"). `tierSlug` is the analytics slug threaded into recordExaCall
+// (e.g. "tier_2_exa") so /analytics can slice cost by real tier rather than
+// folding every runExaQueries caller under tier_2_broad.
+async function runExaQueries(queries, tierLabel, tierSlug = "tier_2_broad") {
   const results = [];
 
   for (const query of queries) {
     process.stdout.write(`  ${query.slice(0, 65)}...`);
     try {
-      const hits = await exaSearch(query);
+      const hits = await exaSearch(query, tierSlug);
       process.stdout.write(` ${hits.length}\n`);
 
       for (const r of hits) {
@@ -1195,35 +1203,35 @@ async function main() {
 
   // --- Tier 2: Exa broad ---
   console.log(`[Tier 2] Exa neural search — ${EXA_QUERIES.length} queries`);
-  const exaResults = await runExaQueries(EXA_QUERIES, "Tier 2: Exa");
+  const exaResults = await runExaQueries(EXA_QUERIES, "Tier 2: Exa", "tier_2_exa");
   stats.exa.matches = exaResults.length;
   allResults.push(...exaResults);
   console.log(`  Total Exa broad: ${exaResults.length}\n`);
 
   // --- Tier 3: VC portfolio ---
   console.log(`[Tier 3] VC portfolio queries — ${VC_QUERIES.length} queries`);
-  const vcResults = await runExaQueries(VC_QUERIES, "Tier 3: VC");
+  const vcResults = await runExaQueries(VC_QUERIES, "Tier 3: VC", "tier_3_vc");
   stats.vc.matches = vcResults.length;
   allResults.push(...vcResults);
   console.log(`  Total VC: ${vcResults.length}\n`);
 
   // --- Tier 3: HN/YC ---
   console.log(`[Tier 3] HN/YC queries — ${HN_QUERIES.length} queries`);
-  const hnResults = await runExaQueries(HN_QUERIES, "Tier 3: HN");
+  const hnResults = await runExaQueries(HN_QUERIES, "Tier 3: HN", "tier_3_hn");
   stats.hn.matches = hnResults.length;
   allResults.push(...hnResults);
   console.log(`  Total HN/YC: ${hnResults.length}\n`);
 
   // --- Tier 4: GTM Engineers Club ---
   console.log(`[Tier 4] GTM Engineers Club — ${GTM_CLUB_QUERIES.length} queries`);
-  const gtmClubResults = await runExaQueries(GTM_CLUB_QUERIES, "GTM Engineers Club");
+  const gtmClubResults = await runExaQueries(GTM_CLUB_QUERIES, "GTM Engineers Club", "tier_4_gtm_club");
   stats.gtmClub.matches = gtmClubResults.length;
   allResults.push(...gtmClubResults);
   console.log(`  Total GTM Engineers Club: ${gtmClubResults.length}\n`);
 
   // --- Tier 4: RevOps Co-op ---
   console.log(`[Tier 4] RevOps Co-op — ${REVOPS_COOP_QUERIES.length} queries`);
-  const revopsCoopResults = await runExaQueries(REVOPS_COOP_QUERIES, "RevOps Co-op");
+  const revopsCoopResults = await runExaQueries(REVOPS_COOP_QUERIES, "RevOps Co-op", "tier_4_revops_coop");
   stats.revopsCoop.matches = revopsCoopResults.length;
   allResults.push(...revopsCoopResults);
   console.log(`  Total RevOps Co-op: ${revopsCoopResults.length}\n`);
@@ -1235,7 +1243,7 @@ async function main() {
   // §7 quick-win #3 / structural change "Sources to deprecate".
   if (process.env.ENABLE_SOCIAL_SIGNALS === "true") {
     console.log(`[Tier 5] Social signals — ${SOCIAL_QUERIES.length} queries (gated ON)`);
-    const socialResults = await runExaQueries(SOCIAL_QUERIES, "Social Signal");
+    const socialResults = await runExaQueries(SOCIAL_QUERIES, "Social Signal", "tier_5_social");
     stats.social.matches = socialResults.length;
     allResults.push(...socialResults);
     console.log(`  Total Social signals: ${socialResults.length}\n`);
@@ -1288,7 +1296,7 @@ async function main() {
 
   // --- Tier 7: Hiring intent signals ---
   console.log(`[Tier 7] Hiring intent — ${INTENT_QUERIES.length} queries`);
-  const intentResults = await runExaQueries(INTENT_QUERIES, "Tier 7: Intent");
+  const intentResults = await runExaQueries(INTENT_QUERIES, "Tier 7: Intent", "tier_7_intent");
   allResults.push(...intentResults);
   console.log(`  Total intent: ${intentResults.length}\n`);
 
@@ -1333,7 +1341,10 @@ async function main() {
   console.log(`  Total BuiltIn: ${builtinResults.length}\n`);
 
   // --- Helper: run keyword search on a specific domain set ---
-  async function scanDomainSource(sourceName, domains, searches) {
+  // `tier` is the analytics slug (e.g. "tier_10_yc_keyword", "tier_11_vc_board").
+  // Without it the Exa calls fired here (5 boards × 4 queries + YC × 4 queries =
+  // ~24 calls/run) wouldn't show up in /analytics at all.
+  async function scanDomainSource(sourceName, domains, searches, tier = "tier_11_vc_board") {
     const results = [];
     for (const query of searches) {
       process.stdout.write(`  ${query.padEnd(25)}...`);
@@ -1358,6 +1369,7 @@ async function main() {
           continue;
         }
         const data = await res.json();
+        recordExaCall(data, { query_type: "keyword", query, tier });
         const hits = data.results || [];
         process.stdout.write(` ${hits.length}\n`);
 
@@ -1434,7 +1446,7 @@ async function main() {
 
   // --- Tier 10: YC Work at a Startup ---
   console.log(`[Tier 10] YC Work at a Startup — ${YC_SEARCHES.length} searches`);
-  const ycResults = await scanDomainSource("YC", YC_DOMAINS, YC_SEARCHES);
+  const ycResults = await scanDomainSource("YC", YC_DOMAINS, YC_SEARCHES, "tier_10_yc_keyword");
   stats.yc.matches = ycResults.length;
   allResults.push(...ycResults);
   console.log(`  Total YC: ${ycResults.length}\n`);
@@ -1443,7 +1455,7 @@ async function main() {
   let vcBoardTotal = 0;
   for (const board of VC_BOARD_CONFIGS) {
     console.log(`[Tier 11] ${board.name} — ${VC_BOARD_SEARCHES.length} searches`);
-    const boardResults = await scanDomainSource(board.name, board.domains, VC_BOARD_SEARCHES);
+    const boardResults = await scanDomainSource(board.name, board.domains, VC_BOARD_SEARCHES, "tier_11_vc_board");
     vcBoardTotal += boardResults.length;
     allResults.push(...boardResults);
     console.log(`  Total ${board.name}: ${boardResults.length}\n`);
