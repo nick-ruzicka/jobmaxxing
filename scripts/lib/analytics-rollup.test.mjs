@@ -24,15 +24,15 @@ test("empty input → zero rollup, no anomalies", () => {
 
 test("tier_start/complete: counts runs and aggregates duration", () => {
   const events = [
-    evt("scrape.tier_start", { tier: "tier_9_builtin" }),
+    evt("scrape.tier_start", { tier: "tier_2_exa" }),
     evt("scrape.tier_complete", {
-      tier: "tier_9_builtin",
+      tier: "tier_2_exa",
       duration_ms: 4523,
       exit_status: "ok",
     }),
-    evt("scrape.tier_start", { tier: "tier_1_ashby" }),
+    evt("scrape.tier_start", { tier: "tier_8_deep" }),
     evt("scrape.tier_complete", {
-      tier: "tier_1_ashby",
+      tier: "tier_8_deep",
       duration_ms: 1200,
       exit_status: "ok",
     }),
@@ -40,9 +40,9 @@ test("tier_start/complete: counts runs and aggregates duration", () => {
   const r = computeRollup(events, { date: "2026-05-13" });
   assert.equal(r.totals.tier_runs, 2);
   assert.equal(r.totals.duration_total_ms, 5723);
-  assert.equal(r.by_tier.tier_9_builtin.duration_ms, 4523);
-  assert.equal(r.by_tier.tier_1_ashby.duration_ms, 1200);
-  assert.equal(r.by_tier.tier_9_builtin.last_exit_status, "ok");
+  assert.equal(r.by_tier.tier_2_exa.duration_ms, 4523);
+  assert.equal(r.by_tier.tier_8_deep.duration_ms, 1200);
+  assert.equal(r.by_tier.tier_2_exa.last_exit_status, "ok");
 });
 
 test("http_request: total counts + per-source counts + error promotion at >=400", () => {
