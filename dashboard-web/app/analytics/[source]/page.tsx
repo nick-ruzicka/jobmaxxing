@@ -11,7 +11,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SectionLabel } from "@/components/ui/SectionLabel";
 
 import { Sparkline } from "../Sparkline";
-import { fmtInt, fmtUsd, pct } from "../sections";
+import { fmtInt, pct } from "../sections";
 
 import type { SourceDetail } from "@/lib/source-detail";
 
