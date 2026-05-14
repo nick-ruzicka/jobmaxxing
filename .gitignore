@@ -77,6 +77,10 @@ autoapply/**/__pycache__/
 autoapply/*.log
 autoapply/.env
 autoapply/browser-harness/
+# Real profile (PII); .example is committed as the schema source of truth.
+autoapply/profile.json
+# Temp fixtures created by Python unit tests
+autoapply/tests/_tmp/
 
 # ─── Analytics ────────────────────────────────────────────────────────────────
 # Per-machine runtime data — high volume, per-day rotation. Never committed.

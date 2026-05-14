@@ -1,0 +1,55 @@
+{
+  "identity": {
+    "first_name": "Nick",
+    "last_name": "Ruzicka",
+    "email": "REPLACE_WITH_REAL_EMAIL",
+    "phone": "REPLACE_WITH_REAL_PHONE",
+    "location_city": "New York",
+    "location_state": "NY",
+    "location_country": "United States",
+    "work_authorization": "US Citizen",
+    "willing_to_relocate": false,
+    "remote_preference": "Hybrid NYC preferred"
+  },
+  "links": {
+    "linkedin": "https://linkedin.com/in/nicholas-ruzicka-0x",
+    "github": "https://github.com/nick-ruzicka",
+    "portfolio": "",
+    "resume_url": "REPLACE_WITH_RESUME_PDF_URL"
+  },
+  "current_role": {
+    "company": "Linera",
+    "title": "Head of Operations & Business Development",
+    "start_date": "REPLACE_WITH_START_DATE",
+    "summary": "BD and Operations at Linera (a16z-backed L1 blockchain). Built and shipped the Linera GTM Signal Engine."
+  },
+  "compensation": {
+    "salary_floor_usd": 200000,
+    "salary_target_usd": 240000,
+    "equity_expectations": "Standard for stage",
+    "open_to_negotiation": true
+  },
+  "recent_projects": [
+    {
+      "name": "Linera GTM Signal Engine",
+      "summary": "Signal-based outbound system: +18% SQLs, 3x outbound volume, 85% research time reduction"
+    },
+    {
+      "name": "Dispatch CRM",
+      "summary": "Internal AI CRM: Granola → Zapier → Claude API → Supabase → Asana → Slack. 20-hour build."
+    },
+    {
+      "name": "CareerOps",
+      "summary": "Personal AI-native job search pipeline with agent-driven briefings + analytics dashboard"
+    }
+  ],
+  "differentiators": [
+    "Sales-origin engineer — Rivery founding AE who became technical via Flatiron + Claude Code",
+    "Architect of measurable revenue systems, not just user of GTM tools"
+  ],
+  "answer_style": {
+    "voice": "Direct, terse, no em dashes, natural contractions",
+    "lead_with": "Concrete numbers and shipped implementations",
+    "avoid": "Corporate language, fluff, hedging, em dashes"
+  }
+}
