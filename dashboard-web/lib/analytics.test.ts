@@ -182,7 +182,7 @@ describe("aggregateByTier", () => {
   it("rolls up tier runs and durations", () => {
     const r = fakeRollup("2026-05-13", {
       by_tier: {
-        tier_9_builtin: {
+        tier_2_exa: {
           runs: 2,
           duration_ms: 5000,
           roles_discovered: 50,
@@ -194,7 +194,7 @@ describe("aggregateByTier", () => {
     });
     const out = aggregateByTier([r, r]);
     expect(out).toHaveLength(1);
-    expect(out[0].tier).toBe("tier_9_builtin");
+    expect(out[0].tier).toBe("tier_2_exa");
     expect(out[0].runs).toBe(4);
     expect(out[0].duration_ms).toBe(10000);
     expect(out[0].last_exit_status).toBe("ok");

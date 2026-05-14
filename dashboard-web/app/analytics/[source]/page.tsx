@@ -96,9 +96,12 @@ export default function SourceDetailPage({
 
       {data && data.found && (
         <>
+          {/* Suggested actions FIRST — most actionable item shouldn't be buried
+              below chart eye-candy. Trends are context for the action, not
+              the headline. */}
+          <SuggestedActionsCard actions={data.suggested_actions} />
           <Overview detail={data} />
           <Trends detail={data} />
-          <SuggestedActionsCard actions={data.suggested_actions} />
           <UrlPatterns detail={data} />
           <RecentLists detail={data} />
         </>
@@ -112,36 +115,54 @@ function Overview({ detail }: { detail: SourceDetail }) {
   const hitRate = t.enriched_real > 0 ? t.fit_6plus / t.enriched_real : 0;
   return (
     <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-      <Stat label="URLs (range)" value={fmtInt(t.urls_in_range)} sub={`${fmtInt(t.urls_total)} all-time`} />
+      <Stat
+        label="URLs"
+        value={fmtInt(t.urls_in_range)}
+        sub={`${fmtInt(t.urls_total)} all-time`}
+      />
       <Stat label="Enriched" value={fmtInt(t.enriched_real)} sub={`${fmtInt(t.enrich_errors)} errors`} />
       <Stat label="Fit ≥6" value={fmtInt(t.fit_6plus)} sub={`${fmtInt(t.fit_7plus)} fit ≥7`} />
       <Stat
         label="Hit rate"
         value={t.enriched_real > 0 ? pct(hitRate) : "—"}
-        sub={`${fmtInt(t.has_comp)} have comp`}
+        sub={`comp coverage ${pct(t.has_comp_coverage)}`}
       />
-      <Stat label="Open / closed" value={`${fmtInt(t.open)} / ${fmtInt(t.closed)}`} />
+      <Stat
+        label="Open / closed"
+        // Closed count is dimmed so the eye lands on the live count first.
+        valueNode={
+          <span className="tabular-nums text-text-primary">
+            {fmtInt(t.open)}{" "}
+            <span className="text-text-muted">/ {fmtInt(t.closed)}</span>
+          </span>
+        }
+      />
       <Stat
         label="Avg fit"
-        value={
-          t.enriched_real > 0
-            ? (
-                detail.daily.reduce((s, d) => s + (d.roles_fit_6plus || 0), 0) /
-                  Math.max(t.enriched_real, 1) *
-                  10
-              ).toFixed(1)
-            : "—"
-        }
+        value={t.avg_fit !== null ? t.avg_fit.toFixed(1) : "—"}
+        sub={t.avg_fit !== null ? "arithmetic mean of fit_score" : undefined}
       />
     </section>
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Stat({
+  label,
+  value,
+  valueNode,
+  sub,
+}: {
+  label: string;
+  value?: string;
+  valueNode?: React.ReactNode;
+  sub?: string;
+}) {
   return (
     <div className="rounded-lg border border-border-subtle bg-surface-2 p-3">
       <div className="text-[11px] font-medium uppercase tracking-[0.04em] text-text-tertiary">{label}</div>
-      <div className="mt-1 text-[18px] font-semibold tabular-nums text-text-primary">{value}</div>
+      <div className="mt-1 text-[18px] font-semibold tabular-nums text-text-primary">
+        {valueNode ?? value}
+      </div>
       {sub && <div className="mt-0.5 text-[11px] text-text-muted">{sub}</div>}
     </div>
   );
@@ -158,24 +179,30 @@ function Trends({ detail }: { detail: SourceDetail }) {
           data={detail.daily.map((d) => d.roles_discovered)}
           labels={dates}
           color="blue"
+          maxFormatter={(n) => fmtInt(Math.round(n))}
         />
         <TrendCard
           title="Roles enriched per day"
           data={detail.daily.map((d) => d.roles_enriched)}
           labels={dates}
           color="emerald"
+          maxFormatter={(n) => fmtInt(Math.round(n))}
         />
         <TrendCard
           title="Fit ≥6 per day"
           data={detail.daily.map((d) => d.roles_fit_6plus)}
           labels={dates}
           color="violet"
+          maxFormatter={(n) => fmtInt(Math.round(n))}
         />
         <TrendCard
           title="Daily cost"
           data={detail.daily.map((d) => d.total_cost_usd)}
           labels={dates}
           color="amber"
+          maxFormatter={(n) =>
+            Math.abs(n) >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`
+          }
         />
       </div>
     </section>
@@ -187,11 +214,13 @@ function TrendCard({
   data,
   labels,
   color,
+  maxFormatter,
 }: {
   title: string;
   data: number[];
   labels: string[];
   color: "blue" | "emerald" | "violet" | "amber";
+  maxFormatter?: (n: number) => string;
 }) {
   const total = data.reduce((s, n) => s + (n || 0), 0);
   return (
@@ -200,7 +229,14 @@ function TrendCard({
       <div className="mb-3 text-[11px] text-text-muted">
         total: <span className="tabular-nums text-text-secondary">{Math.round(total * 100) / 100}</span>
       </div>
-      <Sparkline data={data} labels={labels} color={color} width={320} height={64} />
+      <Sparkline
+        data={data}
+        labels={labels}
+        color={color}
+        width={320}
+        height={64}
+        showMaxLabel={maxFormatter}
+      />
     </div>
   );
 }
@@ -275,38 +311,67 @@ function RecentLists({ detail }: { detail: SourceDetail }) {
     <section className="space-y-6">
       <RoleList title="Recent high-fit roles" roles={detail.recent_high_fit} highlight />
       <RoleList title="Recent discoveries" roles={detail.recent_roles} />
-      {detail.recent_errors.length > 0 && (
-        <div>
-          <SectionLabel>Recent enrichment errors</SectionLabel>
-          <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface-2">
-            <table className="w-full text-[13px]">
-              <thead className="border-b border-border-subtle bg-surface-1 text-[11px] font-medium uppercase tracking-[0.04em] text-text-tertiary">
-                <tr>
-                  <th className="px-3 py-2.5 text-left">When</th>
-                  <th className="px-3 py-2.5 text-left">Error</th>
-                  <th className="px-3 py-2.5 text-left">URL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.recent_errors.map((e) => (
-                  <tr key={e.url} className="border-b border-border-subtle even:bg-surface-row">
-                    <td className="px-3 py-2.5 tabular-nums text-text-tertiary">
-                      {e.timestamp?.slice(0, 19).replace("T", " ") || "—"}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Badge color="red">{e.error}</Badge>
-                    </td>
-                    <td className="px-3 py-2.5 text-[12px] text-text-muted truncate max-w-md">{e.url}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <ErrorList errors={detail.recent_errors} />
     </section>
   );
 }
+
+function ErrorList({ errors }: { errors: SourceDetail["recent_errors"] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (errors.length === 0) return null;
+  const visible = expanded ? errors : errors.slice(0, ROLE_LIST_INITIAL);
+  const hidden = errors.length - visible.length;
+  return (
+    <div>
+      <SectionLabel>
+        Recent enrichment errors{" "}
+        <span className="font-normal text-text-muted">({errors.length})</span>
+      </SectionLabel>
+      <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface-2">
+        <table className="w-full text-[13px]">
+          <thead className="border-b border-border-subtle bg-surface-1 text-[11px] font-medium uppercase tracking-[0.04em] text-text-tertiary">
+            <tr>
+              <th className="px-3 py-2.5 text-left">When</th>
+              <th className="px-3 py-2.5 text-left">Error</th>
+              <th className="px-3 py-2.5 text-left">URL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((e) => (
+              <tr key={e.url} className="border-b border-border-subtle even:bg-surface-row">
+                <td className="px-3 py-2.5 tabular-nums text-text-tertiary">
+                  {e.timestamp?.slice(0, 19).replace("T", " ") || "—"}
+                </td>
+                <td className="px-3 py-2.5">
+                  <Badge color="red">{e.error}</Badge>
+                </td>
+                <td className="px-3 py-2.5 text-[12px] text-text-muted truncate max-w-md">{e.url}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {hidden > 0 && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="mt-2 text-[12px] text-accent hover:underline"
+        >
+          Show {hidden} more ▾
+        </button>
+      )}
+      {expanded && errors.length > ROLE_LIST_INITIAL && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="mt-2 text-[12px] text-text-tertiary hover:text-text-secondary"
+        >
+          Collapse to top {ROLE_LIST_INITIAL} ▴
+        </button>
+      )}
+    </div>
+  );
+}
+
+const ROLE_LIST_INITIAL = 5;
 
 function RoleList({
   title,
@@ -317,10 +382,15 @@ function RoleList({
   roles: SourceDetail["recent_roles"];
   highlight?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
   if (roles.length === 0) return null;
+  const visible = expanded ? roles : roles.slice(0, ROLE_LIST_INITIAL);
+  const hidden = roles.length - visible.length;
   return (
     <div>
-      <SectionLabel>{title}</SectionLabel>
+      <SectionLabel>
+        {title} <span className="font-normal text-text-muted">({roles.length})</span>
+      </SectionLabel>
       <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface-2">
         <table className="w-full text-[13px]">
           <thead className="border-b border-border-subtle bg-surface-1 text-[11px] font-medium uppercase tracking-[0.04em] text-text-tertiary">
@@ -334,7 +404,7 @@ function RoleList({
             </tr>
           </thead>
           <tbody>
-            {roles.map((r) => (
+            {visible.map((r) => (
               <tr
                 key={r.url}
                 className={`border-b border-border-subtle even:bg-surface-row ${r.closed ? "opacity-50" : ""}`}
@@ -365,6 +435,22 @@ function RoleList({
           </tbody>
         </table>
       </div>
+      {hidden > 0 && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="mt-2 text-[12px] text-accent hover:underline"
+        >
+          Show {hidden} more ▾
+        </button>
+      )}
+      {expanded && roles.length > ROLE_LIST_INITIAL && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="mt-2 text-[12px] text-text-tertiary hover:text-text-secondary"
+        >
+          Collapse to top {ROLE_LIST_INITIAL} ▴
+        </button>
+      )}
     </div>
   );
 }
@@ -389,8 +475,8 @@ function RangeChips({ value, onChange }: { value: Range; onChange: (r: Range) =>
             onClick={() => onChange(r)}
             className={
               active
-                ? "rounded-md bg-surface-3 px-2.5 py-1 text-[12px] font-medium text-text-primary"
-                : "rounded-md px-2.5 py-1 text-[12px] text-text-tertiary hover:text-text-secondary"
+                ? "rounded-md border border-accent-border bg-accent-dim px-2.5 py-1 text-[12px] font-medium text-accent"
+                : "rounded-md border border-transparent px-2.5 py-1 text-[12px] text-text-tertiary hover:text-text-secondary"
             }
           >
             {r}

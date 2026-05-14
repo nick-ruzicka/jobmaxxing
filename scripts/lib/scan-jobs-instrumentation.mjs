@@ -10,7 +10,7 @@
  *
  * 2. Wrap each `[Tier N]` block with `await tierTimer(label, async () => { ... })`
  *    instead of the bare `await scan…()` call. Example:
- *      const ashbyResults = await tierTimer("tier_1_ashby", async () => scanAshby(companies.ashby));
+ *      const exaResults = await tierTimer("tier_2_exa", async () => runExaQueries(EXA_QUERIES, "Tier 2: Exa", "tier_2_exa"));
  *
  * 3. Replace top-level `fetch(...)` inside each tier helper with `loggedFetch(url, init, { tier, source })`.
  *    (Keep it minimal — only the outermost fetch per tier, not every per-page fetch.)
@@ -73,7 +73,7 @@ export function computeClaudeCost({ input_tokens, output_tokens, model }) {
 // -----------------------------------------------------------------------------
 
 /**
- * @param {string} tierLabel — e.g. "tier_1_ashby", "tier_9_builtin"
+ * @param {string} tierLabel — e.g. "tier_2_exa", "tier_8_deep" (see dashboard-web/lib/known-tiers.ts for the full list)
  * @param {() => Promise<T>} fn — the tier worker; its return value is forwarded
  * @returns {Promise<T>}
  */

@@ -42,6 +42,12 @@ export interface SourceBucket {
   fit_distribution: FitDistribution;
   hit_rate_fit_6plus: number;
   applications_attributed?: number;
+  // Added in the post-walkthrough revisions — older rollups won't have these.
+  fit_score_sum?: number;
+  fit_score_count?: number;
+  avg_fit?: number | null;
+  has_comp_count?: number;
+  has_comp_coverage?: number;
 }
 
 export interface TierBucket {
@@ -52,6 +58,13 @@ export interface TierBucket {
   exa_cost_usd: number;
   last_exit_status: string | null;
 }
+
+// The KNOWN_TIERS topology lives in its own file (lib/known-tiers.ts) so client
+// components can import it without dragging this module's fs imports through
+// the bundler. Re-exported here as a convenience for callers that already
+// import from analytics.
+export { KNOWN_TIERS } from "./known-tiers";
+export type { KnownTier } from "./known-tiers";
 
 export interface Anomaly {
   type: string;
@@ -90,6 +103,11 @@ export interface DailyRollup {
     roles_dedup_skipped?: number;
     applications_attributed?: number;
     fit_distribution?: FitDistribution;
+    fit_score_sum?: number;
+    fit_score_count?: number;
+    avg_fit?: number | null;
+    has_comp_count?: number;
+    has_comp_coverage?: number;
   };
   by_source: Record<string, SourceBucket>;
   by_tier: Record<string, TierBucket>;
@@ -178,6 +196,9 @@ export interface AggregatedTotals {
   applications_attributed: number;
   cost_per_high_fit_role: number | null;
   cost_per_application: number | null;
+  avg_fit: number | null;
+  has_comp_count: number;
+  has_comp_coverage: number;
 }
 
 export function aggregateTotals(rollups: DailyRollup[], range: Range): AggregatedTotals {
@@ -201,7 +222,12 @@ export function aggregateTotals(rollups: DailyRollup[], range: Range): Aggregate
     applications_attributed: 0,
     cost_per_high_fit_role: null,
     cost_per_application: null,
+    avg_fit: null,
+    has_comp_count: 0,
+    has_comp_coverage: 0,
   };
+  let fitScoreSum = 0;
+  let fitScoreCount = 0;
   for (const r of rollups) {
     t.claude_cost_usd += r.totals.claude_cost_usd;
     t.exa_cost_usd += r.totals.exa_cost_usd;
@@ -217,6 +243,9 @@ export function aggregateTotals(rollups: DailyRollup[], range: Range): Aggregate
     t.roles_quarantine_skipped += r.totals.roles_quarantine_skipped;
     t.auto_promotions += r.totals.auto_promotions;
     t.applications_attributed += r.totals.applications_attributed || 0;
+    t.has_comp_count += r.totals.has_comp_count || 0;
+    fitScoreSum += r.totals.fit_score_sum || 0;
+    fitScoreCount += r.totals.fit_score_count || 0;
   }
   t.claude_cost_usd = round6(t.claude_cost_usd);
   t.exa_cost_usd = round6(t.exa_cost_usd);
@@ -227,6 +256,9 @@ export function aggregateTotals(rollups: DailyRollup[], range: Range): Aggregate
     t.applications_attributed > 0
       ? round6(t.total_cost_usd / t.applications_attributed)
       : null;
+  t.avg_fit = fitScoreCount > 0 ? round4(fitScoreSum / fitScoreCount) : null;
+  t.has_comp_coverage =
+    t.roles_enriched > 0 ? round4(t.has_comp_count / t.roles_enriched) : 0;
   return t;
 }
 
@@ -264,6 +296,11 @@ export function aggregateBySource(rollups: DailyRollup[]): SourceAggregate[] {
           applications_attributed: 0,
           total_cost_usd: 0,
           cost_per_high_fit: null,
+          fit_score_sum: 0,
+          fit_score_count: 0,
+          avg_fit: null,
+          has_comp_count: 0,
+          has_comp_coverage: 0,
         };
         acc.set(host, a);
       }
@@ -284,6 +321,9 @@ export function aggregateBySource(rollups: DailyRollup[]): SourceAggregate[] {
       a.exa_cost_usd += s.exa_cost_usd;
       a.applications_attributed =
         (a.applications_attributed || 0) + (s.applications_attributed || 0);
+      a.fit_score_sum = (a.fit_score_sum || 0) + (s.fit_score_sum || 0);
+      a.fit_score_count = (a.fit_score_count || 0) + (s.fit_score_count || 0);
+      a.has_comp_count = (a.has_comp_count || 0) + (s.has_comp_count || 0);
       for (const k of ["0-3", "4-6", "7-8", "9-10"] as const) {
         a.fit_distribution[k] += s.fit_distribution[k];
       }
@@ -297,6 +337,12 @@ export function aggregateBySource(rollups: DailyRollup[]): SourceAggregate[] {
       a.roles_fit_6plus > 0 ? round6(a.total_cost_usd / a.roles_fit_6plus) : null;
     a.claude_cost_usd = round6(a.claude_cost_usd);
     a.exa_cost_usd = round6(a.exa_cost_usd);
+    a.avg_fit =
+      (a.fit_score_count || 0) > 0
+        ? round4((a.fit_score_sum || 0) / (a.fit_score_count || 1))
+        : null;
+    a.has_comp_coverage =
+      a.roles_enriched > 0 ? round4((a.has_comp_count || 0) / a.roles_enriched) : 0;
   }
   return Array.from(acc.values()).sort(
     (a, b) => b.roles_discovered - a.roles_discovered || a.host.localeCompare(b.host),

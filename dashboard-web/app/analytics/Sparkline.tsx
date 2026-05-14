@@ -20,6 +20,8 @@ interface SparklineProps {
   labels?: string[];
   /** When provided, fixes the y-axis to [0, yMax] rather than autoscaling. */
   yMax?: number;
+  /** When provided, renders the max value as faint text in the top-right. */
+  showMaxLabel?: (max: number) => string;
 }
 
 const COLOR_VAR: Record<BadgeColor, string> = {
@@ -39,6 +41,7 @@ export function Sparkline({
   width = 200,
   labels,
   yMax,
+  showMaxLabel,
 }: SparklineProps) {
   if (data.length === 0) {
     return (
@@ -53,19 +56,29 @@ export function Sparkline({
 
   const valid = data.map((v) => (v === null || Number.isNaN(v) ? null : v));
   const numeric = valid.filter((v): v is number => v !== null);
-  const max = yMax !== undefined ? yMax : Math.max(...numeric, 1);
+  // Natural max from the data. The fallback to 1 is ONLY to avoid divide-by-zero
+  // when the series is all-zeros — previously we floored to 1 unconditionally,
+  // which made every sub-dollar cost chart display 'max $1.00'.
+  const naturalMax = numeric.length > 0 ? Math.max(...numeric) : 0;
+  const max = yMax !== undefined ? yMax : naturalMax > 0 ? naturalMax : 1;
   const min = Math.min(...numeric, 0);
-  const range = Math.max(max - min, 1);
+  // range must be positive; the >0 epsilon here only matters for all-zero series.
+  const range = max - min > 0 ? max - min : 1;
 
-  const pad = 4;
-  const innerW = width - pad * 2;
-  const innerH = height - pad * 2;
+  // Top padding leaves room for the "max N" label when it's shown; otherwise
+  // we don't waste vertical space. Bottom padding always leaves room for the
+  // baseline rule.
+  const padX = 4;
+  const padTop = showMaxLabel ? 14 : 4;
+  const padBottom = 4;
+  const innerW = width - padX * 2;
+  const innerH = height - padTop - padBottom;
   const stepX = valid.length > 1 ? innerW / (valid.length - 1) : 0;
 
   const points = valid.map((v, i) => {
     if (v === null) return null;
-    const x = pad + i * stepX;
-    const y = pad + innerH - ((v - min) / range) * innerH;
+    const x = padX + i * stepX;
+    const y = padTop + innerH - ((v - min) / range) * innerH;
     return { x, y, value: v, index: i };
   });
 
@@ -96,13 +109,39 @@ export function Sparkline({
     >
       {/* baseline */}
       <line
-        x1={pad}
-        y1={height - pad}
-        x2={width - pad}
-        y2={height - pad}
+        x1={padX}
+        y1={height - padBottom}
+        x2={width - padX}
+        y2={height - padBottom}
         stroke="var(--color-border-subtle)"
         strokeWidth={1}
       />
+      {/* Faint max-value annotation in the reserved top strip.
+          The dashed line sits at padTop (top of the plot area). The text
+          is drawn ABOVE the line at y=padTop-3, where there's room because
+          we reserved padTop=14 of vertical space. */}
+      {showMaxLabel && numeric.length > 0 && (
+        <>
+          <line
+            x1={padX}
+            y1={padTop}
+            x2={width - padX}
+            y2={padTop}
+            stroke="var(--color-border-subtle)"
+            strokeWidth={1}
+            strokeDasharray="2 3"
+          />
+          <text
+            x={width - padX}
+            y={padTop - 3}
+            fontSize="10"
+            fill="var(--color-text-muted)"
+            textAnchor="end"
+          >
+            max {showMaxLabel(max)}
+          </text>
+        </>
+      )}
       {segments.map((seg, si) => (
         <polyline
           key={si}

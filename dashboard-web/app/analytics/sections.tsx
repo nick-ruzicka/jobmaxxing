@@ -23,7 +23,6 @@ import {
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
-import { SectionLabel } from "@/components/ui/SectionLabel";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Sparkline } from "./Sparkline";
 
@@ -36,6 +35,7 @@ import type {
   SurfacedAnomaly,
   DataCompleteness,
 } from "@/lib/analytics";
+import { KNOWN_TIERS } from "@/lib/known-tiers";
 
 // -----------------------------------------------------------------------------
 // 1. Hero metrics
@@ -110,22 +110,24 @@ export function AnomaliesPanel({ anomalies }: { anomalies: SurfacedAnomaly[] }) 
   const high = anomalies.filter((a) => a.severity === "high");
   if (anomalies.length === 0) {
     return (
-      <section className="rounded-lg border border-emerald-border bg-emerald-dim/40 p-3 text-[13px] text-emerald">
+      <section className="rounded-lg border border-emerald-border bg-emerald-dim/40 px-3 py-2 text-[13px] text-emerald">
         ✓ No anomalies in the last 7 days. Scraper is behaving.
       </section>
     );
   }
   return (
     <section
-      className={`rounded-lg border ${high.length > 0 ? "border-red-border bg-red-dim/40" : "border-amber-border bg-amber-dim/30"}`}
+      className={`overflow-hidden rounded-lg border ${
+        high.length > 0 ? "border-red-border bg-red-dim/40" : "border-amber-border bg-amber-dim/30"
+      }`}
     >
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
       >
-        <span className="flex items-center gap-2 text-[14px] font-medium text-text-primary">
+        <span className="flex items-center gap-2 text-[13px] font-medium text-text-primary">
           <AlertTriangle
-            className={`h-4 w-4 ${high.length > 0 ? "text-red" : "text-amber"}`}
+            className={`h-3.5 w-3.5 ${high.length > 0 ? "text-red" : "text-amber"}`}
           />
           {anomalies.length} anomal{anomalies.length === 1 ? "y" : "ies"} active
           {high.length > 0 && (
@@ -143,7 +145,7 @@ export function AnomaliesPanel({ anomalies }: { anomalies: SurfacedAnomaly[] }) 
       {open && (
         <div className="border-t border-border-subtle">
           {anomalies.map((a, i) => (
-            <AnomalyRow key={i} a={a} />
+            <AnomalyRow key={`${a.type}-${a.source ?? ""}-${a.tier ?? ""}-${i}`} a={a} />
           ))}
         </div>
       )}
@@ -151,29 +153,57 @@ export function AnomaliesPanel({ anomalies }: { anomalies: SurfacedAnomaly[] }) 
   );
 }
 
+/**
+ * One anomaly = one slim row. Collapsed by default: severity dot + type +
+ * source + truncated action on a single line. Click to expand → full action
+ * text + first/last/count metadata.
+ */
 function AnomalyRow({ a }: { a: SurfacedAnomaly }) {
-  const color: "red" | "amber" | "neutral" =
+  const [expanded, setExpanded] = useState(false);
+  const dotColor: "red" | "amber" | "neutral" =
     a.severity === "high" ? "red" : a.severity === "medium" ? "amber" : "neutral";
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-border-subtle px-3 py-2.5 last:border-0">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-[13px] font-medium text-text-primary">
-          <Badge color={color}>{a.severity}</Badge>
-          <span className="font-mono text-[12px] text-text-secondary">{a.type}</span>
-          {a.source && (
-            <Link
-              href={`/analytics/${encodeURIComponent(a.source)}`}
-              className="text-[12px] text-accent hover:underline"
-            >
-              {a.source}
-            </Link>
-          )}
+    <div className="border-b border-border-subtle last:border-0">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] hover:bg-surface-3/40"
+        aria-expanded={expanded}
+      >
+        {/* severity dot — single 8px element instead of a chip */}
+        <span
+          className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+            dotColor === "red" ? "bg-red" : dotColor === "amber" ? "bg-amber" : "bg-text-muted"
+          }`}
+          aria-label={`${a.severity} severity`}
+        />
+        <span className="shrink-0 font-mono text-[11px] text-text-secondary">{a.type}</span>
+        {a.source && (
+          <Link
+            href={`/analytics/${encodeURIComponent(a.source)}`}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 text-[12px] text-accent hover:underline"
+          >
+            {a.source}
+          </Link>
+        )}
+        <span className="min-w-0 flex-1 truncate text-text-muted">
+          {a.suggested_action}
+        </span>
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 shrink-0 text-text-tertiary" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0 text-text-tertiary" />
+        )}
+      </button>
+      {expanded && (
+        <div className="border-t border-border-subtle bg-surface-1/40 px-3 py-2 text-[12px] text-text-secondary">
+          <div>{a.suggested_action}</div>
+          <div className="mt-1 text-[11px] text-text-muted">
+            first seen {a.first_seen} · last seen {a.last_seen} · {a.occurrence_count}× occurred
+          </div>
         </div>
-        <div className="mt-1 text-[13px] text-text-secondary">{a.suggested_action}</div>
-        <div className="mt-1 text-[11px] text-text-muted">
-          first seen {a.first_seen} · last seen {a.last_seen} · {a.occurrence_count}× occurred
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -188,14 +218,52 @@ type SortKey =
   | "total_cost_usd"
   | "cost_per_high_fit"
   | "applications_attributed"
+  | "has_comp_coverage"
   | "host";
+
+type SourceFilter = "all" | "active" | "high_hit" | "has_apps" | "has_cost" | "has_errors";
+
+const FILTER_LABELS: Record<SourceFilter, string> = {
+  all: "All",
+  active: "Active",
+  high_hit: "Hit rate ≥30%",
+  has_apps: "Has apps",
+  has_cost: "Has cost",
+  has_errors: "Has errors",
+};
+
+function matchesFilter(f: SourceFilter, s: SourceAggregate): boolean {
+  switch (f) {
+    case "all":
+      return true;
+    case "active":
+      return s.roles_enriched > 0;
+    case "high_hit":
+      return s.roles_enriched >= 5 && s.hit_rate_fit_6plus >= 0.3;
+    case "has_apps":
+      return (s.applications_attributed || 0) > 0;
+    case "has_cost":
+      return (s.total_cost_usd || 0) > 0;
+    case "has_errors":
+      return s.http_error_count > 0 || s.enrich_errors > 0;
+  }
+}
+
+const DEFAULT_VISIBLE = 10;
 
 export function SourcePerformance({ sources }: { sources: SourceAggregate[] }) {
   const [sortKey, setSortKey] = useState<SortKey>("roles_discovered");
   const [desc, setDesc] = useState(true);
+  const [filter, setFilter] = useState<SourceFilter>("active");
+  const [expanded, setExpanded] = useState(false);
+
+  const filtered = useMemo(
+    () => sources.filter((s) => matchesFilter(filter, s)),
+    [sources, filter],
+  );
 
   const sorted = useMemo(() => {
-    const c = [...sources];
+    const c = [...filtered];
     c.sort((a, b) => {
       const av = (a[sortKey] ?? 0) as number | string;
       const bv = (b[sortKey] ?? 0) as number | string;
@@ -205,20 +273,43 @@ export function SourcePerformance({ sources }: { sources: SourceAggregate[] }) {
       return desc ? (bv as number) - (av as number) : (av as number) - (bv as number);
     });
     return c;
-  }, [sources, sortKey, desc]);
+  }, [filtered, sortKey, desc]);
 
   if (sources.length === 0) {
-    return (
-      <section>
-        <SectionLabel>Source performance</SectionLabel>
-        <EmptyState title="No source data for this range." />
-      </section>
-    );
+    return <EmptyState title="No source data for this range." />;
   }
 
+  const visible = expanded ? sorted : sorted.slice(0, DEFAULT_VISIBLE);
+  const hidden = sorted.length - visible.length;
+
   return (
-    <section>
-      <SectionLabel>Source performance</SectionLabel>
+    <div className="space-y-3">
+      {/* Filter chips */}
+      <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
+        <span className="mr-1 text-text-muted">Filter:</span>
+        {(Object.keys(FILTER_LABELS) as SourceFilter[]).map((f) => {
+          const count = sources.filter((s) => matchesFilter(f, s)).length;
+          const active = f === filter;
+          return (
+            <button
+              key={f}
+              onClick={() => {
+                setFilter(f);
+                setExpanded(false);
+              }}
+              className={
+                active
+                  ? "inline-flex items-center gap-1.5 rounded-md border border-accent-border bg-accent-dim px-2 py-0.5 font-medium text-accent"
+                  : "inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-2 px-2 py-0.5 text-text-tertiary hover:bg-surface-3 hover:text-text-secondary"
+              }
+            >
+              {FILTER_LABELS[f]}
+              <span className="text-[10px] tabular-nums text-text-muted">{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface-2">
         <table className="w-full text-[13px]">
           <thead className="border-b border-border-subtle bg-surface-1 text-[11px] font-medium uppercase tracking-[0.04em] text-text-tertiary">
@@ -231,6 +322,9 @@ export function SourcePerformance({ sources }: { sources: SourceAggregate[] }) {
               </SortableTh>
               <SortableTh col="hit_rate_fit_6plus" sortKey={sortKey} desc={desc} onClick={(k) => toggleSort(k, sortKey, desc, setSortKey, setDesc)} align="right">
                 Hit rate
+              </SortableTh>
+              <SortableTh col="has_comp_coverage" sortKey={sortKey} desc={desc} onClick={(k) => toggleSort(k, sortKey, desc, setSortKey, setDesc)} align="right">
+                Comp cov
               </SortableTh>
               <SortableTh col="total_cost_usd" sortKey={sortKey} desc={desc} onClick={(k) => toggleSort(k, sortKey, desc, setSortKey, setDesc)} align="right">
                 Cost
@@ -245,10 +339,13 @@ export function SourcePerformance({ sources }: { sources: SourceAggregate[] }) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((s) => {
+            {visible.map((s) => {
               const hr = s.hit_rate_fit_6plus;
               const hrColor: "emerald" | "amber" | "red" | "neutral" =
                 s.roles_enriched < 5 ? "neutral" : hr >= 0.3 ? "emerald" : hr >= 0.1 ? "amber" : "red";
+              const cc = s.has_comp_coverage ?? 0;
+              const ccColor: "emerald" | "amber" | "red" | "neutral" =
+                s.roles_enriched < 5 ? "neutral" : cc >= 0.6 ? "emerald" : cc >= 0.3 ? "amber" : "red";
               return (
                 <tr
                   key={s.host}
@@ -270,6 +367,11 @@ export function SourcePerformance({ sources }: { sources: SourceAggregate[] }) {
                       {s.roles_enriched > 0 ? pct(hr) : "—"}
                     </Badge>
                   </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <Badge color={ccColor}>
+                      {s.roles_enriched > 0 ? pct(cc) : "—"}
+                    </Badge>
+                  </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">
                     {fmtUsd(s.total_cost_usd)}
                   </td>
@@ -288,7 +390,24 @@ export function SourcePerformance({ sources }: { sources: SourceAggregate[] }) {
           </tbody>
         </table>
       </div>
-    </section>
+
+      {hidden > 0 && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="text-[12px] text-accent hover:underline"
+        >
+          Show {hidden} more {hidden === 1 ? "source" : "sources"} ▾
+        </button>
+      )}
+      {expanded && sorted.length > DEFAULT_VISIBLE && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="text-[12px] text-text-tertiary hover:text-text-secondary"
+        >
+          Collapse to top {DEFAULT_VISIBLE} ▴
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -309,10 +428,16 @@ function SortableTh({
 }) {
   const active = col === sortKey;
   return (
-    <th className={`px-3 py-2.5 ${align === "right" ? "text-right" : "text-left"}`}>
+    <th
+      className={`px-3 py-2.5 ${align === "right" ? "text-right" : "text-left"} ${
+        active ? "text-text-primary" : ""
+      }`}
+    >
       <button
         onClick={() => onClick(col)}
-        className={`inline-flex items-center gap-1 ${active ? "text-text-primary" : "hover:text-text-secondary"}`}
+        className={`inline-flex items-center gap-1 ${
+          active ? "text-text-primary" : "text-text-tertiary hover:text-text-secondary"
+        }`}
       >
         {children}
         {active && (desc ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />)}
@@ -342,10 +467,7 @@ function toggleSort(
 export function CostTrends({ daily }: { daily: DailySeries[] }) {
   if (daily.length === 0) {
     return (
-      <section>
-        <SectionLabel>Cost trends</SectionLabel>
-        <EmptyState title="No cost data yet. Trends populate after the first scrape with event logging." />
-      </section>
+      <EmptyState title="No cost data yet. Trends populate after the first scrape with event logging." />
     );
   }
   const dates = daily.map((d) => d.date);
@@ -355,39 +477,40 @@ export function CostTrends({ daily }: { daily: DailySeries[] }) {
   const costPerHighFit = daily.map((d) => d.cost_per_high_fit);
 
   return (
-    <section>
-      <SectionLabel>Cost trends</SectionLabel>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <TrendCard
-          title="Claude daily cost"
-          subtitle={`${fmtUsd(sum(claudeCost))} total`}
-          data={claudeCost}
-          labels={dates}
-          color="blue"
-        />
-        <TrendCard
-          title="Exa daily cost"
-          subtitle={`${fmtUsd(sum(exaCost))} total`}
-          data={exaCost}
-          labels={dates}
-          color="violet"
-        />
-        <TrendCard
-          title="Roles enriched per day"
-          subtitle={`${fmtInt(sum(enriched))} total`}
-          data={enriched}
-          labels={dates}
-          color="emerald"
-        />
-        <TrendCard
-          title="Cost per fit≥6 role"
-          subtitle="lower is better — trend should be ↓"
-          data={costPerHighFit}
-          labels={dates}
-          color="amber"
-        />
-      </div>
-    </section>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <TrendCard
+        title="Claude daily cost"
+        subtitle={`${fmtUsd(sum(claudeCost))} total`}
+        data={claudeCost}
+        labels={dates}
+        color="blue"
+        maxFormatter={(n) => fmtUsd(n)}
+      />
+      <TrendCard
+        title="Exa daily cost"
+        subtitle={`${fmtUsd(sum(exaCost))} total`}
+        data={exaCost}
+        labels={dates}
+        color="violet"
+        maxFormatter={(n) => fmtUsd(n)}
+      />
+      <TrendCard
+        title="Roles enriched per day"
+        subtitle={`${fmtInt(sum(enriched))} total`}
+        data={enriched}
+        labels={dates}
+        color="emerald"
+        maxFormatter={(n) => fmtInt(Math.round(n))}
+      />
+      <TrendCard
+        title="Cost per fit≥6 role"
+        subtitle="lower is better — trend should be ↓"
+        data={costPerHighFit}
+        labels={dates}
+        color="amber"
+        maxFormatter={(n) => fmtUsd(n)}
+      />
+    </div>
   );
 }
 
@@ -397,18 +520,27 @@ function TrendCard({
   data,
   labels,
   color,
+  maxFormatter,
 }: {
   title: string;
   subtitle: string;
   data: Array<number | null>;
   labels: string[];
   color: "blue" | "violet" | "emerald" | "amber";
+  maxFormatter?: (n: number) => string;
 }) {
   return (
     <div className="rounded-lg border border-border-subtle bg-surface-2 p-4">
       <div className="mb-1 text-[13px] font-medium text-text-primary">{title}</div>
       <div className="mb-3 text-[11px] text-text-muted">{subtitle}</div>
-      <Sparkline data={data} labels={labels} color={color} width={320} height={64} />
+      <Sparkline
+        data={data}
+        labels={labels}
+        color={color}
+        width={320}
+        height={64}
+        showMaxLabel={maxFormatter}
+      />
     </div>
   );
 }
@@ -429,35 +561,32 @@ export function PipelineFunnel({ totals }: { totals: AggregatedTotals }) {
   const max = Math.max(...steps.map((s) => s.value), 1);
 
   return (
-    <section>
-      <SectionLabel>Pipeline funnel</SectionLabel>
-      <div className="rounded-lg border border-border-subtle bg-surface-2 p-4">
-        <div className="space-y-2">
-          {steps.map((s, i) => {
-            const prev = i > 0 ? steps[i - 1].value : null;
-            const dropPct = prev && prev > 0 ? 1 - s.value / prev : 0;
-            const barW = max > 0 ? (s.value / max) * 100 : 0;
-            return (
-              <div key={s.label} className="flex items-center gap-3 text-[13px]">
-                <div className="w-32 shrink-0 text-text-secondary">{s.label}</div>
-                <div className="relative h-6 flex-1 overflow-hidden rounded-md bg-surface-3">
-                  <div
-                    className="absolute inset-y-0 left-0 bg-accent-dim"
-                    style={{ width: `${barW}%` }}
-                  />
-                  <div className="relative flex h-full items-center px-2 tabular-nums text-text-primary">
-                    {fmtInt(s.value)}
-                  </div>
-                </div>
-                <div className="w-16 shrink-0 text-right text-[11px] tabular-nums text-text-muted">
-                  {prev !== null && prev > 0 ? `-${pct(dropPct)}` : ""}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </section>
+    <div className="space-y-2">
+      {steps.map((s, i) => {
+        const prev = i > 0 ? steps[i - 1].value : null;
+        const dropPct = prev && prev > 0 ? 1 - s.value / prev : 0;
+        const barW = max > 0 ? (s.value / max) * 100 : 0;
+        return (
+          <div key={s.label} className="flex items-center gap-3 text-[13px]">
+            <div className="w-32 shrink-0 text-text-secondary">{s.label}</div>
+            {/* The count lives in its OWN fixed-width cell — it used to sit inside the
+                bar, which clipped it whenever the bar was short (e.g. Applied at 4.9%). */}
+            <div className="w-20 shrink-0 text-right tabular-nums font-medium text-text-primary">
+              {fmtInt(s.value)}
+            </div>
+            <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-surface-3">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-accent"
+                style={{ width: `${barW}%` }}
+              />
+            </div>
+            <div className="w-16 shrink-0 text-right text-[11px] tabular-nums text-text-muted">
+              {prev !== null && prev > 0 ? `-${pct(dropPct)}` : ""}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -466,42 +595,88 @@ export function PipelineFunnel({ totals }: { totals: AggregatedTotals }) {
 // -----------------------------------------------------------------------------
 
 export function TierBreakdown({ tiers }: { tiers: TierAggregate[] }) {
-  if (tiers.length === 0) {
-    return (
-      <section>
-        <SectionLabel>Tier health</SectionLabel>
-        <EmptyState
-          title="No tier-level events captured yet."
-          description="Tier health appears after instrumentation is wired into scan-jobs.mjs (see WORK_LOG_ANALYTICS.md)."
-        />
-      </section>
-    );
-  }
+  // Merge actual tier data with the KNOWN_TIERS topology so all 12 expected
+  // tiers show even when none have wired instrumentation yet. Anything from
+  // by_tier that ISN'T in KNOWN_TIERS still shows (e.g. a tier_13_lever
+  // added by a future change) — it just lacks a friendly label.
+  const byId = new Map<string, TierAggregate>();
+  for (const t of tiers) byId.set(t.tier, t);
+
+  const known = KNOWN_TIERS.map((k) => ({
+    known: k,
+    data: byId.get(k.tier_id) || null,
+  }));
+  // Anything observed but NOT in KNOWN_TIERS (future tiers / typos) tacked on at end
+  const knownIds = new Set(KNOWN_TIERS.map((k) => k.tier_id));
+  const extras = tiers.filter((t) => !knownIds.has(t.tier));
+
+  const wiredCount = tiers.filter((t) => t.runs > 0).length;
+  const totalCount = KNOWN_TIERS.length + extras.length;
+
   return (
-    <section>
-      <SectionLabel>Tier health</SectionLabel>
+    <div className="space-y-3">
+      <div className="text-[12px] text-text-muted">
+        {wiredCount === 0
+          ? `${totalCount} expected tiers, none wired yet. Instrumentation lives in scripts/lib/scan-jobs-instrumentation.mjs — see docs/analytics/ANALYTICS.md § "Wiring instrumentation".`
+          : `${wiredCount} of ${totalCount} tiers wired. ${totalCount - wiredCount} still awaiting instrumentation.`}
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {tiers.map((t) => (
-          <div key={t.tier} className="rounded-lg border border-border-subtle bg-surface-2 p-3">
-            <div className="flex items-center justify-between">
-              <div className="font-mono text-[12px] text-text-secondary">{t.tier}</div>
-              <Badge color={t.last_exit_status === "ok" ? "emerald" : t.last_exit_status === "error" ? "red" : "neutral"}>
-                {t.last_exit_status ?? "—"}
-              </Badge>
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
-              <Metric label="Runs" value={fmtInt(t.runs)} />
-              <Metric
-                label="Avg dur"
-                value={t.runs > 0 ? `${(t.duration_ms / t.runs / 1000).toFixed(1)}s` : "—"}
-              />
-              <Metric label="Roles" value={fmtInt(t.roles_discovered)} />
-              <Metric label="Exa $" value={fmtUsd(t.exa_cost_usd)} />
-            </div>
-          </div>
+        {known.map(({ known, data }) => (
+          <TierCard key={known.tier_id} tierId={known.tier_id} label={known.label} description={known.description} data={data} />
+        ))}
+        {extras.map((t) => (
+          <TierCard key={t.tier} tierId={t.tier} label={t.tier} description="(not in KNOWN_TIERS — added by future change?)" data={t} />
         ))}
       </div>
-    </section>
+    </div>
+  );
+}
+
+function TierCard({
+  tierId,
+  label,
+  description,
+  data,
+}: {
+  tierId: string;
+  label: string;
+  description: string;
+  data: TierAggregate | null;
+}) {
+  const wired = data !== null && data.runs > 0;
+  return (
+    <div
+      className={`rounded-lg border bg-surface-2 p-3 ${
+        wired ? "border-border-subtle" : "border-border-subtle/60 opacity-70"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[13px] font-medium text-text-primary">{label}</div>
+          <div className="font-mono text-[10px] text-text-muted">{tierId}</div>
+        </div>
+        {wired ? (
+          <Badge color={data!.last_exit_status === "ok" ? "emerald" : data!.last_exit_status === "error" ? "red" : "neutral"}>
+            {data!.last_exit_status ?? "—"}
+          </Badge>
+        ) : (
+          <Badge color="neutral">awaiting</Badge>
+        )}
+      </div>
+      {wired ? (
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
+          <Metric label="Runs" value={fmtInt(data!.runs)} />
+          <Metric
+            label="Avg dur"
+            value={data!.runs > 0 ? `${(data!.duration_ms / data!.runs / 1000).toFixed(1)}s` : "—"}
+          />
+          <Metric label="Roles" value={fmtInt(data!.roles_discovered)} />
+          <Metric label="Exa $" value={fmtUsd(data!.exa_cost_usd)} />
+        </div>
+      ) : (
+        <div className="mt-2 text-[11px] leading-relaxed text-text-muted">{description}</div>
+      )}
+    </div>
   );
 }
 
@@ -525,54 +700,48 @@ export function ApplicationAttribution({ sources }: { sources: SourceAggregate[]
 
   if (attributed.length === 0) {
     return (
-      <section>
-        <SectionLabel>Application attribution</SectionLabel>
-        <EmptyState
-          title="No applications in this range."
-          description="Cross-reference appears once applications.md has entries in Applied / Interview / Offer status overlapping the date range."
-        />
-      </section>
+      <EmptyState
+        title="No applications in this range."
+        description="Cross-reference appears once applications.md has entries in Applied / Interview / Offer status overlapping the date range."
+      />
     );
   }
 
   const total = attributed.reduce((s, x) => s + (x.applications_attributed || 0), 0);
 
   return (
-    <section>
-      <SectionLabel>Application attribution</SectionLabel>
-      <div className="rounded-lg border border-border-subtle bg-surface-2 p-4 text-[13px]">
-        <div className="mb-3 text-text-muted">
-          {fmtInt(total)} applications cross-referenced to source hosts.{" "}
-          <span className="text-text-tertiary">
-            (Matched by 6-char company name prefix per SOURCE_PRIORITY convention.)
-          </span>
-        </div>
-        <div className="space-y-2">
-          {attributed.map((s) => {
-            const apps = s.applications_attributed || 0;
-            const share = total > 0 ? apps / total : 0;
-            return (
-              <div key={s.host} className="flex items-center gap-3">
-                <div className="w-48 truncate font-medium text-text-primary">
-                  <Link
-                    href={`/analytics/${encodeURIComponent(s.host)}`}
-                    className="hover:text-accent hover:underline"
-                  >
-                    {s.host}
-                  </Link>
-                </div>
-                <div className="relative h-5 flex-1 overflow-hidden rounded-md bg-surface-3">
-                  <div className="absolute inset-y-0 left-0 bg-violet-dim" style={{ width: `${share * 100}%` }} />
-                </div>
-                <div className="w-24 shrink-0 text-right text-[12px] tabular-nums text-text-secondary">
-                  {fmtInt(apps)} app{apps === 1 ? "" : "s"} ({pct(share)})
-                </div>
-              </div>
-            );
-          })}
-        </div>
+    <div className="text-[13px]">
+      <div className="mb-3 text-text-muted">
+        {fmtInt(total)} applications cross-referenced to source hosts.{" "}
+        <span className="text-text-tertiary">
+          (Matched by 6-char company name prefix per SOURCE_PRIORITY convention.)
+        </span>
       </div>
-    </section>
+      <div className="space-y-2">
+        {attributed.map((s) => {
+          const apps = s.applications_attributed || 0;
+          const share = total > 0 ? apps / total : 0;
+          return (
+            <div key={s.host} className="flex items-center gap-3">
+              <div className="w-48 truncate font-medium text-text-primary">
+                <Link
+                  href={`/analytics/${encodeURIComponent(s.host)}`}
+                  className="hover:text-accent hover:underline"
+                >
+                  {s.host}
+                </Link>
+              </div>
+              <div className="relative h-5 flex-1 overflow-hidden rounded-md bg-surface-3">
+                <div className="absolute inset-y-0 left-0 bg-violet-dim" style={{ width: `${share * 100}%` }} />
+              </div>
+              <div className="w-24 shrink-0 text-right text-[12px] tabular-nums text-text-secondary">
+                {fmtInt(apps)} app{apps === 1 ? "" : "s"} ({pct(share)})
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -581,29 +750,22 @@ export function ApplicationAttribution({ sources }: { sources: SourceAggregate[]
 // -----------------------------------------------------------------------------
 
 export function AutoPromotionLog({ count }: { count: number }) {
+  if (count === 0) {
+    return (
+      <div className="text-[13px] text-text-muted">
+        No auto-promotions yet in this range. The <code className="rounded bg-surface-3 px-1 py-0.5 text-[12px] text-text-secondary">promote.applied</code> event fires once an automated promotion pipeline (e.g. Path B&apos;s coverage engine) starts adding companies to <code className="rounded bg-surface-3 px-1 py-0.5 text-[12px] text-text-secondary">companies.yml</code> on its own.
+      </div>
+    );
+  }
   return (
-    <section>
-      <SectionLabel>Auto-promotion log</SectionLabel>
-      {count === 0 ? (
-        <div className="rounded-lg border border-border-subtle bg-surface-2 p-4 text-[13px] text-text-muted">
-          Auto-promotion not yet observed. The promote.applied event fires once Path B&apos;s
-          coverage engine adds companies to companies.yml automatically. See{" "}
-          <code className="rounded bg-surface-3 px-1 py-0.5 text-[12px] text-text-secondary">
-            autoapply/SOURCE_PRIORITY.md
-          </code>
-          {" "}for context.
-        </div>
-      ) : (
-        <div className="rounded-lg border border-border-subtle bg-surface-2 p-4 text-[13px]">
-          <div className="text-text-primary">
-            {fmtInt(count)} companies auto-promoted in this range.
-          </div>
-          <div className="mt-1 text-text-muted">
-            Detailed per-promotion log will populate once Path B writes data/auto-promotions/.
-          </div>
-        </div>
-      )}
-    </section>
+    <div className="text-[13px]">
+      <div className="text-text-primary">
+        {fmtInt(count)} companies auto-promoted in this range.
+      </div>
+      <div className="mt-1 text-text-muted">
+        Detailed per-promotion log will populate once the promoter writes <code className="rounded bg-surface-3 px-1 py-0.5 text-[12px] text-text-secondary">data/auto-promotions/</code>.
+      </div>
+    </div>
   );
 }
 
