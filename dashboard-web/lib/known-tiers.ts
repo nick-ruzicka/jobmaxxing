@@ -12,11 +12,8 @@
  * Last synced against main:
  *   ed5ec48 fix(analytics): complete Exa instrumentation across all tiers
  *   a430953 feat(analytics): wire scan-jobs-instrumentation into scraper
- *
- * Tier 1 (Ashby/Greenhouse) and Tier 9 (BuiltIn) are NOT in this list —
- * they hit ATSes / scrape HTML directly without going through the Exa
- * wrapper, so they don't emit tier_id events yet. When their tierTimer()
- * wiring lands, add them back here.
+ *   (Task D) feat(analytics): instrument Tier 1 / 1.5 / 9
+ *     — 13 → 18 known tiers (Ashby/Greenhouse/Lever + YC direct + BuiltIn)
  */
 
 export interface KnownTier {
@@ -26,6 +23,26 @@ export interface KnownTier {
 }
 
 export const KNOWN_TIERS: KnownTier[] = [
+  {
+    tier_id: "tier_1_ashby",
+    label: "Tier 1 · Ashby API",
+    description: "Direct per-company Ashby job-board API (companies.yml ashby entries)",
+  },
+  {
+    tier_id: "tier_1_greenhouse",
+    label: "Tier 1 · Greenhouse API",
+    description: "Direct per-company Greenhouse job-board API (companies.yml greenhouse entries)",
+  },
+  {
+    tier_id: "tier_1_lever",
+    label: "Tier 1 · Lever API",
+    description: "Direct per-company Lever postings API (companies.yml lever entries)",
+  },
+  {
+    tier_id: "tier_1_5_yc",
+    label: "Tier 1.5 · YC direct",
+    description: "workatastartup.com direct scrape via Next.js hydration (no Exa wrapper)",
+  },
   {
     tier_id: "tier_2_exa",
     label: "Tier 2 · Exa broad",
@@ -75,6 +92,11 @@ export const KNOWN_TIERS: KnownTier[] = [
     tier_id: "tier_8_deep",
     label: "Tier 8 · Deep search",
     description: "Exa deepSearch for harder-to-surface roles",
+  },
+  {
+    tier_id: "tier_9_builtin",
+    label: "Tier 9 · BuiltIn scrape",
+    description: "Direct BuiltIn /jobs?search=… HTML scrape (no Exa wrapper)",
   },
   {
     tier_id: "tier_10_yc_keyword",

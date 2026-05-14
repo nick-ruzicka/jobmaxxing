@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "AutoApply by CareerOps",
+  "short_name": "AutoApply",
+  "version": "0.0.1",
+  "description": "Augments ATS application forms (Ashby, Greenhouse, Lever, Workday) with profile data and drafted answers. Never submits — leaves the final click to the human.",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": [
+    "*://jobs.ashbyhq.com/*",
+    "*://*.ashbyhq.com/*",
+    "*://boards.greenhouse.io/*",
+    "*://job-boards.greenhouse.io/*",
+    "*://jobs.lever.co/*",
+    "*://*.myworkdayjobs.com/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "AutoApply by CareerOps"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://jobs.ashbyhq.com/*",
+        "*://*.ashbyhq.com/*",
+        "*://boards.greenhouse.io/*",
+        "*://job-boards.greenhouse.io/*",
+        "*://jobs.lever.co/*",
+        "*://*.myworkdayjobs.com/*"
+      ],
+      "js": [
+        "content/ats-detector.js",
+        "content/form-filler.js",
+        "lib/selectors/ashby.js",
+        "lib/selectors/greenhouse.js",
+        "lib/selectors/lever.js",
+        "lib/selectors/workday.js",
+        "content/content-script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

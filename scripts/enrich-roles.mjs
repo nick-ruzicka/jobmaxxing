@@ -39,6 +39,13 @@ import {
   recordEnrichmentResult,
   flushEvents,
 } from "./lib/scan-jobs-instrumentation.mjs";
+import {
+  createPromotionRunState,
+  processRolePromotion,
+  PROMOTION_CAP_PER_RUN,
+} from "./lib/promote-company.mjs";
+import { readCompaniesFile } from "./lib/companies-load.mjs";
+import { extractApplyUrl } from "./lib/apply-url-extractor.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -304,6 +311,25 @@ function ldJobDescription(html) {
     }
   }
   return best;
+}
+
+/**
+ * Extract a display name for the hiring company from JSON-LD JobPosting nodes.
+ * Used by the Task A enrich-time auto-promotion hook: when we promote a BuiltIn
+ * discovery into companies.yml, we need a canonical_name. JSON-LD's
+ * hiringOrganization.name is the cleanest source; falls back to "" so callers
+ * can substitute the ATS slug.
+ */
+function ldHiringOrgName(html) {
+  if (!html) return "";
+  for (const jp of jsonLdBlocks(html).flatMap(findJobPostings)) {
+    const org = jp && jp.hiringOrganization;
+    if (org && typeof org === "object") {
+      const name = typeof org.name === "string" ? org.name.trim() : "";
+      if (name) return name;
+    }
+  }
+  return "";
 }
 
 async function fetchViaHtml(url, title) {
@@ -738,6 +764,27 @@ async function main() {
   let enriched = 0;
   let failed = 0;
 
+  // Task A — BuiltIn → ATS auto-promotion at enrichment time.
+  //
+  // Per scan-jobs.mjs ~line 1720, the scan-time pass catches roles whose
+  // discovery URL is already an ATS URL (Tier 6 Similar, YC fall-backs, …).
+  // The textbook BuiltIn case is different: the discovery URL is a BuiltIn
+  // page, and the ATS apply form lives behind an "Apply Now" link inside the
+  // fetched JD HTML. We extract that link here and promote the company so
+  // future Tier-1 scans hit it directly.
+  //
+  // Safety: same per-run cap and the same fit_score floor as scan-time. The
+  // floor uses the MIN_FIT_SCORE_FOR_PROMOTION default from promote-company.mjs
+  // (single source of truth — bump it there, both call sites pick it up).
+  const promotionRunState = createPromotionRunState();
+  let existingCompanies = [];
+  try {
+    existingCompanies = readCompaniesFile().entries;
+  } catch (e) {
+    console.error(`  [auto-promote] failed to read companies.yml; promotions disabled this run: ${e.message}`);
+  }
+  let enrichTimePromotedCount = 0;
+
   for (const { url, meta } of toEnrich) {
     const shortTitle = (meta.title || "").slice(0, 50);
     process.stdout.write(`  [${enriched + failed + 1}/${toEnrich.length}] ${shortTitle}...`);
@@ -815,6 +862,34 @@ async function main() {
     process.stdout.write(` ${analysis.fit_score}/10 [${comp_source}] — ${analysis.verdict?.slice(0, 50)}...\n`);
     enriched++;
 
+    // Task A: try to auto-promote based on the apply URL inside the fetched JD HTML.
+    // No-op when there's no rawHtml (e.g., Greenhouse API path — those URLs are
+    // already ATS endpoints, so scan-jobs.mjs's scan-time pass handles them).
+    if (jdData.rawHtml && !promotionRunState.capped) {
+      const applyUrl = extractApplyUrl(jdData.rawHtml);
+      if (applyUrl) {
+        const sourceHost = hostnameOf(url);
+        const canonicalName =
+          ldHiringOrgName(jdData.rawHtml) || jdData.company || company || "";
+        const result = processRolePromotion({
+          url: applyUrl,
+          sourceHost,
+          canonicalName: canonicalName || "(unknown)",
+          fitScore: analysis.fit_score,
+          existingCompanies,
+          runState: promotionRunState,
+          foundViaUrl: url,
+        });
+        if (result.action === "promoted") {
+          enrichTimePromotedCount++;
+          existingCompanies = [...existingCompanies, result.entry];
+          console.log(
+            `    AUTO-PROMOTED (enrich-time): ${result.entry.canonical_name} → ${result.entry.ats}/${result.entry.slug} (from ${sourceHost} → ${applyUrl})`,
+          );
+        }
+      }
+    }
+
     // Small delay to avoid rate limiting
     await new Promise((r) => setTimeout(r, 500));
   }
@@ -824,7 +899,14 @@ async function main() {
 
   console.log(`\n  Enriched: ${enriched}`);
   console.log(`  Failed: ${failed}`);
-  console.log(`  Total enrichments: ${Object.keys(enrichments).length}\n`);
+  console.log(`  Total enrichments: ${Object.keys(enrichments).length}`);
+  if (enrichTimePromotedCount > 0) {
+    console.log(`  Auto-promoted (enrich-time): ${enrichTimePromotedCount} new companies → config/companies.yml`);
+  }
+  if (promotionRunState.capped) {
+    console.log(`  WARNING: hit per-run auto-promotion cap (${PROMOTION_CAP_PER_RUN}); further enrichment-time candidates were skipped.`);
+  }
+  console.log("");
 }
 
 main()
