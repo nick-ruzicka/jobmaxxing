@@ -29,6 +29,7 @@ import {
   EXCLUDE_DOMAINS,
   classifySource,
 } from "./lib/source-classification.mjs";
+import { loadCompaniesGrouped } from "./lib/companies-load.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -53,25 +54,12 @@ function loadEnv() {
 }
 loadEnv();
 
-// Load company slugs from config
+// Load tracked companies from the structured config/companies.yml schema. Returns
+// { ashby: [slug, ...], greenhouse: [slug, ...], lever: [slug, ...], all: [entry, ...] }.
+// Paused entries (paused: true) are excluded from the per-ATS slug arrays but
+// included in `all` so the auto-promotion engine can see them for dedup.
 function loadCompanies() {
-  const configPath = join(ROOT, "config", "companies.yml");
-  if (!existsSync(configPath)) return { ashby: [], greenhouse: [] };
-  const raw = readFileSync(configPath, "utf-8");
-
-  const parseList = (key) => {
-    const match = raw.match(new RegExp(`${key}:\\s*\\n([\\s\\S]*?)(?=\\n\\w|$)`));
-    if (!match) return [];
-    return match[1]
-      .split("\n")
-      .map((l) => l.replace(/^\s*-\s*/, "").replace(/#.*$/, "").trim())
-      .filter((l) => l && !l.startsWith("#"));
-  };
-
-  return {
-    ashby: parseList("ashby_slugs"),
-    greenhouse: parseList("greenhouse_slugs"),
-  };
+  return loadCompaniesGrouped();
 }
 
 // --- Title relevance: anchor + role-token matcher ---------------------------
