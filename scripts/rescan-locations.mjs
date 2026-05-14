@@ -37,13 +37,13 @@ const LIMIT = (() => { const i = args.indexOf("--limit"); return i >= 0 ? parseI
 const FILTER = (() => { const i = args.indexOf("--filter"); return i >= 0 ? args[i + 1] : "unknown"; })();
 let CONCURRENCY = (() => { const i = args.indexOf("--concurrency"); return i >= 0 ? parseInt(args[i + 1], 10) : 3; })();
 
-// Keep in sync with AGGREGATOR_HOSTS in scripts/scan-jobs.mjs and dashboard-web/lib/data.ts.
-const AGGREGATOR_HOSTS = ["revopscareers.com", "lensa.com", "whatjobs.com", "jobright.ai", "jobgether.com"];
+// AGGREGATOR_HOSTS canonical list lives in config/source-classification.json —
+// imported via scripts/lib/source-classification.mjs.
+import { isAggregatorHost } from "./lib/source-classification.mjs";
 
 function hostOf(url) { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } }
 function isAggregator(url) {
-  const h = hostOf(url);
-  return AGGREGATOR_HOSTS.some((a) => h === a || h.endsWith("." + a));
+  return isAggregatorHost(url);
 }
 
 function stripHtml(html) {

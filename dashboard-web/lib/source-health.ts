@@ -7,40 +7,16 @@ import type {
   SourceStatus,
 } from "./types";
 
-// Re-syndicator hosts — hidden from default views, kept toggleable.
-// Keep in sync with scripts/scan-jobs.mjs AGGREGATOR_HOSTS and lib/data.ts.
-export const AGGREGATOR_HOSTS = [
-  "revopscareers.com",
-  "lensa.com",
-  "whatjobs.com",
-  "jobright.ai",
-  "jobgether.com",
-];
-
-// Content-farm / SEO-spam hosts blocked at scan time.
-// Keep in sync with scripts/scan-jobs.mjs EXCLUDE_DOMAINS.
-export const EXCLUDE_DOMAINS = [
-  "flexionis.wuaze.com",
-  "novaedge.page.gd",
-  "hireza.wuaze.com",
-  "joborix.us",
-  "jobsgemach.com",
-  "talent.com",
-  "jooble.org",
-  "recruit.net",
-  "careerbuilder.com",
-  "snagajob.com",
-  "simplyhired.com",
-  "jobrapido.com",
-  "liveblog365.com",
-  "totalh.net",
-  "wuaze.com",
-  "page.gd",
-  "saashero.net",
-  "2x.marketing",
-  "anywhereremotejobs.com",
-  "kickstartremote.com",
-];
+// AGGREGATOR_HOSTS / EXCLUDE_DOMAINS canonical lists live in
+// config/source-classification.json — imported here and re-exported so downstream
+// consumers that already `import { AGGREGATOR_HOSTS } from "./source-health"` keep
+// working without churn.
+import {
+  AGGREGATOR_HOSTS,
+  EXCLUDE_DOMAINS,
+  matchesHostList,
+} from "./source-classification";
+export { AGGREGATOR_HOSTS, EXCLUDE_DOMAINS };
 
 /**
  * Per-host comp-extraction findings.
@@ -236,9 +212,7 @@ function hostnameOf(url: string): string | null {
   }
 }
 
-function matchesHostList(host: string, list: string[]): boolean {
-  return list.some((h) => host === h || host.endsWith("." + h));
-}
+// matchesHostList comes from ./source-classification (imported above).
 
 function findAuditFinding(host: string): AuditFinding | null {
   return AUDIT_FINDINGS[host] ?? AUDIT_FINDINGS[parentDomain(host)] ?? null;

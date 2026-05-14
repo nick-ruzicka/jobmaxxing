@@ -24,6 +24,11 @@ import { fileURLToPath } from "url";
 import { locationFields, structuredLocationFields } from "./lib/location.mjs";
 import { cleanTitle } from "./lib/title-cleanup.mjs";
 import { companyKey } from "./lib/normalize-company.mjs";
+import {
+  AGGREGATOR_HOSTS,
+  EXCLUDE_DOMAINS,
+  classifySource,
+} from "./lib/source-classification.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -204,34 +209,9 @@ function isNonJobContent(title, url) {
   return false;
 }
 
-// Exa spam domains to exclude (passed as Exa `excludeDomains`; subdomain-inclusive).
-// Each entry is a SEO/content-farm host that re-spins job titles into thin pages with no
-// real JD content. None has ever produced a fit-≥6 role in data/enrichments.json, so they're
-// blocked at scan time. NON_JOB_URL_PATTERNS above catches them for non-Exa tiers too.
-// DO NOT remove an entry without first checking enrichments.json — that's why they're here.
-const EXCLUDE_DOMAINS = [
-  "flexionis.wuaze.com",
-  "novaedge.page.gd",
-  "hireza.wuaze.com",
-  "joborix.us",
-  "jobsgemach.com",
-  "talent.com",
-  "jooble.org",
-  "recruit.net",
-  "careerbuilder.com",
-  "snagajob.com",
-  "simplyhired.com",
-  "jobrapido.com",
-  // --- Added 2026-05 (Fix #1, aggregator-quarantine sweep) — zero useful content, ever ---
-  "liveblog365.com",        // hirevector.liveblog365.com + jobflarely.liveblog365.com (17 URLs, avg fit ~1)
-  "totalh.net",             // remotica.totalh.net (8 URLs, avg fit ~1)
-  "wuaze.com",              // hirepath.wuaze.com etc. (broader than the two specific subdomains above)
-  "page.gd",                // *.page.gd free-host spam (broader than novaedge.page.gd above)
-  "saashero.net",           // 4 URLs, no JD content per the data
-  "2x.marketing",           // 2 URLs, marketing-blog spam, not job postings
-  "anywhereremotejobs.com", // 2 URLs, generic remote-job aggregator spam
-  "kickstartremote.com",    // 3 URLs, generic remote-job aggregator spam
-];
+// EXCLUDE_DOMAINS / AGGREGATOR_HOSTS now imported from ./lib/source-classification.mjs —
+// canonical source of truth is config/source-classification.json. To add a new entry,
+// edit the JSON; both Node scripts and the dashboard pick it up automatically.
 
 // Tier 2: Exa broad discovery queries (keep existing)
 const EXA_QUERIES = [
@@ -426,24 +406,10 @@ const AGGREGATOR_SUFFIXES = [
   /\s*\|\s*.*$/,  // "Company | Aggregator"
 ];
 
-// Hosts that RE-SYNDICATE other sites' postings (vs. original ATS/board pages). Their
-// location/company metadata is unreliable (URLs always end "...-new-york-ny-united-states"
-// regardless of the real location) and their scraped JD content is often corrupted. We still
-// ADD these to seen-urls.json (tagged source_tier:"aggregator") so the dashboard can toggle
-// them on, but they're hidden by default. Keep in sync with dashboard-web/lib/data.ts AGGREGATOR_HOSTS.
-const AGGREGATOR_HOSTS = [
-  "revopscareers.com",
-  "lensa.com",
-  "whatjobs.com",
-  "jobright.ai",
-  "jobgether.com",
-];
-
+// AGGREGATOR_HOSTS imported above. Quarantined re-syndicators are still stored in
+// seen-urls.json (tagged source_tier:"aggregator") so the dashboard can toggle them on.
 function classifySourceTier(url) {
-  let host;
-  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { return undefined; }
-  if (AGGREGATOR_HOSTS.some((h) => host === h || host.endsWith("." + h))) return "aggregator";
-  return undefined;
+  return classifySource(url).type === "aggregator" ? "aggregator" : undefined;
 }
 
 function cleanAggregatorCompany(company) {

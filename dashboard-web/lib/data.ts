@@ -19,26 +19,9 @@ export { normalizeCompany, companyKey };
 
 export const ROOT = join(process.cwd(), "..");
 
-// Re-syndicator hosts (RevOps Careers, Lensa, WhatJobs, …): unreliable location/company
-// metadata, frequently corrupted JD scrapes. Roles from these hosts are tagged
-// source_tier:"aggregator" and hidden from default views (toggle in the pipeline filter bar
-// to show them). Keep in sync with scripts/scan-jobs.mjs AGGREGATOR_HOSTS.
-const AGGREGATOR_HOSTS = [
-  "revopscareers.com",
-  "lensa.com",
-  "whatjobs.com",
-  "jobright.ai",
-  "jobgether.com",
-];
-
-function isAggregatorHost(url: string): boolean {
-  try {
-    const h = new URL(url).hostname.replace(/^www\./, "");
-    return AGGREGATOR_HOSTS.some((a) => h === a || h.endsWith("." + a));
-  } catch {
-    return false;
-  }
-}
+// AGGREGATOR_HOSTS canonical list lives in config/source-classification.json —
+// imported via ./source-classification.
+import { isAggregatorHost } from "./source-classification";
 
 export function readJsonSafe<T>(path: string, fallback: T): T {
   try {
