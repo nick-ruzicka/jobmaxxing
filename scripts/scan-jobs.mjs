@@ -37,6 +37,11 @@ import {
 } from "./lib/promote-company.mjs";
 import { scanLever } from "./lib/lever-scraper.mjs";
 import { scanYc } from "./lib/yc-scraper.mjs";
+import {
+  tierTimer,
+  recordExaCall,
+  flushEvents,
+} from "./lib/scan-jobs-instrumentation.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -715,6 +720,7 @@ async function exaSearch(query) {
   }
 
   const data = await res.json();
+  recordExaCall(data, { query_type: "neural", query, tier: "tier_2_broad" });
   return data.results || [];
 }
 
@@ -847,6 +853,7 @@ async function exaKeywordSearch(query) {
   }
 
   const data = await res.json();
+  recordExaCall(data, { query_type: "keyword", query, tier: "tier_12_google" });
   return data.results || [];
 }
 
@@ -1795,7 +1802,10 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
-  process.exit(1);
-});
+main()
+  .then(() => flushEvents())
+  .catch((err) => {
+    flushEvents();
+    console.error("Fatal error:", err);
+    process.exit(1);
+  });

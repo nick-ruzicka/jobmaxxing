@@ -34,6 +34,11 @@ import {
   isAggregatorHost,
   isExcludedHost,
 } from "./lib/source-classification.mjs";
+import {
+  recordClaudeCall,
+  recordEnrichmentResult,
+  flushEvents,
+} from "./lib/scan-jobs-instrumentation.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -443,6 +448,7 @@ Worked example (shape only — replace every value with your own analysis of thi
 }`;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const claudeStartedAt = Date.now();
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -476,6 +482,7 @@ Worked example (shape only — replace every value with your own analysis of thi
     }
 
     const data = await res.json();
+    recordClaudeCall(data, { model: "claude-sonnet-4-20250514", duration_ms: Date.now() - claudeStartedAt });
     const text = data.content?.[0]?.text || "";
 
     // Extract JSON from response
@@ -804,6 +811,7 @@ async function main() {
       timestamp: new Date().toISOString(),
     };
 
+    recordEnrichmentResult({ url, host: hostnameOf(url), fit_score: analysis.fit_score });
     process.stdout.write(` ${analysis.fit_score}/10 [${comp_source}] — ${analysis.verdict?.slice(0, 50)}...\n`);
     enriched++;
 
@@ -819,7 +827,10 @@ async function main() {
   console.log(`  Total enrichments: ${Object.keys(enrichments).length}\n`);
 }
 
-main().catch((err) => {
-  console.error("Fatal:", err);
-  process.exit(1);
-});
+main()
+  .then(() => flushEvents())
+  .catch((err) => {
+    flushEvents();
+    console.error("Fatal:", err);
+    process.exit(1);
+  });
