@@ -248,22 +248,64 @@ companies:
     slug: plaid
     source: manual
     added_date: 2026-05-14
-    notes: fintech infrastructure
+    notes: Verified 2026-05-14 via api.lever.co (HTTP 200) — fintech infrastructure
   - canonical_name: PostHog
     ats: lever
     slug: posthog
     source: manual
     added_date: 2026-05-14
-    notes: product analytics, open source
+    needs_slug_verification: true
+    notes: 404 via api.lever.co on 2026-05-14; variations tried (none worked) posthog-com / posthoghq / posthog-co / posthog-labs / posthogglobal. Likely on Greenhouse — verify before re-classifying.
   - canonical_name: Pinecone
     ats: lever
     slug: pinecone
     source: manual
     added_date: 2026-05-14
-    notes: vector DB; needs_slug_verification if 404
+    needs_slug_verification: true
+    notes: 404 via api.lever.co on 2026-05-14; variations tried (none worked) pinecone-io / pineconeio / pinecone-systems / pineconedb / pinecone-labs. Likely on Greenhouse — verify before re-classifying.
   - canonical_name: Modal Labs
     ats: lever
     slug: modal-labs
     source: manual
     added_date: 2026-05-14
-    notes: serverless compute for AI/ML
+    needs_slug_verification: true
+    notes: 404 via api.lever.co on 2026-05-14; variations tried (none worked) modal / modallabs / modalcompute / modallabsinc / modal-labs-inc / modal-com. Likely on Greenhouse — verify before re-classifying.
+  # ---- Lever companies added during 12h session (Task B, 2026-05-14) ----
+  # Each entry below was verified with curl https://api.lever.co/v0/postings/<slug>?mode=json
+  # returning HTTP 200 immediately before commit.
+  - canonical_name: Attentive
+    ats: lever
+    slug: attentive
+    source: manual
+    added_date: 2026-05-14
+    notes: Verified 2026-05-14 via api.lever.co (HTTP 200) — SMS marketing platform
+  - canonical_name: Outreach
+    ats: lever
+    slug: outreach
+    source: manual
+    added_date: 2026-05-14
+    notes: Verified 2026-05-14 via api.lever.co (HTTP 200) — sales engagement (RevOps ICP)
+  - canonical_name: Mistral
+    ats: lever
+    slug: mistral
+    source: manual
+    added_date: 2026-05-14
+    notes: Verified 2026-05-14 via api.lever.co (HTTP 200) — open-weight foundation models
+  - canonical_name: Clari
+    ats: lever
+    slug: clari
+    source: manual
+    added_date: 2026-05-14
+    notes: Verified 2026-05-14 via api.lever.co (HTTP 200) — RevOps / forecasting (high ICP fit)
+  - canonical_name: Labelbox
+    ats: lever
+    slug: labelbox
+    source: manual
+    added_date: 2026-05-14
+    notes: Verified 2026-05-14 via api.lever.co (HTTP 200) — AI/ML data labeling
+  - canonical_name: Palantir
+    ats: lever
+    slug: palantir
+    source: manual
+    added_date: 2026-05-14
+    notes: Verified 2026-05-14 via api.lever.co (HTTP 200) — enterprise data, FDE roles
