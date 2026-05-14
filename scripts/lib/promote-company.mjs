@@ -36,6 +36,17 @@ const ROOT = join(__dirname, "..", "..");
 /** Maximum auto-promotions in a single scraper run. Safety valve against pathological inputs. */
 export const PROMOTION_CAP_PER_RUN = 20;
 
+/**
+ * Minimum fit_score for a discovery to qualify for auto-promotion when fit is known.
+ * The same floor applies at scan-time (currently bypassed with minFitScore: 0 because
+ * fit is unknown pre-enrichment) and at enrich-time (Task A: BuiltIn → ATS hook —
+ * fit IS known here, so this floor is what gates junk auto-promotions).
+ *
+ * Single source of truth: scan-jobs.mjs and enrich-roles.mjs both import this rather
+ * than hardcoding a number. Bump here, both call sites pick it up.
+ */
+export const MIN_FIT_SCORE_FOR_PROMOTION = 4;
+
 /** Hosts that count as "aggregator discoveries" eligible for auto-promotion. */
 const PROMOTE_FROM_HOSTS = Object.freeze([
   "builtin.com",
@@ -87,7 +98,7 @@ export function shouldPromote(args) {
     sourceHost,
     existingCompanies = [],
     fitScore,
-    minFitScore = 4,
+    minFitScore = MIN_FIT_SCORE_FOR_PROMOTION,
   } = args;
 
   const { ats, slug } = extractAtsInfo(url);
@@ -132,11 +143,20 @@ export function shouldPromote(args) {
  * @param {string} args.ats
  * @param {string} args.slug
  * @param {string} args.canonicalName
- * @param {string} args.sourceUrl    — the URL that triggered the promotion
+ * @param {string} args.sourceUrl    — the URL that triggered the promotion (i.e., the ATS URL)
  * @param {string} args.foundVia     — e.g. "builtin" → source becomes "auto_promoted_from_builtin"
  * @param {string} [args.notes]
  * @param {string} [args.companiesPath]  — override for testing; defaults to repo's companies.yml
  * @param {string} [args.logDir]         — override log dir; defaults to data/auto-promotions
+ * @param {string} [args.foundViaUrl]    — the original discovery URL (e.g. the BuiltIn page).
+ *                                          For scan-time promotions this is the same as
+ *                                          sourceUrl; for enrich-time BuiltIn→ATS promotions
+ *                                          this is the BuiltIn URL and sourceUrl is the
+ *                                          resolved Ashby/GH/Lever URL.
+ * @param {string} [args.resolvedApplyUrl] — the resolved ATS apply URL after JD fetch
+ *                                            (enrich-time only; defaults to sourceUrl).
+ * @param {number} [args.fitScoreAtPromotion] — fit score snapshot at the moment of promotion
+ *                                               (enrich-time only — scan-time doesn't know fit yet).
  * @returns {{ wrote: boolean, entry: object, totalEntries: number }}
  */
 export function promoteCompany(args) {
@@ -149,6 +169,9 @@ export function promoteCompany(args) {
     notes,
     companiesPath,
     logDir,
+    foundViaUrl,
+    resolvedApplyUrl,
+    fitScoreAtPromotion,
   } = args;
   if (!ats || !slug || !canonicalName) {
     throw new Error("promoteCompany requires { ats, slug, canonicalName }");
@@ -192,6 +215,15 @@ export function promoteCompany(args) {
       canonical_name: canonicalName,
       source_url: sourceUrl || null,
       found_via: safeFoundVia,
+      // Task A (enrich-time BuiltIn→ATS): capture the discovery URL separately
+      // from the resolved ATS URL so reviewers can trace exactly which BuiltIn
+      // page surfaced which Ashby slug, and at what fit score.
+      found_via_url: foundViaUrl || sourceUrl || null,
+      resolved_apply_url: resolvedApplyUrl || sourceUrl || null,
+      fit_score_at_promotion:
+        typeof fitScoreAtPromotion === "number" && Number.isFinite(fitScoreAtPromotion)
+          ? fitScoreAtPromotion
+          : null,
     }) + "\n",
   );
 
@@ -217,7 +249,7 @@ export function createPromotionRunState() {
  *   - { action: 'capped',     reason: 'per-run-cap-reached' }
  *
  * @param {object} args
- * @param {string} args.url
+ * @param {string} args.url           — the URL to promote from (must be ATS-recognized)
  * @param {string} args.sourceHost
  * @param {string} args.canonicalName
  * @param {number} [args.fitScore]
@@ -227,6 +259,9 @@ export function createPromotionRunState() {
  * @param {string} [args.logDir]
  * @param {number} [args.minFitScore]
  * @param {number} [args.promotionCap]
+ * @param {string} [args.foundViaUrl] — the original discovery URL (different from url
+ *                                       when url is a resolved apply_url). Optional;
+ *                                       defaults to url. Used purely for log provenance.
  */
 export function processRolePromotion(args) {
   const {
@@ -240,6 +275,7 @@ export function processRolePromotion(args) {
     logDir,
     minFitScore,
     promotionCap = PROMOTION_CAP_PER_RUN,
+    foundViaUrl,
   } = args;
   if (!runState) throw new Error("processRolePromotion requires runState");
 
@@ -269,6 +305,9 @@ export function processRolePromotion(args) {
     foundVia,
     companiesPath,
     logDir,
+    foundViaUrl: foundViaUrl || url,
+    resolvedApplyUrl: url,
+    fitScoreAtPromotion: fitScore,
   });
   if (result.wrote) {
     runState.promotionsThisRun += 1;
