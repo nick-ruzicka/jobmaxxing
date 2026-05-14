@@ -94,3 +94,14 @@ data/briefings
 data/chats
 # ─────────────────────────────────────────────────────────────────────────────
 WORK_LOG_12H.md
+
+# Runtime artifacts
+.claude/
+.gstack/
+
+# Session reports and logs (already-merged sessions)
+MERGE_REPORT_*.md
+WORK_LOG_*.md
+
+# AutoApply PII protection — never commit source resume PDFs
+autoapply/resumes/source/*.pdf
