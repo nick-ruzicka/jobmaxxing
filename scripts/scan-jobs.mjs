@@ -36,6 +36,7 @@ import {
   PROMOTION_CAP_PER_RUN,
 } from "./lib/promote-company.mjs";
 import { scanLever } from "./lib/lever-scraper.mjs";
+import { scanYc } from "./lib/yc-scraper.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -898,6 +899,7 @@ function generateReport(roles, stats) {
   md += `| 1 | Ashby API | ${stats.ashby.checked} companies | ${stats.ashby.matches} | ${stats.ashby.failed.length} 404s |\n`;
   md += `| 1 | Greenhouse API | ${stats.greenhouse.checked} companies | ${stats.greenhouse.matches} | ${stats.greenhouse.failed.length} 404s |\n`;
   md += `| 1 | Lever API | ${stats.lever.checked} companies | ${stats.lever.matches} | ${stats.lever.failed.length} 404s |\n`;
+  md += `| 1 | YC direct | ${stats.ycDirect.queries} queries | ${stats.ycDirect.matches} | ${stats.ycDirect.failed.length} errors |\n`;
   md += `| 2 | Exa broad | ${stats.exa.queries} queries | ${stats.exa.matches} | — |\n`;
   md += `| 3 | Exa VC portfolios | ${stats.vc.queries} queries | ${stats.vc.matches} | — |\n`;
   md += `| 3 | Exa HN/YC | ${stats.hn.queries} queries | ${stats.hn.matches} | — |\n`;
@@ -1118,6 +1120,7 @@ async function main() {
     deep: { queries: 3, matches: 0 },
     builtin: { queries: BUILTIN_SEARCHES.length, matches: 0 },
     yc: { queries: YC_SEARCHES.length, matches: 0 },
+    ycDirect: { queries: YC_SEARCHES.length, matches: 0, failed: [] },
     vcBoards: { queries: VC_BOARD_CONFIGS.length * VC_BOARD_SEARCHES.length, matches: 0 },
     google: { queries: GOOGLE_QUERIES.length, matches: 0 },
   };
@@ -1141,6 +1144,26 @@ async function main() {
   stats.greenhouse.matches = gh.results.length;
   allResults.push(...gh.results);
   console.log(`  Found ${gh.results.length} matching roles (${gh.failed.length} 404s)\n`);
+
+  // --- Tier 1.5: YC Work at a Startup (direct scrape) ---
+  // The audit's strongest signal:effort gap — ycombinator.com had a 100% hit rate
+  // (4/4 enriched ≥ fit-7) but only leaked in via Exa Tier 6 at 5 URLs cumulative.
+  // Direct crawl uses the same YC_SEARCHES keyword set as the legacy Tier-10 Exa
+  // path; both run, dedup catches overlap. Tagged "Tier 1: YC" so dedup gives it
+  // shortcut treatment.
+  console.log(`[Tier 1] YC Work at a Startup direct — ${YC_SEARCHES.length} searches`);
+  const ycDirect = await scanYc(YC_SEARCHES);
+  stats.ycDirect.matches = ycDirect.results.length;
+  stats.ycDirect.failed = ycDirect.failed;
+  // Title gate applied here, same as Lever (YC API returns ALL postings for a query).
+  const ycDirectFiltered = ycDirect.results.filter(
+    (r) => titleMatchesPositive(r.title) && !titleMatchesNegative(r.title),
+  );
+  stats.ycDirect.matches = ycDirectFiltered.length;
+  allResults.push(...ycDirectFiltered);
+  console.log(
+    `  Found ${ycDirectFiltered.length} matching roles (${ycDirect.failed.length} query errors, ${ycDirect.results.length} total before title filter)\n`,
+  );
 
   // --- Tier 1: Lever ---
   // Lever is structurally identical to Ashby/Greenhouse — public per-company API,
@@ -1680,6 +1703,7 @@ async function main() {
     BuiltIn: "builtin.com",
     "Tier 6: Similar": null, // host varies — set per-role from r.url
     YC: "workatastartup.com",
+    "Tier 1: YC": "workatastartup.com",
   };
   let promotedCount = 0;
   for (const r of dedupedNew) {
