@@ -105,3 +105,6 @@ WORK_LOG_*.md
 
 # AutoApply PII protection — never commit source resume PDFs
 autoapply/resumes/source/*.pdf
+
+# Task G budget tracker — machine-local counter for Claude API spend
+data/budget/
