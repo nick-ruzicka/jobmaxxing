@@ -5,6 +5,7 @@ import {
   adjustScore,
   loadUserContext,
   clearUserContextCache,
+  detectCompSourceDisagreement,
   ARCHETYPE_REWARD_CAP,
   SECONDARY_CAP,
 } from "./scoring-layer.mjs";
@@ -88,6 +89,147 @@ test("scoring-layer — comp 'Not listed' → -5 penalty", () => {
   );
   const comp = result.adjustments.find((a) => a.source === "comp:not_listed");
   assert.equal(comp.delta, -5);
+});
+
+// ─── comp trust gate (Phase 1) ────────────────────────────────────────────────
+// When comp_source is jsonld_basesalary (known-unreliable per Fix #5) AND Claude's
+// own enrichment (verdict or red_flags) contradicts the scraped band by reporting
+// "no comp listed", treat the scraped band as unverified and suppress the
+// comp:below_floor penalty. Emit comp:below_floor_suppressed (delta 0) so the
+// disagreement is visible in /scan audit trails.
+
+test("scoring-layer — jsonld_basesalary + Claude says 'no comp mentioned' → penalty suppressed, tag emitted", () => {
+  const result = adjustScore(
+    8,
+    {
+      title: "x",
+      company: "y",
+      comp_range: "$101,500 – $135,000 /yr",
+      comp_source: "jsonld_basesalary",
+      verdict: "Excellent fit. However, no comp listed is concerning given the $190K floor.",
+      red_flags: ["No compensation mentioned"],
+    },
+    null,
+  );
+  const penalty = result.adjustments.find((a) => a.source === "comp:below_floor");
+  const suppressed = result.adjustments.find((a) => a.source === "comp:below_floor_suppressed");
+  assert.equal(penalty, undefined, "below_floor penalty should be suppressed when Claude contradicts");
+  assert.ok(suppressed, "comp:below_floor_suppressed tag should be emitted");
+  assert.equal(suppressed.delta, 0);
+  assert.ok(/jsonld_basesalary/i.test(suppressed.reason));
+});
+
+test("scoring-layer — jsonld_basesalary + Claude confirms band → penalty applies as before", () => {
+  // Claude acknowledges the comp in prose and red-flags it as below floor — no contradiction.
+  const result = adjustScore(
+    8,
+    {
+      title: "x",
+      company: "y",
+      comp_range: "$101,500 – $135,000 /yr",
+      comp_source: "jsonld_basesalary",
+      verdict: "Comp listed at $101,500-$135,000 is well below your $200K floor; expect to negotiate hard.",
+      red_flags: ["Compensation range below $200K floor"],
+    },
+    null,
+  );
+  const penalty = result.adjustments.find((a) => a.source === "comp:below_floor");
+  const suppressed = result.adjustments.find((a) => a.source === "comp:below_floor_suppressed");
+  assert.ok(penalty, "below_floor penalty should apply when Claude confirms the band");
+  assert.equal(penalty.delta, -50);
+  assert.equal(suppressed, undefined);
+});
+
+test("scoring-layer — non-jsonld_basesalary source applies penalty regardless of Claude text", () => {
+  // Gate is source-gated. Even when Claude says "no comp listed", a non-JSON-LD source
+  // does NOT trigger suppression — only the known-unreliable JSON-LD scrape path does.
+  const result = adjustScore(
+    8,
+    {
+      title: "x",
+      company: "y",
+      comp_range: "$101,500 – $135,000 /yr",
+      comp_source: "jd_prose",
+      verdict: "No comp listed in the JD.",
+      red_flags: ["No compensation mentioned"],
+    },
+    null,
+  );
+  const penalty = result.adjustments.find((a) => a.source === "comp:below_floor");
+  const suppressed = result.adjustments.find((a) => a.source === "comp:below_floor_suppressed");
+  assert.ok(penalty, "below_floor penalty should apply on non-jsonld_basesalary sources");
+  assert.equal(suppressed, undefined);
+});
+
+test("scoring-layer — Anaconda's actual record shape → suppressed", () => {
+  // From data/enrichments.json @ https://builtin.com/job/gtm-engineer/8843434
+  // This is the role surfaced by the 2026-05-17 audit: fit_score 8, dropped to
+  // adjusted 6 by a -50 penalty on a JSON-LD band Claude flagged as missing.
+  const result = adjustScore(
+    8,
+    {
+      title: "GTM Engineer",
+      company: "Anaconda",
+      comp_range: "$101,500 – $135,000 /yr",
+      comp_source: "jsonld_basesalary",
+      location_workplace: "remote",
+      verdict:
+        "This is an excellent match - the JD reads like it was written for this candidate's exact skill set. " +
+        "The role emphasizes building AI-powered GTM systems using Clay/n8n/Zapier, which directly aligns with " +
+        "the Linera and Chariot Signal Engines. However, Anaconda being a large established company may mean " +
+        "slower GTM execution and bureaucracy, plus no comp listed is concerning given the $190K floor requirement.",
+      red_flags: [
+        "5-7 years experience requirement when candidate has clear track record",
+        "Bachelor's degree requirement",
+        "No compensation mentioned",
+        "Anaconda is established/large company potentially with slower GTM",
+      ],
+    },
+    "gtm-engineering",
+  );
+  const penalty = result.adjustments.find((a) => a.source === "comp:below_floor");
+  const suppressed = result.adjustments.find((a) => a.source === "comp:below_floor_suppressed");
+  assert.equal(penalty, undefined, "Anaconda should NOT have below_floor penalty after trust gate");
+  assert.ok(suppressed, "Anaconda should have comp:below_floor_suppressed tag");
+});
+
+test("detectCompSourceDisagreement — pure function semantics", () => {
+  // Source matches + verdict contradicts → disagrees
+  const r1 = detectCompSourceDisagreement({
+    comp_source: "jsonld_basesalary",
+    verdict: "Strong fit but no comp listed.",
+    red_flags: [],
+  });
+  assert.equal(r1.disagrees, true);
+  assert.ok(r1.reason, "reason should explain the contradiction");
+
+  // Source matches + Claude confirms → does NOT disagree
+  const r2 = detectCompSourceDisagreement({
+    comp_source: "jsonld_basesalary",
+    verdict: "Salary is $150K-$180K which is below your floor.",
+    red_flags: ["Below floor"],
+  });
+  assert.equal(r2.disagrees, false);
+
+  // Source does NOT match (gate is source-gated) → never disagrees
+  const r3 = detectCompSourceDisagreement({
+    comp_source: "jd_prose",
+    verdict: "no comp listed",
+    red_flags: ["No compensation mentioned"],
+  });
+  assert.equal(r3.disagrees, false, "gate must be source-gated");
+
+  // Source matches + only red_flags channel triggers → disagrees
+  const r4 = detectCompSourceDisagreement({
+    comp_source: "jsonld_basesalary",
+    verdict: "",
+    red_flags: ["No compensation mentioned"],
+  });
+  assert.equal(r4.disagrees, true);
+
+  // Missing fields → does NOT disagree (safe default)
+  const r5 = detectCompSourceDisagreement({});
+  assert.equal(r5.disagrees, false);
 });
 
 // ─── archetype lens ───────────────────────────────────────────────────────────

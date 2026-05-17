@@ -214,6 +214,57 @@ function isUS(region) {
 
 // ─── compensation ─────────────────────────────────────────────────────────────
 
+// Phase 1 comp trust gate. BuiltIn's JSON-LD `baseSalary` is known-unreliable
+// (Fix #5): it sometimes carries a generic location/level band rather than the
+// posted role's actual comp, and the JD prose Claude reads does not include the
+// JSON-LD tag. When the scraped source is `jsonld_basesalary` AND Claude's own
+// enrichment (verdict prose or red_flags array) reports "no comp listed", we
+// treat the scraped band as unverified and suppress the below_floor penalty.
+// A `comp:below_floor_suppressed` adjustment (delta 0) is emitted instead so
+// the disagreement is visible in /scan audit trails and dashboard surfaces.
+const NO_COMP_PATTERNS = [
+  // "no comp listed" / "no compensation mentioned" / "no salary posted" — allows
+  // a short prefix like "comp range" between the noun and the predicate.
+  /\bno\s+(comp(ensation)?|salary|pay)(\s+\w+){0,2}\s+(listed|mentioned|posted|stated|provided|disclosed|info(rmation)?|transparency|details)\b/i,
+  // "comp not listed" / "salary not mentioned"
+  /\b(comp(ensation)?|salary|pay)\s+(?:is|was|are|were)?\s*not\s+(listed|mentioned|posted|stated|provided|disclosed)/i,
+  // Terse red-flag form: "no comp range" / "no salary range"
+  /\bno\s+(comp(ensation)?|salary|pay)\s+range\b/i,
+];
+
+function claudeSaysNoComp(text) {
+  if (typeof text !== "string" || !text) return false;
+  return NO_COMP_PATTERNS.some((re) => re.test(text));
+}
+
+/**
+ * Trust gate for the comp:below_floor penalty.
+ *
+ * @param {object} input
+ * @param {string} [input.comp_source]   - one of jsonld_basesalary | jsonld_description | jd_prose | jd_estimate | qualitative_only | claude_extracted | none
+ * @param {string} [input.verdict]       - Claude's prose verdict
+ * @param {string[]} [input.red_flags]   - Claude's red-flag array
+ * @returns {{ disagrees: boolean, reason: string|null }}
+ */
+export function detectCompSourceDisagreement({ comp_source, verdict, red_flags } = {}) {
+  // Source-gated: only the known-unreliable jsonld_basesalary path triggers.
+  if (comp_source !== "jsonld_basesalary") {
+    return { disagrees: false, reason: null };
+  }
+  const verdictHit = claudeSaysNoComp(verdict);
+  const redFlagHit = Array.isArray(red_flags) && red_flags.some(claudeSaysNoComp);
+  if (!verdictHit && !redFlagHit) {
+    return { disagrees: false, reason: null };
+  }
+  const channels = [];
+  if (verdictHit) channels.push("verdict");
+  if (redFlagHit) channels.push("red_flags");
+  return {
+    disagrees: true,
+    reason: `comp_source=jsonld_basesalary but Claude reports no comp listed in ${channels.join("+")}`,
+  };
+}
+
 function compAdjustment(role, ctx) {
   const comp = ctx?.compensation;
   if (!comp) return null;
@@ -228,6 +279,19 @@ function compAdjustment(role, ctx) {
   const min = extractMinComp(rangeStr);
   if (min === null) return null;
   if (min < comp.floor_usd) {
+    // Trust gate: contested JSON-LD comp data → suppress penalty, tag for visibility.
+    const disagreement = detectCompSourceDisagreement({
+      comp_source: role.comp_source,
+      verdict: role.verdict,
+      red_flags: role.red_flags,
+    });
+    if (disagreement.disagrees) {
+      return {
+        source: "comp:below_floor_suppressed",
+        delta: 0,
+        reason: disagreement.reason,
+      };
+    }
     return {
       source: "comp:below_floor",
       delta: comp.below_floor_penalty ?? 0,
