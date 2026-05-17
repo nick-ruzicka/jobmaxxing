@@ -6,6 +6,7 @@ import { RefreshCw, Radio, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import type { Role, RoleStatus, ScanStats } from "@/lib/types";
 import { computePipelineStats } from "@/lib/stats";
+import { getOpenRolesForCompany } from "@/lib/role-matching";
 import { Shell } from "@/components/Shell";
 import { StatStrip } from "@/components/StatStrip";
 import { PipelineTable } from "@/components/PipelineTable";
@@ -80,6 +81,26 @@ export function PipelinePage({
 
   const [roles, setRoles] = useState(initialRoles);
 
+  // When the URL filters to a single company, narrow `roles` through the
+  // canonical predicate (lib/role-matching.ts). Without this, a signal
+  // card click that lands here as ?company=mistralai falls through to a
+  // string-search prefill, and "mistralai" doesn't match the role's
+  // company text ("Mistral") — the user sees 0/1262 even though there's
+  // a real role. ISSUE-002.
+  const companyMatchedRoles = useMemo(() => {
+    if (!companyFilter) return roles;
+    return getOpenRolesForCompany(roles, companyFilter, { includeAggregators: true });
+  }, [roles, companyFilter]);
+
+  // Display name for the company filter banner: pick whichever name the
+  // first matched role spells the company with. Falls back to the raw slug
+  // when there are no matches (a stale signal pointing at a company that's
+  // since left the dataset).
+  const companyFilterDisplayName = useMemo(() => {
+    if (!companyFilter) return "";
+    return companyMatchedRoles[0]?.company || companyFilter;
+  }, [companyFilter, companyMatchedRoles]);
+
   // Stats recompute on roles mutation (status edits drag rows between buckets).
   const stats: ScanStats = useMemo(
     () => computePipelineStats(roles, serverMeta),
@@ -150,12 +171,32 @@ export function PipelinePage({
             Back to Signals
           </Link>
         )}
+        {companyFilter && (
+          <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-2 px-4 py-3 text-[13px]">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-text-secondary">
+                Filtering to <span className="font-medium text-text-primary">{companyFilterDisplayName}</span>
+                <span className="ml-2 text-text-muted">
+                  ({companyMatchedRoles.length} role{companyMatchedRoles.length === 1 ? "" : "s"})
+                </span>
+              </span>
+              {companyMatchedRoles.length === 0 && (
+                <span className="text-text-muted">
+                  No open roles for this company right now — the signal that flagged it may be stale.
+                </span>
+              )}
+            </div>
+            <Link href="/pipeline" className="text-accent hover:underline">
+              Clear filter
+            </Link>
+          </div>
+        )}
         <StatStrip stats={stats} />
         <PipelineTable
-          roles={roles}
+          roles={companyMatchedRoles}
           onStatusChange={handleStatusChange}
           onNotesChange={handleNotesChange}
-          initialSearch={companyFilter}
+          initialSearch=""
         />
       </div>
 
