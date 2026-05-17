@@ -1,0 +1,157 @@
+# archetypes.yaml — 5 role archetypes with scoring lenses.
+#
+# Loaded by scripts/lib/archetype-config.mjs and consumed by the classifier
+# (G3) and the additive scoring layer (G4).
+#
+# Notes:
+#   - `reward_signals` only — no penalty keywords. Surviving Web3 companies
+#     with active hiring are self-selecting for quality, so the institutional-
+#     companies boost + relevant role+function tags do the work.
+#   - `inherit_from: <archetype-id>` resolves to the same section of the named
+#     archetype at load time.
+#   - Hard floors (location, comp, blocked industries) live in
+#     `global_disqualifiers`.
+
+archetypes:
+  - id: gtm-engineering
+    name: GTM Engineer
+    description: Engineer who builds GTM infrastructure — outbound systems, signal engines, CRM intelligence
+    maturity: expanding
+    resume: autoapply/resumes/parsed/gtm-engineering.html
+    required_signals:
+      - technical_role
+      - gtm_context
+    reward_signals:
+      - keywords: [Python, SQL, Clay, HubSpot, Salesforce, signal, outbound, attribution, enrichment, scoring]
+        weight: 5
+      - keywords: [Claude API, GPT, LLM, AI-native, agent, AI-first]
+        weight: 7
+      - keywords: [Series A, Series B, Series C, growth-stage]
+        weight: 3
+      - keywords: [GTM Engineer, Revenue Engineer, Forward Deployed]
+        weight: 15
+    title_signals:
+      high_match: ["GTM Engineer", "Revenue Engineer", "Forward Deployed Engineer", "Revenue Architect"]
+      medium_match: ["Sales Engineer", "RevOps Engineer", "Growth Engineer", "Solutions Engineer"]
+      low_match: ["Senior AE", "Sales Operations Manager"]
+    company_filter:
+      require_b2b_saas: true
+      exclude_industries: [consumer, gaming-mainstream, defense, government]
+
+  - id: ai-operations
+    name: AI Operations
+    description: Operator who builds AI-native systems for revenue, operations, and customer-facing teams
+    maturity: expanding
+    resume: autoapply/resumes/parsed/ai-operations.html
+    required_signals:
+      - ai_native_org
+      - operations_or_revenue_context
+    reward_signals:
+      - keywords: [LLM, Claude, GPT, agent, agentic, AI-native, AI-first, automation, autonomous]
+        weight: 8
+      - keywords: [operations, RevOps, BizOps, Head of AI, AI Lead]
+        weight: 6
+      - keywords: [Python, automation framework, workflow orchestration, n8n, Zapier]
+        weight: 4
+    title_signals:
+      high_match: ["AI Operations Lead", "Head of AI", "AI Ops Engineer", "Applied AI Engineer"]
+      medium_match: ["BizOps Manager", "Operations Manager", "Director of Operations"]
+      low_match: ["Generic Operations Manager"]
+    company_filter:
+      require_ai_native_signals: true
+
+  - id: fde
+    name: Forward Deployed Engineer
+    description: Engineer embedded with customers to deploy and customize products
+    maturity: expanding
+    resume: autoapply/resumes/parsed/fde.html
+    required_signals:
+      - technical_role
+      - customer_facing
+    reward_signals:
+      - keywords: [Forward Deployed, FDE, deployed engineer, customer engineer, solutions architect]
+        weight: 20
+      - keywords: [customer-facing engineering, deployment, customization, integration]
+        weight: 8
+      - keywords: [Palantir, Foundry, Hebbia, Glean, Decagon, Sierra]
+        weight: 6
+    title_signals:
+      high_match: ["Forward Deployed Engineer", "Applied AI Engineer", "Field Engineer", "Customer Engineer"]
+      medium_match: ["Solutions Engineer", "Implementation Engineer", "Deployment Engineer"]
+      low_match: ["Generic Software Engineer"]
+
+  - id: web3-bd
+    name: Web3 BD
+    description: BD/Partnerships at institutional-grade Web3 companies
+    maturity: high-conviction
+    resume: autoapply/resumes/parsed/web3-bd.html
+    required_signals:
+      - web3_context
+      - bd_or_partnerships_role
+    reward_signals:
+      - keywords: [BD, Business Development, Partnerships, Strategic Partnerships, Enterprise]
+        weight: 8
+      - keywords: [Head of BD, VP BD, Director of Partnerships]
+        weight: 10
+      - keywords: [institutional, enterprise, regulated, compliance]
+        weight: 6
+    institutional_companies_boost:
+      tier_1:
+        - Turnkey
+        - Securitize
+        - Anchorage
+        - Fireblocks
+        - Chainalysis
+        - Circle
+        - Paxos
+        - BitGo
+        - Coinbase Institutional
+        - Galaxy Digital
+        - Talos
+        - Copper
+        - Hex Trust
+      tier_2:
+        - Uniswap Labs
+        - Aave Companies
+        - Compound Labs
+        - 1inch
+        - Curve
+        - Lido
+        - Frax Finance
+        - Morpho
+        - Pendle
+        - Maker DAO
+    title_signals:
+      high_match: ["Head of BD", "VP BD", "Head of Partnerships", "Director of Strategic Partnerships"]
+      medium_match: ["BD Manager", "Partnerships Lead", "Strategic Partnerships"]
+
+  - id: web3-bizops
+    name: Web3 BizOps
+    description: Operations/Strategy at institutional-grade Web3 companies
+    maturity: high-conviction
+    resume: autoapply/resumes/parsed/web3-bizops.html
+    required_signals:
+      - web3_context
+      - operations_role
+    reward_signals:
+      - keywords: [tokenomics, treasury, capital strategy, fundraising, exchange listing]
+        weight: 8
+      - keywords: [BizOps, Chief of Staff, Head of Strategy, Strategic Finance]
+        weight: 10
+      - keywords: [vendor evaluation, regulatory, compliance, legal coordination]
+        weight: 6
+    institutional_companies_boost:
+      inherit_from: web3-bd
+    title_signals:
+      high_match: ["Chief of Staff", "Head of BizOps", "Head of Strategy", "VP Operations"]
+      medium_match: ["BizOps Manager", "Strategy Manager"]
+
+global_disqualifiers:
+  location:
+    - "fully on-site SF"
+    - "fully on-site LA"
+    - "fully on-site Seattle"
+    - "fully on-site Austin"
+    - "fully on-site Chicago"
+  comp_below: 200000
+  industries_blocked: [gambling, weapons, predatory-lending, mlm, tobacco, vape]
