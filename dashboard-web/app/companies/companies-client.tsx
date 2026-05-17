@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { Search, Star, X } from "lucide-react";
 import type { Company, SignalResult } from "@/lib/types";
 import { Shell } from "@/components/Shell";
@@ -121,7 +122,16 @@ export function CompaniesPage({
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-1.5">
             {isWatched && <Star size={12} className="shrink-0 fill-amber text-amber" />}
-            <span className="font-medium text-text-primary">{company.name}</span>
+            {/* Link to the per-company drilldown. stopPropagation keeps the row
+                click (expand/collapse the role list) intact — click the row to
+                preview roles inline, click the name to open the company view. */}
+            <Link
+              href={`/companies/${company.slug}`}
+              onClick={(e) => e.stopPropagation()}
+              className="font-medium text-text-primary hover:text-accent transition-colors"
+            >
+              {company.name}
+            </Link>
           </div>
           {isExpanded && company.roles.length > 0 && (
             <div className="mt-2 space-y-1.5">

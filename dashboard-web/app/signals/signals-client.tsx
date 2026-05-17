@@ -178,7 +178,15 @@ export function SignalsPage({
                   <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="truncate font-medium text-text-primary">{s.name}</span>
+                      {/* Name links to the per-company drilldown (intel view); the
+                          surrounding card link still goes to /pipeline (act view). */}
+                      <Link
+                        href={`/companies/${s.slug}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="truncate font-medium text-text-primary hover:text-accent transition-colors"
+                      >
+                        {s.name}
+                      </Link>
                       <VelocityBadge velocity={s.match.hiring_velocity} />
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-text-muted">
@@ -212,7 +220,13 @@ export function SignalsPage({
                   <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="truncate font-medium text-text-primary">{s.name}</span>
+                      <Link
+                        href={`/companies/${s.slug}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="truncate font-medium text-text-primary hover:text-accent transition-colors"
+                      >
+                        {s.name}
+                      </Link>
                       {s.result === "posting" && <Badge color="emerald">Posting</Badge>}
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-[12px] text-text-muted">
@@ -255,7 +269,14 @@ export function SignalsPage({
               ) : (
                 monitorSorted.map((s) => (
                   <Tr key={s.slug} zebra>
-                    <td className="px-3 py-3 font-medium text-text-primary">{s.name}</td>
+                    <td className="px-3 py-3 font-medium text-text-primary">
+                      <Link
+                        href={`/companies/${s.slug}`}
+                        className="hover:text-accent transition-colors"
+                      >
+                        {s.name}
+                      </Link>
+                    </td>
                     <td className="px-3 py-3 tabular-nums"><FundingPill amount={s.amount} /></td>
                     <td className="px-3 py-3 text-[12px] tabular-nums text-text-muted">{s.lastChecked}</td>
                     <td className="px-3 py-3">
@@ -298,7 +319,14 @@ export function SignalsPage({
                   <tbody>
                     {hidden.map((s) => (
                       <Tr key={s.slug} zebra>
-                        <td className="px-3 py-3 text-text-secondary">{s.name}</td>
+                        <td className="px-3 py-3 text-text-secondary">
+                          <Link
+                            href={`/companies/${s.slug}`}
+                            className="hover:text-accent transition-colors"
+                          >
+                            {s.name}
+                          </Link>
+                        </td>
                         <td className="px-3 py-3 tabular-nums"><FundingPill amount={s.amount} /></td>
                         <td className="px-3 py-3 text-[12px] text-text-muted">
                           {s.match.match_status === "confirmed_no_match"

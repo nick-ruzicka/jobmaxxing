@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState, useMemo, useEffect } from "react";
+import Link from "next/link";
 import { ExternalLink, ChevronRight, Search, SkipForward } from "lucide-react";
 import type { Role, RoleStatus } from "@/lib/types";
 import { ScorePill } from "./ScorePill";
@@ -10,6 +11,9 @@ import { ExpandedRow } from "./ExpandedRow";
 import { FilterBar } from "./FilterBar";
 import type { Filters } from "./FilterBar";
 import { CLUSTER_ORDER } from "@/lib/location-clusters";
+// Import companyKey from the pure source — re-exporting through lib/data.ts
+// would pull `fs`/`path` into the client bundle (Next.js refuses to compile).
+import { companyKey } from "../../scripts/lib/normalize-company.mjs";
 import { TableContainer, Th, Tr, EmptyState, Button } from "./ui";
 
 type SortKey = "score" | "company" | "location" | "status" | "firstSeen" | "comp";
@@ -300,7 +304,8 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange, initialSea
                         {hasAI && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue" title="AI signal" />}
                       </div>
                     </td>
-                    {/* Company */}
+                    {/* Company — links to the per-company drilldown.
+                        stopPropagation keeps the row's expand-on-click intact. */}
                     <td className="truncate px-3 py-2.5">
                       {role.company === "Unknown" || role.company === "—" ? (
                         <a
@@ -314,7 +319,14 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange, initialSea
                           Unknown <Search size={9} />
                         </a>
                       ) : (
-                        <span className="font-medium text-text-primary">{role.company}</span>
+                        <Link
+                          href={`/companies/${companyKey(role.company)}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="font-medium text-text-primary hover:text-accent transition-colors"
+                          title={`View ${role.company} company page`}
+                        >
+                          {role.company}
+                        </Link>
                       )}
                     </td>
                     {/* Role */}
