@@ -38,6 +38,14 @@ interface PipelineTableProps {
   onStatusChange: (url: string, status: RoleStatus) => void;
   onNotesChange: (url: string, notes: string) => void;
   initialSearch?: string;
+  /**
+   * Initial minimum-score filter, defaulting to 4 (the standard "high-fit"
+   * cutoff for the main pipeline view). Callers that land here from a
+   * narrower context — a /signals card click, a specific company drill-in —
+   * should pass 0 so the user sees every canonical-matched role, not just
+   * the ones above their default threshold. ISSUE-005 (FIX-3).
+   */
+  defaultMinScore?: number;
 }
 
 function daysAgo(dateStr: string): string {
@@ -59,11 +67,17 @@ function extractComp(role: Role): string {
   return "";
 }
 
-export function PipelineTable({ roles, onStatusChange, onNotesChange, initialSearch }: PipelineTableProps) {
+export function PipelineTable({
+  roles,
+  onStatusChange,
+  onNotesChange,
+  initialSearch,
+  defaultMinScore = 4,
+}: PipelineTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [filters, setFilters] = useState<Filters>(() => {
-    const f = emptyFilters(4);
+    const f = emptyFilters(defaultMinScore);
     if (initialSearch) f.search = initialSearch;
     return f;
   });

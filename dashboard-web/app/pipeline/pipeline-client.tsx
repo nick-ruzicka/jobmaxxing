@@ -145,10 +145,20 @@ export function PipelinePage({
       <PipelineHeader roleCount={pipelineCount} lastScanDate={stats.lastScanDate} />
       <div className="space-y-6">
         {fromSignals && (
-          <Link href="/signals" className="inline-flex items-center gap-1.5 text-[13px] text-text-muted hover:text-text-secondary transition-colors">
-            <ArrowLeft size={12} />
-            Back to Signals
-          </Link>
+          <div className="flex flex-col gap-1">
+            <Link href="/signals" className="inline-flex items-center gap-1.5 text-[13px] text-text-muted hover:text-text-secondary transition-colors">
+              <ArrowLeft size={12} />
+              Back to Signals
+            </Link>
+            {/* ISSUE-005: when you arrive from a signal card we cleared the
+                default 4+ score filter so every canonical role for that
+                company shows. Otherwise low-scored roles get hidden by a
+                default the user never chose, defeating the point of the
+                signal link. */}
+            <span className="text-[12px] text-text-muted">
+              Showing all roles · default score filter cleared
+            </span>
+          </div>
         )}
         <StatStrip stats={stats} />
         <PipelineTable
@@ -156,6 +166,7 @@ export function PipelinePage({
           onStatusChange={handleStatusChange}
           onNotesChange={handleNotesChange}
           initialSearch={companyFilter}
+          defaultMinScore={fromSignals ? 0 : 4}
         />
       </div>
 
