@@ -263,11 +263,14 @@ function archetypeLensAdjustment(role, archetype, multiplier) {
       if (body.includes(kw.toLowerCase())) raw += group.weight;
     }
   }
-  // Institutional Web3 company boost (companies, not keywords)
+  // Institutional Web3 company boost (companies, not keywords). stablecoin_tier
+  // is the strong boost (Paxos, Circle, BitGo, Anchorage, Tether). tier_1 is
+  // institutional-but-not-stablecoin (small bump). tier_2 is DeFi (minimal).
   const boost = archetype.institutional_companies_boost;
   if (boost) {
-    if ((boost.tier_1 ?? []).some((c) => company.includes(c.toLowerCase()))) raw += 30;
-    else if ((boost.tier_2 ?? []).some((c) => company.includes(c.toLowerCase()))) raw += 15;
+    if ((boost.stablecoin_tier ?? []).some((c) => company.includes(c.toLowerCase()))) raw += 35;
+    else if ((boost.tier_1 ?? []).some((c) => company.includes(c.toLowerCase()))) raw += 12;
+    else if ((boost.tier_2 ?? []).some((c) => company.includes(c.toLowerCase()))) raw += 6;
   }
   // Title-signal bonus (separate channel from the classifier title scoring;
   // here it's a smaller contribution to fit-score uplift)

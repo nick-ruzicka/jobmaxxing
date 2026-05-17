@@ -150,11 +150,14 @@ function scoreAllArchetypes(role, archetypes) {
 
     const boost = a.institutional_companies_boost;
     if (boost) {
-      if (boost.tier_1?.some((c) => companyLower.includes(c.toLowerCase()))) {
-        score += 50;
+      if (boost.stablecoin_tier?.some((c) => companyLower.includes(c.toLowerCase()))) {
+        score += 60;
+        breakdown.push("inst-stablecoin");
+      } else if (boost.tier_1?.some((c) => companyLower.includes(c.toLowerCase()))) {
+        score += 20;
         breakdown.push("inst-tier-1");
       } else if (boost.tier_2?.some((c) => companyLower.includes(c.toLowerCase()))) {
-        score += 25;
+        score += 10;
         breakdown.push("inst-tier-2");
       }
     }

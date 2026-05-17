@@ -96,20 +96,29 @@ archetypes:
       - keywords: [institutional, enterprise, regulated, compliance]
         weight: 6
     institutional_companies_boost:
+      # stablecoin_tier: the only Web3 companies the user actually wants the
+      # strong boost for — stablecoin issuers + stablecoin custody/infra.
+      stablecoin_tier:
+        - Paxos
+        - Circle
+        - BitGo
+        - Anchorage Digital
+        - Anchorage          # match the short form too
+        - Tether
+        - Bridge.xyz
+        - Brale
+      # tier_1: institutional but NOT stablecoin-adjacent — small bump only.
       tier_1:
         - Turnkey
         - Securitize
-        - Anchorage
         - Fireblocks
         - Chainalysis
-        - Circle
-        - Paxos
-        - BitGo
         - Coinbase Institutional
         - Galaxy Digital
         - Talos
         - Copper
         - Hex Trust
+      # tier_2: DeFi protocols — minimal bump.
       tier_2:
         - Uniswap Labs
         - Aave Companies

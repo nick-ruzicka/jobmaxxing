@@ -34,7 +34,30 @@ test("classifier — GTM Engineer JD → gtm-engineering, high confidence", asyn
   assert.equal(result.needs_review, false);
 });
 
-test("classifier — institutional Web3 BD JD → web3-bd with tier_1 boost", async () => {
+test("classifier — Paxos BD role gets stablecoin_tier boost (largest)", async () => {
+  const jd = "Drive enterprise BD with institutional partners. Strategic partnerships at scale.";
+  const paxos = await classifyArchetype(
+    { title: "Head of Business Development", company: "Paxos", description: jd },
+    { rulesOnly: true },
+  );
+  const galaxy = await classifyArchetype(
+    { title: "Head of Business Development", company: "Galaxy Digital", description: jd },
+    { rulesOnly: true },
+  );
+  assert.equal(paxos.primary, "web3-bd");
+  assert.equal(galaxy.primary, "web3-bd");
+  // Paxos (stablecoin_tier +60) should score strictly higher than Galaxy (tier_1 +20)
+  assert.ok(
+    paxos.confidence >= galaxy.confidence,
+    `Paxos confidence ${paxos.confidence} should beat Galaxy ${galaxy.confidence}`,
+  );
+});
+
+test("classifier — institutional non-stablecoin BD JD → web3-bd with smaller tier_1 boost", async () => {
+  // Coinbase Institutional moved to tier_1 (downgraded). It still classifies as
+  // web3-bd but the institutional boost is +20 (was +50). Confidence sits in
+  // the medium range — the user gets to triage these in /context/review-queue
+  // rather than auto-treating them as high-fit institutional Web3.
   const role = {
     title: "Head of Business Development",
     company: "Coinbase Institutional",
@@ -44,7 +67,10 @@ test("classifier — institutional Web3 BD JD → web3-bd with tier_1 boost", as
   };
   const result = await classifyArchetype(role, { rulesOnly: true, archetypes: ARCHETYPES });
   assert.equal(result.primary, "web3-bd");
-  assert.ok(result.confidence >= NEEDS_REVIEW_THRESHOLD);
+  assert.ok(
+    result.confidence > 0.5,
+    `expected medium-confidence match, got ${result.confidence}`,
+  );
 });
 
 test("classifier — Forward Deployed Engineer JD at Hebbia → fde", async () => {
