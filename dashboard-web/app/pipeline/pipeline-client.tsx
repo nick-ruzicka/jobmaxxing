@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useMemo, useRef } from "react";
-import { RefreshCw, Radio } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { RefreshCw, Radio, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import type { Role, RoleStatus, ScanStats } from "@/lib/types";
 import { computePipelineStats } from "@/lib/stats";
 import { Shell } from "@/components/Shell";
@@ -72,6 +74,10 @@ export function PipelinePage({
   companyCount,
   signalCount,
 }: PipelinePageProps) {
+  const searchParams = useSearchParams();
+  const companyFilter = searchParams.get("company") || "";
+  const fromSignals = searchParams.get("from") === "signals";
+
   const [roles, setRoles] = useState(initialRoles);
 
   // Stats recompute on roles mutation (status edits drag rows between buckets).
@@ -138,14 +144,18 @@ export function PipelinePage({
     >
       <PipelineHeader roleCount={pipelineCount} lastScanDate={stats.lastScanDate} />
       <div className="space-y-6">
-        {/* The morning briefing used to live here as a placeholder hero. T4 moved
-            it to /today (the new homepage); /pipeline is now the table-first
-            workspace view, KPIs at the top and the table below. */}
+        {fromSignals && (
+          <Link href="/signals" className="inline-flex items-center gap-1.5 text-[13px] text-text-muted hover:text-text-secondary transition-colors">
+            <ArrowLeft size={12} />
+            Back to Signals
+          </Link>
+        )}
         <StatStrip stats={stats} />
         <PipelineTable
           roles={roles}
           onStatusChange={handleStatusChange}
           onNotesChange={handleNotesChange}
+          initialSearch={companyFilter}
         />
       </div>
 

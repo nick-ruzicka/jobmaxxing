@@ -33,6 +33,7 @@ interface PipelineTableProps {
   roles: Role[];
   onStatusChange: (url: string, status: RoleStatus) => void;
   onNotesChange: (url: string, notes: string) => void;
+  initialSearch?: string;
 }
 
 function daysAgo(dateStr: string): string {
@@ -54,10 +55,14 @@ function extractComp(role: Role): string {
   return "";
 }
 
-export function PipelineTable({ roles, onStatusChange, onNotesChange }: PipelineTableProps) {
+export function PipelineTable({ roles, onStatusChange, onNotesChange, initialSearch }: PipelineTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [filters, setFilters] = useState<Filters>(() => emptyFilters(4));
+  const [filters, setFilters] = useState<Filters>(() => {
+    const f = emptyFilters(4);
+    if (initialSearch) f.search = initialSearch;
+    return f;
+  });
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const [focusIdx, setFocusIdx] = useState<number>(-1);

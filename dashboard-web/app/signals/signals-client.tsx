@@ -167,9 +167,10 @@ export function SignalsPage({
             </SectionLabel>
             <div className="grid gap-2 lg:grid-cols-2">
               {warmingUp.map((s) => (
-                <div
+                <Link
                   key={s.slug}
-                  className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3"
+                  href={`/pipeline?company=${s.slug}&from=signals`}
+                  className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3 transition-colors hover:bg-surface-3"
                 >
                   <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" />
                   <div className="min-w-0 flex-1">
@@ -182,7 +183,7 @@ export function SignalsPage({
                       <span>Checked {s.lastChecked}</span>
                     </div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </section>
