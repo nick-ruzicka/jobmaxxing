@@ -10,7 +10,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 
-import { parseYaml } from "../../scripts/lib/yaml-mini.mjs";
+import yaml from "js-yaml";
 
 export interface PersonaSummary {
   /** filename stem, e.g. "senior-gtm-eng-nyc" */
@@ -141,7 +141,7 @@ export function loadPersonas(personasDir: string, reportsDir: string): PersonaSu
   return files.map((file) => {
     const id = file.replace(/\.yaml$/, "");
     const raw = safeReadFile(join(personasDir, file)) ?? "";
-    const parsed = parseYaml(raw) as RawPersonaYaml;
+    const parsed = yaml.load(raw) as RawPersonaYaml;
     return {
       id,
       name: parsed?.identity?.name ?? id,

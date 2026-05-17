@@ -94,6 +94,32 @@ describe("loadPersonas", () => {
     writeFileSync(join(personas, "alpha.yaml"), personaYaml);
     expect(loadPersonas(personas, reports)[0].latestReportFile).toBeNull();
   });
+
+  // Regression: ISSUE-001. The real persona files under qa/personas/
+  // use YAML folded scalars (`>`) for the background field. The previous
+  // yaml-mini parser threw "unexpected indent on line 5" on every one of
+  // them, crashing /qa-reports + /api/qa-reports. js-yaml handles them.
+  it("parses YAML folded scalars in background field (ISSUE-001)", () => {
+    const { personas, reports } = makeTempQaRoot();
+    const foldedYaml = `identity:
+  name: AI Operations Lead (Series A startup)
+  role: AI Operations Lead
+  background: >
+    AI Operations Lead at a Series A AI startup. Wears every operational
+    hat — vendor ops, eval pipelines, internal tooling. Looking for variety
+    and the next role with serious AI depth.
+
+target_archetypes: [ai-operations, gtm-engineering]
+meta_attitude: Curious but skeptical.
+`;
+    writeFileSync(join(personas, "ai-ops-lead-early-stage.yaml"), foldedYaml);
+    const result = loadPersonas(personas, reports);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("ai-ops-lead-early-stage");
+    expect(result[0].name).toBe("AI Operations Lead (Series A startup)");
+    expect(result[0].targetArchetypes).toEqual(["ai-operations", "gtm-engineering"]);
+    expect(result[0].metaAttitude).toContain("Curious");
+  });
 });
 
 // ─── loadLatestReports ──────────────────────────────────────────────────────
