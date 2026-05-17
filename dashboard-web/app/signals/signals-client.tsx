@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Flame, Eye, Radio, Mic, Target, Thermometer, EyeOff, ChevronDown, ChevronRight } from "lucide-react";
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Eye, Radio, Mic, Target, Thermometer, EyeOff, ChevronDown, ChevronRight, X } from "lucide-react";
 import type { EnrichedSignal } from "@/lib/signal-enrichment";
 import { Shell } from "@/components/Shell";
 import { useScan } from "@/components/ScanContext";
@@ -91,6 +92,19 @@ function SignalsHeader({ subtitle }: { subtitle: string }) {
   );
 }
 
+/** Dismiss button — prevents click from bubbling to the parent link. */
+function DismissButton({ slug, onDismiss }: { slug: string; onDismiss: (slug: string) => void }) {
+  return (
+    <button
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDismiss(slug); }}
+      className="ml-auto shrink-0 rounded p-1 text-text-muted hover:bg-surface-3 hover:text-text-secondary transition-colors"
+      title="Never show this company again"
+    >
+      <X size={14} />
+    </button>
+  );
+}
+
 export function SignalsPage({
   actingOnNow,
   warmingUp,
@@ -108,8 +122,30 @@ export function SignalsPage({
   highConviction,
 }: SignalsPageProps) {
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const router = useRouter();
 
-  const monitorSorted = [...monitor].sort(
+  const handleDismiss = useCallback(async (slug: string) => {
+    setDismissed((prev) => new Set([...prev, slug]));
+    try {
+      await fetch("/api/signals/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug }),
+      });
+      router.refresh();
+    } catch {
+      // Revert optimistic update on failure
+      setDismissed((prev) => { const next = new Set(prev); next.delete(slug); return next; });
+    }
+  }, [router]);
+
+  // Filter out locally-dismissed companies (before server refresh)
+  const visibleActing = actingOnNow.filter((s) => !dismissed.has(s.slug));
+  const visibleWarming = warmingUp.filter((s) => !dismissed.has(s.slug));
+  const visibleMonitor = monitor.filter((s) => !dismissed.has(s.slug));
+
+  const monitorSorted = [...visibleMonitor].sort(
     (a, b) => amountToMillions(b.amount) - amountToMillions(a.amount),
   );
 
@@ -127,13 +163,13 @@ export function SignalsPage({
 
       <div className="space-y-6">
         {/* Section 1: Acting On Now */}
-        {actingOnNow.length > 0 && (
+        {visibleActing.length > 0 && (
           <section>
             <SectionLabel icon={<Target size={12} className="text-emerald" />} className="mb-3">
-              Acting On Now ({actingOnNow.length})
+              Acting On Now ({visibleActing.length})
             </SectionLabel>
             <div className="grid gap-2 lg:grid-cols-2">
-              {actingOnNow.map((s) => (
+              {visibleActing.map((s) => (
                 <Link
                   key={s.slug}
                   href={`/pipeline?company=${s.slug}&from=signals`}
@@ -153,6 +189,7 @@ export function SignalsPage({
                       <ArchetypeChips archetypes={s.match.archetypes_matched} />
                     </div>
                   </div>
+                  <DismissButton slug={s.slug} onDismiss={handleDismiss} />
                 </Link>
               ))}
             </div>
@@ -160,13 +197,13 @@ export function SignalsPage({
         )}
 
         {/* Section 2: Warming Up */}
-        {warmingUp.length > 0 && (
+        {visibleWarming.length > 0 && (
           <section>
             <SectionLabel icon={<Thermometer size={12} className="text-amber" />} className="mb-3">
-              Warming Up ({warmingUp.length})
+              Warming Up ({visibleWarming.length})
             </SectionLabel>
             <div className="grid gap-2 lg:grid-cols-2">
-              {warmingUp.map((s) => (
+              {visibleWarming.map((s) => (
                 <Link
                   key={s.slug}
                   href={`/pipeline?company=${s.slug}&from=signals`}
@@ -183,6 +220,7 @@ export function SignalsPage({
                       <span>Checked {s.lastChecked}</span>
                     </div>
                   </div>
+                  <DismissButton slug={s.slug} onDismiss={handleDismiss} />
                 </Link>
               ))}
             </div>
@@ -192,7 +230,7 @@ export function SignalsPage({
         {/* Section 3: Monitor */}
         <section>
           <SectionLabel icon={<Eye size={12} className="text-text-tertiary" />} className="mb-3">
-            Monitor ({monitor.length})
+            Monitor ({visibleMonitor.length})
           </SectionLabel>
           <TableContainer>
             <thead className="border-b border-border-subtle bg-surface-1">
@@ -200,12 +238,13 @@ export function SignalsPage({
                 <Th>Company</Th>
                 <Th>Funding</Th>
                 <Th>Last checked</Th>
+                <Th className="w-10"></Th>
               </tr>
             </thead>
             <tbody>
               {monitorSorted.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="p-0">
+                  <td colSpan={4} className="p-0">
                     <EmptyState
                       icon={<Eye size={28} />}
                       title="Nothing on the radar"
@@ -219,6 +258,15 @@ export function SignalsPage({
                     <td className="px-3 py-3 font-medium text-text-primary">{s.name}</td>
                     <td className="px-3 py-3 tabular-nums"><FundingPill amount={s.amount} /></td>
                     <td className="px-3 py-3 text-[12px] tabular-nums text-text-muted">{s.lastChecked}</td>
+                    <td className="px-3 py-3">
+                      <button
+                        onClick={() => handleDismiss(s.slug)}
+                        className="rounded p-1 text-text-muted hover:bg-surface-3 hover:text-text-secondary transition-colors"
+                        title="Never show this company again"
+                      >
+                        <X size={12} />
+                      </button>
+                    </td>
                   </Tr>
                 ))
               )}
