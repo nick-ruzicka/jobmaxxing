@@ -318,3 +318,51 @@ companies:
     source: auto_promoted_from_builtin
     added_date: 2026-05-14
     notes: "Auto-promoted from https://jobs.ashbyhq.com/seon/bf1155c5-531c-4432-82b4-2aabedf54105?utm_source=dq3BMDoPxZ on 2026-05-14"
+  - canonical_name: Harper (harperinsure.com)
+    ats: ashby
+    slug: harperinsure
+    source: auto_promoted_from_builtin
+    added_date: 2026-05-15
+    notes: "Auto-promoted from https://jobs.ashbyhq.com/harperinsure/0e713032-76ec-4c12-b244-f99ffbc198a9 on 2026-05-15"
+  - canonical_name: Arcade (arcade.software)
+    ats: ashby
+    slug: arcade
+    source: auto_promoted_from_builtin
+    added_date: 2026-05-15
+    notes: "Auto-promoted from https://jobs.ashbyhq.com/arcade/6436a2c2-012e-4a5b-9e1f-37de887e84fc on 2026-05-15"
+  - canonical_name: Runpod
+    ats: greenhouse
+    slug: runpod
+    source: auto_promoted_from_builtin
+    added_date: 2026-05-15
+    notes: "Auto-promoted from https://job-boards.greenhouse.io/runpod/jobs/5221401008?gh_src=8f5c77b48us on 2026-05-15"
+  - canonical_name: Redwood Software
+    ats: greenhouse
+    slug: redwoodsoftware
+    source: auto_promoted_from_builtin
+    added_date: 2026-05-16
+    notes: "Auto-promoted from https://job-boards.greenhouse.io/redwoodsoftware/jobs/4056497009 on 2026-05-16"
+  - canonical_name: Serotonin
+    ats: lever
+    slug: serotonin
+    source: auto_promoted_from_builtin
+    added_date: 2026-05-16
+    notes: "Auto-promoted from https://jobs.lever.co/serotonin/f94ffd74-386f-4c9c-9390-4da5b6d37cf3/apply?lever-origin=applied&amp;lever-source%5B%5D=BuiltInNationwide on 2026-05-16"
+  - canonical_name: Vibe.co
+    ats: ashby
+    slug: vibe
+    source: auto_promoted_from_builtin
+    added_date: 2026-05-16
+    notes: "Auto-promoted from https://jobs.ashbyhq.com/vibe/bc40b699-54cc-4f3a-8b3f-07f4905ffa85 on 2026-05-16"
+  - canonical_name: Airtable
+    ats: greenhouse
+    slug: airtable
+    source: auto_promoted_from_builtin
+    added_date: 2026-05-16
+    notes: "Auto-promoted from https://job-boards.greenhouse.io/airtable/jobs/8536588002 on 2026-05-16"
+  - canonical_name: Findigs, Inc.
+    ats: lever
+    slug: findigs
+    source: auto_promoted_from_builtin
+    added_date: 2026-05-16
+    notes: "Auto-promoted from https://jobs.lever.co/findigs/3c04dc65-3e98-437b-a184-94152b559520/apply?lever-origin=applied\\u0026lever-source%5B%5D=BuiltInNationwide on 2026-05-16"
