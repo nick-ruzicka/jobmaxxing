@@ -27,6 +27,7 @@ export default function Page() {
       archetypes_matched: [],
       archetype_roles_count: 0,
       total_roles: 0,
+      open_roles_count: 0,
       hiring_velocity: "cold" as const,
       has_pipeline_roles: false,
       match_status: "unknown" as const,

@@ -145,8 +145,24 @@ function SignalCard({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-text-muted">
             <FundingPill amount={s.amount} />
-            {s.match.archetype_roles_count > 0 && (
-              <span>{s.match.archetype_roles_count} matching roles</span>
+            {/*
+             * Canonical count from lib/role-matching.ts — shared with
+             * /companies/[slug] and /pipeline so all three views agree.
+             * When zero, the signal is stale relative to the current
+             * pipeline data: company got flagged for hiring at some point
+             * but has no live open roles right now. We show it explicitly
+             * (per ISSUE-002 spec: transparent rendering, not suppression)
+             * so the user can decide whether the funding/news still
+             * warrants a manual check.
+             */}
+            {s.match.open_roles_count > 0 ? (
+              <span>
+                {s.match.open_roles_count} open role{s.match.open_roles_count === 1 ? "" : "s"}
+              </span>
+            ) : (
+              <span title="Signal fired but no open roles in the pipeline right now. The signal may still be worth checking manually.">
+                0 open roles · signal stale
+              </span>
             )}
             <ArchetypeChips archetypes={s.match.archetypes_matched} />
           </div>
@@ -193,12 +209,16 @@ function SignalDetailPanel({
             <span className="text-text-tertiary">Velocity:</span>
             <VelocityBadge velocity={s.match.hiring_velocity} />
           </div>
-          {s.match.total_roles > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-text-tertiary">Total roles:</span>
-              <span className="text-text-secondary">{s.match.total_roles} ({s.match.archetype_roles_count} matching)</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <span className="text-text-tertiary">Open roles:</span>
+            <span className="text-text-secondary">
+              {s.match.open_roles_count}
+              {s.match.total_roles > 0 && s.match.total_roles !== s.match.open_roles_count
+                ? ` of ${s.match.total_roles} total`
+                : ""}
+              {s.match.archetype_roles_count > 0 && ` · ${s.match.archetype_roles_count} archetype-matched`}
+            </span>
+          </div>
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
           <Link

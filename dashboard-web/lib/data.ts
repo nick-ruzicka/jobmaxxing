@@ -14,6 +14,7 @@ import type {
 import { clusterForLocation, flattenLocation, parseLocationString } from "./location-clusters";
 import type { StructuredLocation } from "./location-clusters";
 import { normalizeCompany, companyKey } from "../../scripts/lib/normalize-company.mjs";
+import { companyCandidateKeys, countOpenRolesForCompany } from "./role-matching";
 
 // Re-export for dashboard consumers (`import { companyKey } from "@/lib/data"`).
 export { normalizeCompany, companyKey };
@@ -449,16 +450,35 @@ export function getCompanies(): Company[] {
     }
   }
 
-  // Merge signal data
+  // Merge signal data. ISSUE-002: signals use a slug derived from the
+  // funding-feed company name (e.g. "mistralai" for "Mistral AI") but the
+  // pipeline scan often stores the bare name ("Mistral", key "mistral") so
+  // exact-match lookup misses the role group and we'd render two rows for
+  // the same company. companyCandidateKeys (suffix-stripping ai/labs/io/...)
+  // bridges that gap — same logic as lib/role-matching.ts and the legacy
+  // signals matcher.
   for (const signal of signals) {
-    const key = signal.slug.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const existing = companyMap.get(key);
+    const slugKey = signal.slug.toLowerCase().replace(/[^a-z0-9]/g, "");
+    let existing = companyMap.get(slugKey);
+    let resolvedKey = slugKey;
+    if (!existing) {
+      for (const candidate of companyCandidateKeys(signal.slug)) {
+        if (companyMap.has(candidate)) {
+          existing = companyMap.get(candidate)!;
+          resolvedKey = candidate;
+          break;
+        }
+      }
+    }
     if (existing) {
       existing.signalStatus = signal.result;
       existing.funding = signal.amount;
       if (existing.sourceTier === "scan") existing.sourceTier = "signal";
+      // Don't mutate slug — keep whatever the role group used so drilldown
+      // links stay stable. resolvedKey is only used for the map lookup.
+      void resolvedKey;
     } else {
-      companyMap.set(key, {
+      companyMap.set(slugKey, {
         name: signal.name,
         slug: signal.slug,
         sourceTier: "signal",
@@ -469,6 +489,15 @@ export function getCompanies(): Company[] {
         roles: [],
       });
     }
+  }
+
+  // Canonical role count: same predicate /companies/[slug] and /signals use.
+  // The seeding loop counts every getRoles() entry, which only filters
+  // aggregators. Canonical also drops Stale/Rejected/Skipped/closed roles
+  // so list and drilldown agree (ISSUE-002).
+  const allRolesIncAgg = getRoles({ includeAggregator: true });
+  for (const company of companyMap.values()) {
+    company.rolesFound = countOpenRolesForCompany(allRolesIncAgg, company.slug);
   }
 
   return Array.from(companyMap.values()).sort(
