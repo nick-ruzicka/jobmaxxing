@@ -190,6 +190,12 @@ async function callClaude(prompt: string): Promise<string> {
   });
   if (!res.ok) {
     const body = await res.text();
+    let parsedErr: { error?: { message?: string } } | null = null;
+    try { parsedErr = JSON.parse(body); } catch {}
+    const apiMsg = parsedErr?.error?.message ?? "";
+    if (res.status === 400 && /credit balance|credits.*too low|purchase credits/i.test(apiMsg)) {
+      throw new Error(`CREDITS_EXHAUSTED: ${apiMsg}`);
+    }
     throw new Error(`Anthropic API ${res.status}: ${body.slice(0, 300)}`);
   }
   const json = await res.json();
@@ -233,10 +239,19 @@ export async function POST(request: Request) {
   try {
     reply = await callClaude(prompt);
   } catch (err) {
-    return Response.json(
-      { error: "claude_failed", message: err instanceof Error ? err.message : "unknown" },
-      { status: 500 }
-    );
+    const message = err instanceof Error ? err.message : "unknown";
+    if (message.includes("CREDITS_EXHAUSTED")) {
+      return Response.json(
+        {
+          error: "credits_exhausted",
+          message:
+            "Anthropic API credits are exhausted. Top up to chat with the agent: https://console.anthropic.com/settings/billing",
+          topUpUrl: "https://console.anthropic.com/settings/billing",
+        },
+        { status: 402 },
+      );
+    }
+    return Response.json({ error: "claude_failed", message }, { status: 500 });
   }
 
   const now = new Date().toISOString();

@@ -103,6 +103,20 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Credit-exhausted sentinel from scripts/generate-briefing.mjs. Surface as
+    // a 402 Payment Required with a top-up link rather than dumping the raw
+    // execFile stderr into the regen toast.
+    if (message.includes("CREDITS_EXHAUSTED")) {
+      return Response.json(
+        {
+          error: "credits_exhausted",
+          message:
+            "Anthropic API credits are exhausted. Top up to regenerate the briefing: https://console.anthropic.com/settings/billing",
+          topUpUrl: "https://console.anthropic.com/settings/billing",
+        },
+        { status: 402 },
+      );
+    }
     return Response.json({ error: "generator_failed", message }, { status: 500 });
   }
 
