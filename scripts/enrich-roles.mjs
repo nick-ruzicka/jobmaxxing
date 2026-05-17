@@ -46,6 +46,10 @@ import {
 } from "./lib/promote-company.mjs";
 import { readCompaniesFile } from "./lib/companies-load.mjs";
 import { extractApplyUrl } from "./lib/apply-url-extractor.mjs";
+import { classifyArchetype } from "./lib/archetype-classifier.mjs";
+import { emitEvent as emitCareerOpsEvent } from "./lib/event-writer.mjs";
+import { adjustScore } from "./lib/scoring-layer.mjs";
+import { assessJdQuality } from "./lib/jd-quality-filter.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -825,6 +829,27 @@ async function main() {
       continue;
     }
 
+    // G8 JD quality filter — gate before Claude analysis to save tokens and
+    // prevent classifier contamination. Rejected JDs get a minimal record so
+    // /context/filtered can surface them; they don't flow to /pipeline.
+    const quality = assessJdQuality({
+      title: cleanedTitle,
+      company,
+      description: jdData.description || "",
+      requirements: jdData.requirements || "",
+    });
+    if (!quality.ok) {
+      process.stdout.write(` jd-rejected: ${quality.reason}\n`);
+      enrichments[url] = {
+        enrichment_quality: quality.reason,
+        enrichment_quality_assessed_at: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
+      };
+      // Save incrementally so a crash mid-batch doesn't lose the rejection record.
+      saveJson(ENRICHMENT_PATH, enrichments);
+      continue;
+    }
+
     // Analyze with Claude (with retry for transient errors)
     const analysis = await analyzeJD(jdData, profile);
     if (!analysis) {
@@ -851,10 +876,74 @@ async function main() {
       comp_source = "qualitative_only";
     }
 
+    // G3 archetype classification (rules-only on the live path — Claude
+    // disambiguation happens during scripts/backfill-archetypes.mjs).
+    let archetypeFields = {};
+    try {
+      const cls = await classifyArchetype(
+        {
+          title: cleanedTitle,
+          company,
+          description: jdData.description || "",
+          ats: hostnameOf(url),
+        },
+        { rulesOnly: true },
+      );
+      archetypeFields = {
+        archetype_primary: cls.primary,
+        archetype_confidence: cls.confidence,
+        archetype_secondary: cls.secondary,
+        archetype_reasoning: cls.reasoning,
+        archetype_classified_at: cls.classified_at,
+        archetype_needs_review: cls.needs_review,
+      };
+      try {
+        emitCareerOpsEvent({
+          type: "role.archetype_classified",
+          payload: { role_id: url, archetype: cls.primary },
+          source: "cli",
+        });
+      } catch {
+        // event-writer failures must never break enrichment
+      }
+    } catch (err) {
+      console.warn(`  archetype classify failed: ${err.message}`);
+    }
+
+    // G4 additive scoring layer (location / comp / archetype lens / soft prefs).
+    // Live path runs synchronously — no API calls, just config-driven math.
+    let scoreFields = {};
+    try {
+      const adj = adjustScore(
+        analysis.fit_score,
+        {
+          title: cleanedTitle,
+          company,
+          description: jdData.description || "",
+          comp_range,
+          ats: hostnameOf(url),
+        },
+        archetypeFields.archetype_primary ?? null,
+        archetypeFields.archetype_secondary ?? [],
+      );
+      scoreFields = {
+        score_base: analysis.fit_score,
+        score_adjusted: adj.adjusted_score,
+        score_adjustments: adj.adjustments,
+        score_disqualified: adj.disqualified,
+        score_disqualification_reason: adj.disqualification_reason,
+        score_adjusted_at: new Date().toISOString(),
+      };
+    } catch (err) {
+      console.warn(`  score-adjust failed: ${err.message}`);
+    }
+
     enrichments[url] = {
       ...analysis,
       comp_range,
       comp_source,
+      ...archetypeFields,
+      ...scoreFields,
       timestamp: new Date().toISOString(),
     };
 
