@@ -56,6 +56,7 @@ function Chip({
   active,
   onClick,
   tint,
+  dataAction,
 }: {
   label: string;
   count?: number;
@@ -63,6 +64,7 @@ function Chip({
   onClick: () => void;
   /** Optional override classes for the active state (used by status chips). */
   tint?: string;
+  dataAction?: string;
 }) {
   const activeClass = tint || "border-accent-border bg-accent-dim text-accent";
   return (
@@ -70,6 +72,7 @@ function Chip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      data-action={dataAction}
       className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors ${
         active
           ? activeClass
@@ -246,11 +249,12 @@ export function FilterBar({ roles, filters, onChange, onReset, resultCount }: Fi
           {ALL_STATUSES.filter((s) => statusCounts[s]).map((s) => (
             <Chip
               key={s}
-              label={s}
+              label={s === "Skipped" ? "Hidden / Skipped" : s}
               count={statusCounts[s]}
               active={filters.status === s}
               onClick={() => toggleStatus(s)}
               tint={STATUS_TINT[s]}
+              dataAction={`pipeline:filter_${s.toLowerCase()}`}
             />
           ))}
           {staleCount > 0 && (

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   ExternalLink, Globe, Calendar, MapPin, Save,
-  Wrench, AlertTriangle, CheckCircle2, Building, Users,
+  Wrench, AlertTriangle, CheckCircle2, Building, Users, RotateCcw,
 } from "lucide-react";
 import type { Role, RoleStatus } from "@/lib/types";
 import { StatusDropdown } from "./StatusDropdown";
@@ -161,6 +161,16 @@ export function ExpandedRow({ role, onStatusChange, onNotesChange }: ExpandedRow
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
               <StatusDropdown value={role.status} onChange={(s) => onStatusChange(role.url, s)} />
+              {(role.status === "Skipped" || role.status === "Rejected") && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  data-action="pipeline:restore_role"
+                  onClick={() => onStatusChange(role.url, "Discovered")}
+                >
+                  <RotateCcw size={11} /> Restore
+                </Button>
+              )}
               <a
                 href={role.url}
                 target="_blank"
