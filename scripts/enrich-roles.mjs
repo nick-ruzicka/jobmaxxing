@@ -46,6 +46,8 @@ import {
 } from "./lib/promote-company.mjs";
 import { readCompaniesFile } from "./lib/companies-load.mjs";
 import { extractApplyUrl } from "./lib/apply-url-extractor.mjs";
+import { classifyArchetype } from "./lib/archetype-classifier.mjs";
+import { emitEvent as emitCareerOpsEvent } from "./lib/event-writer.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -851,10 +853,45 @@ async function main() {
       comp_source = "qualitative_only";
     }
 
+    // G3 archetype classification (rules-only on the live path — Claude
+    // disambiguation happens during scripts/backfill-archetypes.mjs).
+    let archetypeFields = {};
+    try {
+      const cls = await classifyArchetype(
+        {
+          title: cleanedTitle,
+          company,
+          description: jdData.description || "",
+          ats: hostnameOf(url),
+        },
+        { rulesOnly: true },
+      );
+      archetypeFields = {
+        archetype_primary: cls.primary,
+        archetype_confidence: cls.confidence,
+        archetype_secondary: cls.secondary,
+        archetype_reasoning: cls.reasoning,
+        archetype_classified_at: cls.classified_at,
+        archetype_needs_review: cls.needs_review,
+      };
+      try {
+        emitCareerOpsEvent({
+          type: "role.archetype_classified",
+          payload: { role_id: url, archetype: cls.primary },
+          source: "cli",
+        });
+      } catch {
+        // event-writer failures must never break enrichment
+      }
+    } catch (err) {
+      console.warn(`  archetype classify failed: ${err.message}`);
+    }
+
     enrichments[url] = {
       ...analysis,
       comp_range,
       comp_source,
+      ...archetypeFields,
       timestamp: new Date().toISOString(),
     };
 
