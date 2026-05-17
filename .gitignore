@@ -108,3 +108,6 @@ autoapply/resumes/source/*.pdf
 
 # Task G budget tracker — machine-local counter for Claude API spend
 data/budget/
+
+# Dogfood week private notes
+notes/dogfood-week.md
