@@ -479,6 +479,20 @@ export function getCompanies(): Company[] {
 // ---------------------------------------------------------------------------
 // Stats
 // ---------------------------------------------------------------------------
+
+/** Cheap helper: just the last scan date from report filenames. No role parsing. */
+export function getLastScanDate(): string {
+  const reportsDir = join(ROOT, "reports");
+  if (!existsSync(reportsDir)) return "";
+  const scanFiles = readdirSync(reportsDir)
+    .filter((f) => f.startsWith("job-scan-") && f.endsWith(".md"))
+    .sort()
+    .reverse();
+  return scanFiles.length > 0
+    ? scanFiles[0].replace("job-scan-", "").replace(".md", "")
+    : "";
+}
+
 export function getStats(): ScanStats {
   const roles = getRoles();
   const signals = getSignals();
