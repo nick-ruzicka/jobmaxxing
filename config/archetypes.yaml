@@ -16,7 +16,7 @@ archetypes:
   - id: gtm-engineering
     name: GTM Engineer
     description: Engineer who builds GTM infrastructure — outbound systems, signal engines, CRM intelligence
-    maturity: expanding
+    maturity: primary
     resume: autoapply/resumes/parsed/gtm-engineering.html
     required_signals:
       - technical_role
@@ -41,7 +41,7 @@ archetypes:
   - id: ai-operations
     name: AI Operations
     description: Operator who builds AI-native systems for revenue, operations, and customer-facing teams
-    maturity: expanding
+    maturity: primary
     resume: autoapply/resumes/parsed/ai-operations.html
     required_signals:
       - ai_native_org
@@ -63,7 +63,7 @@ archetypes:
   - id: fde
     name: Forward Deployed Engineer
     description: Engineer embedded with customers to deploy and customize products
-    maturity: expanding
+    maturity: primary
     resume: autoapply/resumes/parsed/fde.html
     required_signals:
       - technical_role
@@ -83,7 +83,7 @@ archetypes:
   - id: web3-bd
     name: Web3 BD
     description: BD/Partnerships at institutional-grade Web3 companies
-    maturity: high-conviction
+    maturity: fallback
     resume: autoapply/resumes/parsed/web3-bd.html
     required_signals:
       - web3_context
@@ -128,7 +128,7 @@ archetypes:
   - id: web3-bizops
     name: Web3 BizOps
     description: Operations/Strategy at institutional-grade Web3 companies
-    maturity: high-conviction
+    maturity: fallback
     resume: autoapply/resumes/parsed/web3-bizops.html
     required_signals:
       - web3_context

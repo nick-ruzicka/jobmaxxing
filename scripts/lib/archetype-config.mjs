@@ -27,7 +27,12 @@ export const ARCHETYPE_IDS = [
 ];
 
 const REQUIRED_FIELDS = ["id", "name", "description", "maturity", "resume"];
-const VALID_MATURITY = new Set(["expanding", "high-conviction"]);
+// Maturity taxonomy:
+//   primary     — aspirational target archetype (gtm-engineering, ai-operations, fde)
+//   conditional — only fires under specific signals (future: revops-technical)
+//   fallback    — experience exists but only under sub-conditions (web3-* when
+//                 stablecoin-adjacent)
+const VALID_MATURITY = new Set(["primary", "conditional", "fallback"]);
 
 let _cached = null;
 
@@ -81,7 +86,7 @@ function validate(config) {
       }
     }
     if (!VALID_MATURITY.has(a.maturity)) {
-      throw new Error(`archetypes.yaml: invalid maturity '${a.maturity}' for ${a.id} (expected: expanding | high-conviction)`);
+      throw new Error(`archetypes.yaml: invalid maturity '${a.maturity}' for ${a.id} (expected: primary | conditional | fallback)`);
     }
     if (seenIds.has(a.id)) {
       throw new Error(`archetypes.yaml: duplicate archetype id '${a.id}'`);

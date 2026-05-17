@@ -21,7 +21,13 @@ export function ArchetypeCard({
   archetype: Archetype;
   roleCount: number;
 }) {
-  const maturityColor = archetype.maturity === "high-conviction" ? "amber" : "accent";
+  // primary = aspirational (accent), conditional = neutral, fallback = amber/caution
+  const maturityColor: "accent" | "neutral" | "amber" =
+    archetype.maturity === "primary"
+      ? "accent"
+      : archetype.maturity === "fallback"
+        ? "amber"
+        : "neutral";
   const totalKeywords = (archetype.reward_signals ?? []).reduce(
     (sum, g) => sum + (g.keywords?.length ?? 0),
     0,
@@ -35,7 +41,7 @@ export function ArchetypeCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="text-[14px] font-semibold text-text-primary">{archetype.name}</h3>
-            <Badge color={maturityColor as "amber" | "accent"}>{archetype.maturity}</Badge>
+            <Badge color={maturityColor}>{archetype.maturity}</Badge>
           </div>
           <p className="mt-1 text-[12px] text-text-tertiary">{archetype.description}</p>
         </div>

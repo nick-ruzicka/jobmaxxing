@@ -41,7 +41,7 @@ test("archetype-config — getArchetype returns specific archetype", () => {
   assert.ok(a);
   assert.equal(a.id, "gtm-engineering");
   assert.equal(a.name, "GTM Engineer");
-  assert.equal(a.maturity, "expanding");
+  assert.equal(a.maturity, "primary");
 });
 
 test("archetype-config — getArchetype returns undefined for unknown id", () => {
@@ -115,12 +115,12 @@ archetypes:
   - id: dupe
     name: One
     description: x
-    maturity: expanding
+    maturity: primary
     resume: x.html
   - id: dupe
     name: Two
     description: y
-    maturity: expanding
+    maturity: primary
     resume: y.html
 `);
   assert.throws(() => loadArchetypeConfig(path), /duplicate archetype id/);
@@ -146,7 +146,7 @@ archetypes:
   - id: a
     name: A
     description: a
-    maturity: expanding
+    maturity: primary
     resume: a.html
     institutional_companies_boost:
       inherit_from: nonexistent
@@ -161,7 +161,7 @@ archetypes:
   - id: x
     name: x
     description: x
-    maturity: expanding
+    maturity: primary
     resume: x.html
     reward_signals:
       - keywords: [a, b]
