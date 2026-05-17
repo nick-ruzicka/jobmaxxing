@@ -255,6 +255,24 @@ describe("aggregateCompany — hiring_velocity", () => {
 // aggregateAllCompanies
 // ---------------------------------------------------------------------------
 
+describe("aggregateCompany — disk-loader path", () => {
+  it("does not throw when called without an injected watchlist (uses the real loader)", () => {
+    // Regression for the original `watchlist is not iterable` bug —
+    // readCompaniesFile() returns { entries, path } and the aggregator must
+    // unwrap to the entries array. We can't easily assert disk content here,
+    // but verifying the no-throw path is enough to catch the type mismatch.
+    const opts = {
+      seenUrls: SEEN,
+      enrichments: ENRICH,
+      signals: SIGNALS,
+      // watchlist intentionally omitted — forces loadWatchlist() path
+    };
+    // Either a known fixture company or null is acceptable; the assertion is
+    // that the call doesn't throw.
+    assert.doesNotThrow(() => aggregateCompany("acmeai", opts));
+  });
+});
+
 describe("aggregateAllCompanies", () => {
   it("returns one entry per distinct company (roles ∪ signals)", () => {
     const all = aggregateAllCompanies(FIXTURES);

@@ -61,8 +61,12 @@ function loadSignals() {
 }
 
 function loadWatchlist() {
+  // readCompaniesFile returns { entries, path } — unwrap to the entries array
+  // the aggregator expects. Returning the wrapper object directly caused a
+  // "watchlist is not iterable" TypeError at runtime.
   try {
-    return readCompaniesFile();
+    const { entries } = readCompaniesFile();
+    return entries;
   } catch {
     return [];
   }
