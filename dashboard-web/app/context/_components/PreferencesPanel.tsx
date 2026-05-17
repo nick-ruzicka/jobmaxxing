@@ -55,11 +55,31 @@ export function PreferencesPanel({
             ))}
           </div>
         )}
-        <div className="mt-4">
-          <div className="text-[11px] font-medium text-text-secondary">global_disqualifiers (from archetypes.yaml)</div>
-          <pre className="mt-1 overflow-x-auto rounded bg-surface-3 p-2 text-[11px] text-text-secondary">
-            {JSON.stringify(globalDisqualifiers, null, 2)}
-          </pre>
+        <div className="mt-4 space-y-2">
+          <div className="text-[11px] font-medium text-text-secondary">
+            global_disqualifiers (from archetypes.yaml)
+          </div>
+          {Object.entries(globalDisqualifiers).map(([k, v]) => (
+            <div key={k}>
+              <div className="text-[11px] text-text-tertiary">{k}</div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {Array.isArray(v) ? (
+                  (v as string[]).map((item) => (
+                    <code
+                      key={item}
+                      className="inline-block rounded bg-surface-3 px-2 py-0.5 text-[11px] text-text-secondary"
+                    >
+                      {item}
+                    </code>
+                  ))
+                ) : (
+                  <code className="inline-block rounded bg-surface-3 px-2 py-0.5 text-[11px] text-text-secondary">
+                    {typeof v === "number" && v >= 1000 ? `$${v.toLocaleString()}` : String(v)}
+                  </code>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </Section>
 

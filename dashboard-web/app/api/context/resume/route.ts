@@ -38,6 +38,11 @@ export async function GET(request: Request) {
 <html><head><meta charset="utf-8"><title>${archetype} resume</title>
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1f1f1f; }
+  .nav-bar { display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid #ddd; font-size: 0.9em; }
+  .nav-bar a { color: #555; text-decoration: none; }
+  .nav-bar a:hover { color: #1f1f1f; text-decoration: underline; }
+  .nav-bar .sep { color: #ccc; }
+  .nav-bar .archetype-label { color: #1f1f1f; font-weight: 600; }
   h1 { margin-top: 0; }
   .resume-header { border-bottom: 1px solid #ddd; padding-bottom: 0.5rem; margin-bottom: 1rem; }
   .contact { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; font-size: 0.85em; color: #555; }
@@ -60,6 +65,11 @@ export async function GET(request: Request) {
   section.experience h2, section.education h2, section.skills-section h2 { font-size: 1.1em; border-bottom: 1px solid #eee; margin-top: 1.5rem; padding-bottom: 0.25rem; }
 </style>
 </head><body>
+<nav class="nav-bar">
+  <a href="/context">&larr; Back to Context</a>
+  <span class="sep">·</span>
+  <span class="archetype-label">${archetype} resume</span>
+</nav>
 ${body}
 </body></html>`;
 

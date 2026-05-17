@@ -72,7 +72,7 @@ export function ArchetypeCard({
           Resume: <code className="text-text-secondary">{archetype.resume.replace("autoapply/resumes/parsed/", "")}</code>
         </span>
         <a
-          href={`/${archetype.resume}`}
+          href={`/api/context/resume?archetype=${archetype.id}`}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-accent hover:underline"
