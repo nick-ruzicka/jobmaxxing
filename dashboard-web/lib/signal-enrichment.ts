@@ -5,8 +5,9 @@
 
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
-import { ROOT, readJsonSafe } from "./data";
+import { ROOT, readJsonSafe, getRoles } from "./data";
 import type { Signal } from "./types";
+import { countOpenRolesForCompany } from "./role-matching";
 
 // Import the matcher (ESM → works in Next.js server components)
 import {
@@ -21,8 +22,22 @@ export type HiringVelocity = "cold" | "warming" | "hot" | "on_fire";
 
 export interface SignalMatch {
   archetypes_matched: string[];
+  /**
+   * Archetype-matched role count from the legacy matcher. Kept for internal
+   * use (velocity classification, the expanded detail panel breakdown). UI
+   * should prefer `open_roles_count` for the headline "N matching roles"
+   * display — it's the canonical predicate from lib/role-matching.ts and
+   * matches what /companies/[slug] and /pipeline?company=X show.
+   */
   archetype_roles_count: number;
   total_roles: number;
+  /**
+   * Canonical open-roles count (lib/role-matching.ts). Used for the
+   * "N matching roles" label so /signals, /companies, and /pipeline agree.
+   * Zero means the signal is stale relative to the current pipeline data
+   * (signal fired some time ago, no live open roles right now).
+   */
+  open_roles_count: number;
   hiring_velocity: HiringVelocity;
   has_pipeline_roles: boolean;
   match_status: MatchStatus;
@@ -49,10 +64,17 @@ export function getSignalMatches(signals: Signal[]): Map<string, SignalMatch> {
   const signalInput = signals.map((s) => ({ slug: s.slug, name: s.name }));
   const rawResults = matchSignalCompanies(signalInput, seenUrls, enrichments);
 
+  // Canonical open-role count — single source of truth shared with /companies
+  // and /pipeline. ISSUE-002: before this, /signals reported "1 matching role"
+  // for Mistral while /companies/mistralai reported 0 and the pipeline filter
+  // returned 0/1262 — three different answers for the same company.
+  const allRoles = getRoles({ includeAggregator: true });
+
   const results = new Map<string, SignalMatch>();
   for (const [slug, match] of rawResults) {
     results.set(slug, {
       ...match,
+      open_roles_count: countOpenRolesForCompany(allRoles, slug),
       match_status: getMatchStatus(match),
     });
   }
