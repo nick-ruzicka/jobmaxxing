@@ -12,9 +12,7 @@ import { countOpenRolesForCompany } from "./role-matching";
 // Import the matcher (ESM → works in Next.js server components)
 import {
   matchSignalCompanies,
-  passesArchetypeFilter,
   matchStatus as getMatchStatus,
-  classifyVelocity,
 } from "../../scripts/lib/company-archetype-matcher.mjs";
 
 export type MatchStatus = "confirmed_match" | "confirmed_no_match" | "unknown";
