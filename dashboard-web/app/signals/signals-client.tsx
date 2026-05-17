@@ -170,16 +170,17 @@ export function SignalsPage({
             </SectionLabel>
             <div className="grid gap-2 lg:grid-cols-2">
               {visibleActing.map((s) => (
-                <Link
+                <div
                   key={s.slug}
-                  href={`/pipeline?company=${s.slug}&from=signals`}
-                  className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3 transition-colors hover:bg-surface-3"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => router.push(`/pipeline?company=${s.slug}&from=signals`)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/pipeline?company=${s.slug}&from=signals`); }}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3 transition-colors hover:bg-surface-3"
                 >
                   <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      {/* Name links to the per-company drilldown (intel view); the
-                          surrounding card link still goes to /pipeline (act view). */}
                       <Link
                         href={`/companies/${s.slug}`}
                         onClick={(e) => e.stopPropagation()}
@@ -198,7 +199,7 @@ export function SignalsPage({
                     </div>
                   </div>
                   <DismissButton slug={s.slug} onDismiss={handleDismiss} />
-                </Link>
+                </div>
               ))}
             </div>
           </section>
@@ -212,10 +213,13 @@ export function SignalsPage({
             </SectionLabel>
             <div className="grid gap-2 lg:grid-cols-2">
               {visibleWarming.map((s) => (
-                <Link
+                <div
                   key={s.slug}
-                  href={`/pipeline?company=${s.slug}&from=signals`}
-                  className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3 transition-colors hover:bg-surface-3"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => router.push(`/pipeline?company=${s.slug}&from=signals`)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/pipeline?company=${s.slug}&from=signals`); }}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3 transition-colors hover:bg-surface-3"
                 >
                   <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" />
                   <div className="min-w-0 flex-1">
@@ -235,7 +239,7 @@ export function SignalsPage({
                     </div>
                   </div>
                   <DismissButton slug={s.slug} onDismiss={handleDismiss} />
-                </Link>
+                </div>
               ))}
             </div>
           </section>

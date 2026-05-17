@@ -15,6 +15,7 @@
 // Pure-ish: deterministic given inputs. Disk reads only happen when opts
 // fields are absent. No writes.
 
+import { createHash } from "crypto";
 import { readFileSync, existsSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -151,7 +152,7 @@ function indexWatchlist(watchlist) {
  * approach so a role id is comparable across surfaces.
  */
 function roleIdFromUrl(url) {
-  return Buffer.from(url).toString("base64").slice(0, 12);
+  return createHash("sha256").update(url).digest("hex").slice(0, 16);
 }
 
 // ---------------------------------------------------------------------------

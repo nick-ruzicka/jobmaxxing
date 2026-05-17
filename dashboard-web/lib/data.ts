@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { readFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import type {
@@ -351,7 +352,7 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
       : explainScore(cleanedTitle, company, location, allTrackedSlugs, score);
 
     roles.push({
-      id: Buffer.from(url).toString("base64").slice(0, 12),
+      id: createHash("sha256").update(url).digest("hex").slice(0, 16),
       url,
       title: cleanedTitle,
       company,
