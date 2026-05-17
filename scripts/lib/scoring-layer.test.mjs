@@ -239,6 +239,30 @@ test("scoring-layer — adjusted_score is clamped to [0, 10]", () => {
   assert.ok(result.adjusted_score <= 10);
 });
 
+test("scoring-layer — null primary archetype is handled gracefully (no archetype lens)", () => {
+  // When classifier returns primary=null (no-match), scoring still applies
+  // location / comp / etc. — just no archetype-lens contribution.
+  const result = adjustScore(
+    7,
+    {
+      title: "Office Manager",
+      company: "WeWork",
+      location_workplace: "hybrid",
+      location_city: "New York",
+      location_region: "NY",
+    },
+    null, // ← null primary
+    [],   // ← empty secondary
+  );
+  assert.equal(result.disqualified, false);
+  // Location bump still applies
+  const loc = result.adjustments.find((a) => a.source.startsWith("location:"));
+  assert.ok(loc);
+  // No archetype adjustment present
+  const arch = result.adjustments.find((a) => a.source.startsWith("archetype:"));
+  assert.equal(arch, undefined);
+});
+
 test("scoring-layer — adjusted_score is clamped to >= 0", () => {
   // Base 1, with heavy onsite + comp penalty
   const result = adjustScore(

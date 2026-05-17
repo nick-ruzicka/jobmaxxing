@@ -96,6 +96,44 @@ test("classifier — empty role doesn't crash", async () => {
   assert.equal(result.needs_review, true);
 });
 
+test("classifier — empty role returns primary=null (no YAML-order fallback)", async () => {
+  const result = await classifyArchetype({}, { rulesOnly: true, archetypes: ARCHETYPES });
+  assert.equal(result.primary, null);
+  assert.equal(result.confidence, 0);
+  assert.deepEqual(result.secondary, []);
+  assert.ok(result.reasoning.startsWith("no-match:"));
+});
+
+test("classifier — role with no archetype signals returns null", async () => {
+  const result = await classifyArchetype(
+    {
+      title: "Office Coordinator",
+      company: "WeWork",
+      description: "Manage office logistics, coordinate vendor visits, run weekly all-hands.",
+    },
+    { rulesOnly: true, archetypes: ARCHETYPES },
+  );
+  // Office Coordinator matches none of the title patterns. "office", "logistics",
+  // "vendor", "all-hands" hit no reward_signals. Should be no-match.
+  assert.equal(result.primary, null);
+  assert.equal(result.needs_review, true);
+});
+
+test("classifier — weak match above threshold keeps primary (not flipped to null)", async () => {
+  // Title low-match scores +20 which is above NO_MATCH_THRESHOLD (10).
+  const result = await classifyArchetype(
+    {
+      title: "Senior AE",
+      company: "Acme",
+      description: "Generic sales role with quota carry. No tooling specified.",
+    },
+    { rulesOnly: true, archetypes: ARCHETYPES },
+  );
+  assert.equal(result.primary, "gtm-engineering"); // Senior AE is in low_match
+  assert.ok(result.confidence > 0);
+  assert.equal(result.needs_review, true); // still flagged review (below 0.8)
+});
+
 // ─── Stage 2 disambiguation (mocked) ──────────────────────────────────────────
 
 test("classifier — close call invokes Claude when caller provided", async () => {

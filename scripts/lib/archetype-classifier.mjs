@@ -23,6 +23,13 @@ export const NEEDS_REVIEW_THRESHOLD = 0.8;
 export const DISAMBIGUATION_GAP = 0.15; // gap_ratio < this triggers Stage 2
 export const SECONDARY_TAG_THRESHOLD = 0.4; // fitness >= this → tagged as secondary
 export const ESTIMATED_CLAUDE_COST_PER_CALL = 0.02; // ~$0.02/call for Sonnet, ~2K in / 400 out
+// Minimum raw_score for a classification to be considered a real match. Below
+// this, primary returns null (rather than the YAML-first archetype) and the
+// role is flagged needs_review. Empirically chosen at 10 — see
+// WORK_LOG_POST_TASK_G.md threshold analysis: raw 0-9 is dominated by broken-
+// content scrapes and pure-default fall-through; raw 10+ retains borderline
+// real matches like "GTM AI Engineer @ Superhuman" (raw=15).
+export const NO_MATCH_THRESHOLD = 10;
 
 const CLAUDE_MODEL = "claude-sonnet-4-20250514";
 
@@ -42,23 +49,39 @@ export async function classifyArchetype(role, opts = {}) {
 
   const primary = stage1[0];
   const runnerUp = stage1[1];
+  const hasReasonableMatch = !!primary && primary.raw_score >= NO_MATCH_THRESHOLD;
   const gapRatio =
     primary && primary.raw_score > 0
       ? (primary.raw_score - (runnerUp?.raw_score ?? 0)) / primary.raw_score
       : 0;
 
-  let result = {
-    primary: primary?.id ?? null,
-    confidence: round(primary?.fitness ?? 0),
-    secondary: stage1.slice(1).filter((s) => s.fitness >= SECONDARY_TAG_THRESHOLD).map((s) => s.id),
-    reasoning: `rules: ${stage1.map((s) => `${s.id}=${round(s.fitness)}`).join(", ")}`,
-    classified_at: new Date().toISOString(),
-    needs_review: (primary?.fitness ?? 0) < NEEDS_REVIEW_THRESHOLD,
-    stage: "rules",
-  };
+  let result;
+  if (!hasReasonableMatch) {
+    result = {
+      primary: null,
+      confidence: 0,
+      secondary: [],
+      reasoning: `no-match: no archetype scored >= ${NO_MATCH_THRESHOLD} (top: ${primary?.id ?? "none"}=${primary?.raw_score ?? 0})`,
+      classified_at: new Date().toISOString(),
+      needs_review: true,
+      stage: "rules",
+    };
+  } else {
+    result = {
+      primary: primary.id,
+      confidence: round(primary.fitness),
+      secondary: stage1.slice(1).filter((s) => s.fitness >= SECONDARY_TAG_THRESHOLD).map((s) => s.id),
+      reasoning: `rules: ${stage1.map((s) => `${s.id}=${round(s.fitness)}`).join(", ")}`,
+      classified_at: new Date().toISOString(),
+      needs_review: primary.fitness < NEEDS_REVIEW_THRESHOLD,
+      stage: "rules",
+    };
+  }
 
-  // Stage 2: Claude disambiguation when top-two are close (gap_ratio < threshold)
-  const close = (primary?.fitness ?? 0) >= 0.5 && gapRatio < DISAMBIGUATION_GAP;
+  // Stage 2: Claude disambiguation when top-two are close (gap_ratio < threshold).
+  // Only fires when we have a reasonable primary match — no point disambiguating
+  // a no-match case (everything scored zero).
+  const close = hasReasonableMatch && primary.fitness >= 0.5 && gapRatio < DISAMBIGUATION_GAP;
   const shouldDisambiguate =
     close &&
     !opts.rulesOnly &&
