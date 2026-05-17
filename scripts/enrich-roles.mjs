@@ -49,6 +49,7 @@ import { extractApplyUrl } from "./lib/apply-url-extractor.mjs";
 import { classifyArchetype } from "./lib/archetype-classifier.mjs";
 import { emitEvent as emitCareerOpsEvent } from "./lib/event-writer.mjs";
 import { adjustScore } from "./lib/scoring-layer.mjs";
+import { assessJdQuality } from "./lib/jd-quality-filter.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -825,6 +826,27 @@ async function main() {
       process.stdout.write(" no JD content\n");
       enrichments[url] = { error: "no_jd", timestamp: new Date().toISOString() };
       failed++;
+      continue;
+    }
+
+    // G8 JD quality filter — gate before Claude analysis to save tokens and
+    // prevent classifier contamination. Rejected JDs get a minimal record so
+    // /context/filtered can surface them; they don't flow to /pipeline.
+    const quality = assessJdQuality({
+      title: cleanedTitle,
+      company,
+      description: jdData.description || "",
+      requirements: jdData.requirements || "",
+    });
+    if (!quality.ok) {
+      process.stdout.write(` jd-rejected: ${quality.reason}\n`);
+      enrichments[url] = {
+        enrichment_quality: quality.reason,
+        enrichment_quality_assessed_at: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
+      };
+      // Save incrementally so a crash mid-batch doesn't lose the rejection record.
+      saveJson(ENRICHMENT_PATH, enrichments);
       continue;
     }
 

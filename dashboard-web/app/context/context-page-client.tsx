@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Sliders, Users, FileText, AlertCircle, Activity } from "lucide-react";
+import { Sliders, Users, FileText, AlertCircle, Activity, Filter } from "lucide-react";
 
 import { Badge, PageHeader, SectionLabel } from "@/components/ui";
 
@@ -10,6 +10,7 @@ import { PreferencesPanel } from "./_components/PreferencesPanel";
 import { ResumesPanel } from "./_components/ResumesPanel";
 import { ReviewQueuePanel } from "./_components/ReviewQueuePanel";
 import { RecentEventsPanel } from "./_components/RecentEventsPanel";
+import { FilteredPanel } from "./_components/FilteredPanel";
 
 interface Archetype {
   id: string;
@@ -33,6 +34,14 @@ interface LibraryBullet {
   role: string;
 }
 
+interface FilteredRow {
+  url: string;
+  title: string;
+  company: string;
+  reason: string;
+  assessed_at: string | null;
+}
+
 interface ContextPageClientProps {
   archetypes: Archetype[];
   globalDisqualifiers: Record<string, unknown>;
@@ -49,15 +58,18 @@ interface ContextPageClientProps {
     reasoning: string;
   }>;
   recentEvents: Array<Record<string, unknown>>;
+  filteredRows: FilteredRow[];
+  filteredCounts: Record<string, number>;
 }
 
-type Section = "archetypes" | "preferences" | "resumes" | "review" | "events";
+type Section = "archetypes" | "preferences" | "resumes" | "review" | "filtered" | "events";
 
 const SECTIONS: Array<{ key: Section; label: string; icon: typeof Users }> = [
   { key: "archetypes", label: "Archetypes", icon: Users },
   { key: "preferences", label: "Preferences", icon: Sliders },
   { key: "resumes", label: "Resumes", icon: FileText },
   { key: "review", label: "Review queue", icon: AlertCircle },
+  { key: "filtered", label: "Filtered", icon: Filter },
   { key: "events", label: "Recent events", icon: Activity },
 ];
 
@@ -69,10 +81,13 @@ export function ContextPageClient({
   archetypeCounts,
   needsReview,
   recentEvents,
+  filteredRows,
+  filteredCounts,
 }: ContextPageClientProps) {
   const [section, setSection] = useState<Section>("archetypes");
 
   const reviewCount = needsReview.length;
+  const filteredTotal = filteredRows.length;
 
   return (
     <div className="space-y-6 p-6">
@@ -90,9 +105,11 @@ export function ContextPageClient({
           const badge =
             s.key === "review" && reviewCount > 0
               ? reviewCount
-              : s.key === "archetypes"
-                ? archetypes.length
-                : undefined;
+              : s.key === "filtered" && filteredTotal > 0
+                ? filteredTotal
+                : s.key === "archetypes"
+                  ? archetypes.length
+                  : undefined;
           return (
             <button
               key={s.key}
@@ -139,6 +156,10 @@ export function ContextPageClient({
         {section === "resumes" && <ResumesPanel library={library} />}
 
         {section === "review" && <ReviewQueuePanel rows={needsReview} archetypes={archetypes} />}
+
+        {section === "filtered" && (
+          <FilteredPanel rows={filteredRows} countsByReason={filteredCounts} />
+        )}
 
         {section === "events" && <RecentEventsPanel events={recentEvents} />}
       </div>

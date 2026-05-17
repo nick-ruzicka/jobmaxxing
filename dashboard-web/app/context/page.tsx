@@ -59,7 +59,7 @@ export default function Page() {
   const enrichments = loadEnrichments();
   const seen = loadSeen();
 
-  // Aggregate per-archetype role counts and needs-review queue
+  // Aggregate per-archetype role counts, needs-review queue, and JD-quality-rejected rows
   const archetypeCounts: Record<string, number> = {};
   const needsReview: Array<{
     url: string;
@@ -70,14 +70,38 @@ export default function Page() {
     secondary: string[];
     reasoning: string;
   }> = [];
+  const filteredRows: Array<{
+    url: string;
+    title: string;
+    company: string;
+    reason: string;
+    assessed_at: string | null;
+  }> = [];
+  const filteredCounts: Record<string, number> = {};
 
   for (const [url, e] of Object.entries(enrichments) as [string, Record<string, unknown>][]) {
+    const seenE = (seen as Record<string, Record<string, unknown>>)[url] ?? {};
+
+    // JD-quality-rejected rows take precedence — these don't flow to /pipeline
+    // or the classifier at all, so they don't count toward archetype totals.
+    const quality = e.enrichment_quality as string | undefined;
+    if (quality && quality.startsWith("rejected_")) {
+      filteredCounts[quality] = (filteredCounts[quality] || 0) + 1;
+      filteredRows.push({
+        url,
+        title: (seenE.title as string) || "(no title)",
+        company: (seenE.company as string) || "",
+        reason: quality,
+        assessed_at: (e.enrichment_quality_assessed_at as string) ?? null,
+      });
+      continue;
+    }
+
     const primary = e.archetype_primary as string | undefined;
     if (primary) {
       archetypeCounts[primary] = (archetypeCounts[primary] || 0) + 1;
     }
     if (e.archetype_needs_review) {
-      const seenE = (seen as Record<string, Record<string, unknown>>)[url] ?? {};
       needsReview.push({
         url,
         title: (seenE.title as string) || (e.title as string) || "(no title)",
@@ -90,6 +114,11 @@ export default function Page() {
     }
   }
   needsReview.sort((a, b) => a.confidence - b.confidence);
+  filteredRows.sort((a, b) => {
+    const ta = a.assessed_at ? Date.parse(a.assessed_at) : 0;
+    const tb = b.assessed_at ? Date.parse(b.assessed_at) : 0;
+    return tb - ta;
+  });
 
   // Recent events (last 50). readEvents() comes from a .mjs module without
   // strict typings — coerce through unknown so TS is content.
@@ -110,6 +139,8 @@ export default function Page() {
       archetypeCounts={archetypeCounts}
       needsReview={needsReview}
       recentEvents={recentEvents}
+      filteredRows={filteredRows}
+      filteredCounts={filteredCounts}
     />
   );
 }
