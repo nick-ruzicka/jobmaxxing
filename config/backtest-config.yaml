@@ -1,0 +1,14 @@
+# backtest-config.yaml — controls the backtest gate for proposed scoring rules.
+
+# Number of new rules that must pass the backtest gate before becoming
+# auto-acceptable. After that count, the gate is informational rather than
+# mandatory.
+mandatory_for: 5
+
+# Sample size used by /api/backtest (number of recent roles).
+default_sample_size: 30
+
+# Minimum override-pattern signal strength before meta-scorer proposes a rule.
+override_threshold: 0.30  # >=30% of overrides must match the pattern
+sample_size_min: 5        # need at least 5 overrides matching pattern
+consistency_min: 0.70     # at least 70% same direction
