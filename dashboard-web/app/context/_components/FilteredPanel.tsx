@@ -88,6 +88,7 @@ export function FilteredPanel({
                     href={r.url}
                     target="_blank"
                     rel="noopener noreferrer"
+                    data-action="context:open_filtered_role"
                     className="inline-flex items-center gap-1 text-accent hover:underline"
                   >
                     open <ExternalLink size={10} />

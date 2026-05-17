@@ -71,6 +71,7 @@ export function ResumesPanel({ library }: { library: Library | null }) {
                   href={`/api/context/resume?archetype=${arch}`}
                   target="_blank"
                   rel="noopener noreferrer"
+                  data-action={`context:view_resume_${arch}`}
                   className="inline-flex items-center gap-1 text-[12px] text-accent hover:underline"
                 >
                   view HTML <ExternalLink size={10} />
