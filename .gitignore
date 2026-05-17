@@ -109,5 +109,19 @@ autoapply/resumes/source/*.pdf
 # Task G budget tracker — machine-local counter for Claude API spend
 data/budget/
 
+# Per-company thesis cache — local Claude output keyed by slug
+data/company-theses/
+
 # Dogfood week private notes
 notes/dogfood-week.md
+
+# PersonaLab session artifacts (regenerated on every orchestrator run)
+qa/runs/
+qa/reports/
+qa/regressions/
+qa/scenarios-results/
+qa/synthesis/
+personalab/__pycache__/
+personalab/**/__pycache__/
+qa/__pycache__/
+qa/**/__pycache__/

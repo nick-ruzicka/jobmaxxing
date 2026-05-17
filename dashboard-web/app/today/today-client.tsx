@@ -139,6 +139,12 @@ export function TodayPage({
         pushToast("error", body.message ?? "Hold on — regen is rate-limited (1 / 5 min).");
         return;
       }
+      if (res.status === 402 && body.error === "credits_exhausted") {
+        // Anthropic credits are out — show the user-facing message verbatim;
+        // it already contains the top-up URL.
+        pushToast("error", body.message ?? "Anthropic credits exhausted. Top up to regenerate.");
+        return;
+      }
       if (!res.ok) {
         pushToast("error", body.message ?? "Couldn't regenerate — check the server logs.");
         return;

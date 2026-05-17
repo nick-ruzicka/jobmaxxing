@@ -6,14 +6,13 @@
  * a fresh-fit role that should be applied to, a stale follow-up, a missed
  * lead, etc.
  *
- * Status (2026-05-13): placeholder. Items are currently hard-coded so the
- * visual lands now; T4 will replace the sample data with agent-generated
- * suggestions. The component API is the contract — keep it stable.
- *
  * Visual: a warm-tinted hero card. Items separated by hairlines, action
  * links use the accent color. Empty state when items.length === 0.
+ * Click a row to expand inline detail (role context, score, stack).
  */
 
+import { useState } from "react";
+import Link from "next/link";
 import {
   Calendar,
   Sparkles,
@@ -112,6 +111,8 @@ export function MorningBriefing({
   const HeaderIcon = tone === "blue" ? AlertTriangle : ShieldCheck;
   const headerIconClass = tone === "blue" ? "text-blue" : "text-amber";
 
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
   return (
     // Warm/cool tint: a very low-opacity wash. Reads as the highest-priority
     // surface without competing with the accent-fill hero stat tiles below.
@@ -171,36 +172,57 @@ export function MorningBriefing({
           {items.map((item, idx) => {
             const Icon = ICONS[item.type];
             const iconTone = ICON_TONE[item.type];
+            const isExpanded = expandedIdx === idx;
+            const ctx = item.context as Record<string, unknown> | undefined;
             return (
-              <li key={idx} className="flex items-start gap-3 px-4 py-3">
-                <span aria-hidden className={`mt-0.5 shrink-0 ${iconTone}`}>
-                  <Icon size={16} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-medium text-text-primary">{item.title}</div>
-                  {item.subtitle && (
-                    <div className="mt-0.5 text-[12px] text-text-tertiary">{item.subtitle}</div>
-                  )}
-                  {item.action_label && item.action_href && (
-                    <a
-                      href={item.action_href}
-                      className="mt-1 inline-flex items-center gap-1 text-[12px] font-medium text-accent hover:underline"
-                    >
-                      {item.action_label}
-                      <ArrowRight size={12} />
-                    </a>
-                  )}
+              <li key={idx}>
+                <div
+                  data-action="today:click_briefing_item"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setExpandedIdx(isExpanded ? null : idx)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpandedIdx(isExpanded ? null : idx); }}
+                  className="flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-3/50"
+                >
+                  <span aria-hidden className={`mt-0.5 shrink-0 ${iconTone}`}>
+                    <Icon size={16} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-medium text-text-primary">{item.title}</div>
+                    {item.subtitle && (
+                      <div className="mt-0.5 text-[12px] text-text-tertiary">{item.subtitle}</div>
+                    )}
+                    {item.action_label && item.action_href && (
+                      <a
+                        href={item.action_href}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-1 inline-flex items-center gap-1 text-[12px] font-medium text-accent hover:underline"
+                      >
+                        {item.action_label}
+                        <ArrowRight size={12} />
+                      </a>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {onItemAsk && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onItemAsk(item, idx); }}
+                        className="rounded p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-secondary"
+                        title="Ask the agent about this"
+                        aria-label="Ask the agent about this item"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    )}
+                    <ChevronRight
+                      size={14}
+                      className={`text-text-muted transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                    />
+                  </div>
                 </div>
-                {onItemAsk && (
-                  <button
-                    type="button"
-                    onClick={() => onItemAsk(item, idx)}
-                    className="-mr-1 mt-0.5 shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-secondary"
-                    title="Ask the agent about this"
-                    aria-label="Ask the agent about this item"
-                  >
-                    <ChevronRight size={14} />
-                  </button>
+                {isExpanded && ctx && (
+                  <BriefingDetailPanel context={ctx} />
                 )}
               </li>
             );
@@ -211,7 +233,106 @@ export function MorningBriefing({
   );
 }
 
-// SAMPLE_BRIEFING_ITEMS used to live here as T1's placeholder feed. T4 deleted
-// it once the briefing generator + /today route landed — real items now come
-// from data/briefings/YYYY-MM-DD.json via getTodaysBriefing(). Empty briefing
-// renders the "No urgent actions today — pipeline is healthy." state.
+// ─── Inline detail panel for expanded briefing items ────────────────────
+
+function BriefingDetailPanel({ context }: { context: Record<string, unknown> }) {
+  const company = context.company as string | undefined;
+  const role = context.role as string | undefined;
+  const url = context.url as string | undefined;
+  const fitScore = context.fit_score as number | undefined;
+  const compRange = context.comp_range as string | undefined;
+  const stack = context.stack as string[] | undefined;
+  const verdictExcerpt = context.verdict_excerpt as string | undefined;
+  const draftMessage = context.draft_message as string | undefined;
+  const daysStale = context.days_stale as number | undefined;
+  const status = context.status as string | undefined;
+
+  // Derive company slug for /companies link
+  const companySlug = company
+    ? company.toLowerCase().replace(/[^a-z0-9]/g, "")
+    : null;
+
+  return (
+    <div className="border-t border-border-subtle bg-surface-1 px-4 py-3 text-[12px]">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Left column: metadata */}
+        <div className="space-y-2">
+          {fitScore !== undefined && (
+            <div className="flex items-center gap-2">
+              <span className="text-text-tertiary">Score:</span>
+              <span className="font-semibold text-text-primary">{fitScore}/10</span>
+            </div>
+          )}
+          {compRange && (
+            <div className="flex items-center gap-2">
+              <span className="text-text-tertiary">Comp:</span>
+              <span className="text-text-secondary">{compRange}</span>
+            </div>
+          )}
+          {status && (
+            <div className="flex items-center gap-2">
+              <span className="text-text-tertiary">Status:</span>
+              <span className="text-text-secondary">{status}</span>
+            </div>
+          )}
+          {daysStale !== undefined && (
+            <div className="flex items-center gap-2">
+              <span className="text-text-tertiary">Days stale:</span>
+              <span className="text-amber">{daysStale}d</span>
+            </div>
+          )}
+          {stack && stack.length > 0 && (
+            <div>
+              <span className="text-text-tertiary">Stack: </span>
+              <span className="text-text-secondary">{stack.join(", ")}</span>
+            </div>
+          )}
+        </div>
+        {/* Right column: navigation links */}
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-accent hover:underline"
+            >
+              Open JD <ArrowRight size={11} />
+            </a>
+          )}
+          {companySlug && (
+            <Link
+              href={`/companies/${companySlug}`}
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-accent hover:underline"
+            >
+              Company detail <ArrowRight size={11} />
+            </Link>
+          )}
+          <Link
+            href="/pipeline"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-accent hover:underline"
+          >
+            View in pipeline <ArrowRight size={11} />
+          </Link>
+        </div>
+      </div>
+      {/* Verdict / draft message */}
+      {verdictExcerpt && (
+        <p className="mt-3 rounded bg-surface-2 p-2 text-[11px] leading-relaxed text-text-secondary">
+          {verdictExcerpt}
+        </p>
+      )}
+      {draftMessage && (
+        <div className="mt-3">
+          <div className="mb-1 text-[11px] font-medium text-text-tertiary">Draft follow-up:</div>
+          <p className="rounded bg-surface-2 p-2 text-[11px] leading-relaxed text-text-secondary">
+            {draftMessage}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}

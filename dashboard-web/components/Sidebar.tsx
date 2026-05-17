@@ -13,6 +13,7 @@ import {
   Sun,
   BarChart3,
   Sliders,
+  Beaker,
 } from "lucide-react";
 import { Badge, SectionLabel } from "@/components/ui";
 
@@ -46,6 +47,10 @@ export function Sidebar({
     { href: "/analytics", label: "Analytics", icon: BarChart3 },
     { href: "/interviews", label: "Interview Prep", icon: GraduationCap },
     { href: "/context", label: "Context", icon: Sliders },
+    // PersonaLab — multi-persona QA framework. Reads from qa/ on the
+    // filesystem (no DB), so it's safe to land empty when the
+    // orchestrator hasn't run yet.
+    { href: "/qa-reports", label: "QA Reports", icon: Beaker },
   ];
 
   return (

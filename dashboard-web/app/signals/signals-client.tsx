@@ -1,10 +1,13 @@
 "use client";
 
-import { Flame, Eye, Radio, Mic } from "lucide-react";
-import type { Signal } from "@/lib/types";
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Eye, Radio, Mic, Target, Thermometer, EyeOff, ChevronDown, ChevronRight, X } from "lucide-react";
+import type { EnrichedSignal } from "@/lib/signal-enrichment";
 import { Shell } from "@/components/Shell";
 import { useScan } from "@/components/ScanContext";
 import { PageHeader, SectionLabel, Badge, Button, TableContainer, Th, Tr, EmptyState } from "@/components/ui";
+import Link from "next/link";
 
 /** Parse "$25M" / "$1.5B" / "$500K" → number of millions. 0 when missing/unknown. */
 function amountToMillions(amount: string | null): number {
@@ -19,30 +22,59 @@ function amountToMillions(amount: string | null): number {
   return num;
 }
 
-/** Funding tier pill — same gold language as the High Conviction cards above,
- *  muted at $5–20M, neutral grey below $5M, em-dash when missing. The chip IS
- *  the conviction-closeness indicator. */
+/** Funding tier pill */
 function FundingPill({ amount }: { amount: string | null }) {
-  if (!amount) return <span className="text-text-muted">—</span>;
+  if (!amount) return <span className="text-text-muted">&mdash;</span>;
   const m = amountToMillions(amount);
   if (m >= 20) return <Badge color="amber">{amount}</Badge>;
   if (m >= 5) return <Badge color="amber" className="opacity-60">{amount}</Badge>;
   return <Badge color="neutral">{amount}</Badge>;
 }
 
+/** Hiring velocity badge */
+function VelocityBadge({ velocity }: { velocity: string }) {
+  if (velocity === "on_fire") return <Badge color="red">ON FIRE</Badge>;
+  if (velocity === "hot") return <Badge color="amber">HOT</Badge>;
+  if (velocity === "warming") return <Badge color="blue">WARMING</Badge>;
+  return null;
+}
+
+/** Archetype chips */
+function ArchetypeChips({ archetypes }: { archetypes: string[] }) {
+  if (archetypes.length === 0) return null;
+  const labels: Record<string, string> = {
+    "gtm-engineering": "GTM Eng",
+    "ai-operations": "AI Ops",
+    "fde": "FDE",
+    "web3-bd": "Web3 BD",
+    "web3-bizops": "Web3 BizOps",
+  };
+  return (
+    <div className="flex flex-wrap gap-1">
+      {archetypes.map((a) => (
+        <Badge key={a} color="accent">{labels[a] || a}</Badge>
+      ))}
+    </div>
+  );
+}
+
 interface SignalsPageProps {
-  warmLeads: Signal[];
-  monitoring: Signal[];
-  posting: Signal[];
+  actingOnNow: EnrichedSignal[];
+  warmingUp: EnrichedSignal[];
+  monitor: EnrichedSignal[];
+  hidden: EnrichedSignal[];
   totalSignals: number;
-  highConviction: number;
+  actingCount: number;
+  warmingCount: number;
+  monitorCount: number;
+  hiddenCount: number;
   companyCount: number;
   signalCount: number;
   hasWarmLeads: boolean;
   activePursuing: number;
+  highConviction: number;
 }
 
-/** Lives inside <Shell> so it can pull the Signal-Scan action from context. */
 function SignalsHeader({ subtitle }: { subtitle: string }) {
   const { runScan, scanRunning } = useScan();
   return (
@@ -60,20 +92,188 @@ function SignalsHeader({ subtitle }: { subtitle: string }) {
   );
 }
 
+/** Dismiss button — prevents click from bubbling to the parent link. */
+function DismissButton({ slug, onDismiss }: { slug: string; onDismiss: (slug: string) => void }) {
+  return (
+    <button
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDismiss(slug); }}
+      className="ml-auto shrink-0 rounded p-1 text-text-muted hover:bg-surface-3 hover:text-text-secondary transition-colors"
+      title="Never show this company again"
+    >
+      <X size={14} />
+    </button>
+  );
+}
+
+/** Expandable signal card — click to toggle inline detail panel. */
+function SignalCard({
+  signal: s,
+  dotColor,
+  expanded,
+  onToggle,
+  onDismiss,
+  extra,
+}: {
+  signal: EnrichedSignal;
+  dotColor: string;
+  expanded: boolean;
+  onToggle: () => void;
+  onDismiss: (slug: string) => void;
+  extra?: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-2">
+      <div
+        data-action="signals:click_signal_card"
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
+        className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-3"
+      >
+        <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotColor}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/companies/${s.slug}`}
+              onClick={(e) => e.stopPropagation()}
+              className="truncate font-medium text-text-primary hover:text-accent transition-colors"
+            >
+              {s.name}
+            </Link>
+            {extra}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-text-muted">
+            <FundingPill amount={s.amount} />
+            {s.match.archetype_roles_count > 0 && (
+              <span>{s.match.archetype_roles_count} matching roles</span>
+            )}
+            <ArchetypeChips archetypes={s.match.archetypes_matched} />
+          </div>
+        </div>
+        <DismissButton slug={s.slug} onDismiss={onDismiss} />
+        <ChevronRight
+          size={14}
+          className={`shrink-0 text-text-muted transition-transform ${expanded ? "rotate-90" : ""}`}
+        />
+      </div>
+      {expanded && <SignalDetailPanel signal={s} onDismiss={onDismiss} />}
+    </div>
+  );
+}
+
+/** Inline detail panel for an expanded signal card. */
+function SignalDetailPanel({
+  signal: s,
+  onDismiss,
+}: {
+  signal: EnrichedSignal;
+  onDismiss: (slug: string) => void;
+}) {
+  const router = useRouter();
+  return (
+    <div className="border-t border-border-subtle bg-surface-1 px-4 py-3 text-[12px]">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-text-tertiary">Funding:</span>
+            <span className="text-text-secondary">{s.amount || "—"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-text-tertiary">Last checked:</span>
+            <span className="text-text-secondary">{s.lastChecked || "—"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-text-tertiary">Match status:</span>
+            <Badge color={s.match.match_status === "confirmed_match" ? "accent" : "neutral"}>
+              {s.match.match_status.replace(/_/g, " ")}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-text-tertiary">Velocity:</span>
+            <VelocityBadge velocity={s.match.hiring_velocity} />
+          </div>
+          {s.match.total_roles > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-text-tertiary">Total roles:</span>
+              <span className="text-text-secondary">{s.match.total_roles} ({s.match.archetype_roles_count} matching)</span>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <Link
+            href={`/companies/${s.slug}`}
+            className="inline-flex items-center gap-1 text-accent hover:underline"
+          >
+            Company detail →
+          </Link>
+          <Link
+            href={`/pipeline?company=${s.slug}&from=signals`}
+            className="inline-flex items-center gap-1 text-accent hover:underline"
+          >
+            View roles in pipeline →
+          </Link>
+          <button
+            onClick={() => onDismiss(s.slug)}
+            className="inline-flex items-center gap-1 text-red hover:underline"
+          >
+            <X size={12} /> Dismiss permanently
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SignalsPage({
-  warmLeads,
-  monitoring,
-  posting,
+  actingOnNow,
+  warmingUp,
+  monitor,
+  hidden,
   totalSignals,
-  highConviction,
+  actingCount,
+  warmingCount,
+  monitorCount,
+  hiddenCount,
   companyCount,
   signalCount,
   hasWarmLeads,
   activePursuing,
+  highConviction,
 }: SignalsPageProps) {
-  const monitorSorted = [...monitoring].sort(
+  const [hiddenExpanded, setHiddenExpanded] = useState(false);
+  const [expandedSignal, setExpandedSignal] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const router = useRouter();
+
+  const toggleSignal = (slug: string) =>
+    setExpandedSignal((prev) => (prev === slug ? null : slug));
+
+  const handleDismiss = useCallback(async (slug: string) => {
+    setDismissed((prev) => new Set([...prev, slug]));
+    try {
+      await fetch("/api/signals/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug }),
+      });
+      router.refresh();
+    } catch {
+      // Revert optimistic update on failure
+      setDismissed((prev) => { const next = new Set(prev); next.delete(slug); return next; });
+    }
+  }, [router]);
+
+  // Filter out locally-dismissed companies (before server refresh)
+  const visibleActing = actingOnNow.filter((s) => !dismissed.has(s.slug));
+  const visibleWarming = warmingUp.filter((s) => !dismissed.has(s.slug));
+  const visibleMonitor = monitor.filter((s) => !dismissed.has(s.slug));
+
+  const monitorSorted = [...visibleMonitor].sort(
     (a, b) => amountToMillions(b.amount) - amountToMillions(a.amount),
   );
+
+  const subtitle = `${totalSignals} tracked · ${actingCount} acting · ${warmingCount} warming · ${monitorCount} monitor · ${hiddenCount} filtered`;
 
   return (
     <Shell
@@ -83,62 +283,57 @@ export function SignalsPage({
       signalCount={signalCount}
       hasWarmLeads={hasWarmLeads}
     >
-      <SignalsHeader subtitle={`${totalSignals} tracked · ${highConviction} high conviction · ${posting.length} posting`} />
+      <SignalsHeader subtitle={subtitle} />
 
       <div className="space-y-6">
-        {/* High Conviction */}
-        {warmLeads.length > 0 && (
+        {/* Section 1: Acting On Now */}
+        {visibleActing.length > 0 && (
           <section>
-            <SectionLabel icon={<Flame size={12} className="text-amber" />} className="mb-3">
-              High Conviction ({warmLeads.length})
+            <SectionLabel icon={<Target size={12} className="text-emerald" />} className="mb-3">
+              Acting On Now ({visibleActing.length})
             </SectionLabel>
             <div className="grid gap-2 lg:grid-cols-2">
-              {warmLeads.map((s) => (
-                <div
+              {visibleActing.map((s) => (
+                <SignalCard
                   key={s.slug}
-                  className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3"
-                >
-                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" title="High-conviction signal" />
-                  <div className="min-w-0">
-                    <div className="truncate font-medium text-text-primary">{s.name}</div>
-                    <div className="mt-1 flex items-center gap-2 text-[12px] text-text-muted">
-                      {s.amount && <Badge color="amber">{s.amount}</Badge>}
-                      Checked {s.lastChecked}
-                    </div>
-                  </div>
-                </div>
+                  signal={s}
+                  dotColor="bg-emerald"
+                  expanded={expandedSignal === s.slug}
+                  onToggle={() => toggleSignal(s.slug)}
+                  onDismiss={handleDismiss}
+                  extra={<VelocityBadge velocity={s.match.hiring_velocity} />}
+                />
               ))}
             </div>
           </section>
         )}
 
-        {/* Already Posting */}
-        {posting.length > 0 && (
+        {/* Section 2: Warming Up */}
+        {visibleWarming.length > 0 && (
           <section>
-            <SectionLabel icon={<Radio size={12} className="text-emerald" />} className="mb-3">
-              Already Posting ({posting.length})
+            <SectionLabel icon={<Thermometer size={12} className="text-amber" />} className="mb-3">
+              Warming Up ({visibleWarming.length})
             </SectionLabel>
             <div className="grid gap-2 lg:grid-cols-2">
-              {posting.map((s) => (
-                <div
+              {visibleWarming.map((s) => (
+                <SignalCard
                   key={s.slug}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate font-medium text-text-primary">{s.name}</span>
-                    {s.amount && <span className="shrink-0 text-[12px] text-text-muted">{s.amount}</span>}
-                  </div>
-                  <Badge color="emerald" className="shrink-0">Posting detected</Badge>
-                </div>
+                  signal={s}
+                  dotColor="bg-amber"
+                  expanded={expandedSignal === s.slug}
+                  onToggle={() => toggleSignal(s.slug)}
+                  onDismiss={handleDismiss}
+                  extra={s.result === "posting" ? <Badge color="emerald">Posting</Badge> : null}
+                />
               ))}
             </div>
           </section>
         )}
 
-        {/* Monitor */}
+        {/* Section 3: Monitor */}
         <section>
           <SectionLabel icon={<Eye size={12} className="text-text-tertiary" />} className="mb-3">
-            Monitor ({monitoring.length})
+            Monitor ({visibleMonitor.length})
           </SectionLabel>
           <TableContainer>
             <thead className="border-b border-border-subtle bg-surface-1">
@@ -146,12 +341,13 @@ export function SignalsPage({
                 <Th>Company</Th>
                 <Th>Funding</Th>
                 <Th>Last checked</Th>
+                <Th className="w-10"></Th>
               </tr>
             </thead>
             <tbody>
               {monitorSorted.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="p-0">
+                  <td colSpan={4} className="p-0">
                     <EmptyState
                       icon={<Eye size={28} />}
                       title="Nothing on the radar"
@@ -162,15 +358,78 @@ export function SignalsPage({
               ) : (
                 monitorSorted.map((s) => (
                   <Tr key={s.slug} zebra>
-                    <td className="px-3 py-3 font-medium text-text-primary">{s.name}</td>
+                    <td className="px-3 py-3 font-medium text-text-primary">
+                      <Link
+                        href={`/companies/${s.slug}`}
+                        className="hover:text-accent transition-colors"
+                      >
+                        {s.name}
+                      </Link>
+                    </td>
                     <td className="px-3 py-3 tabular-nums"><FundingPill amount={s.amount} /></td>
                     <td className="px-3 py-3 text-[12px] tabular-nums text-text-muted">{s.lastChecked}</td>
+                    <td className="px-3 py-3">
+                      <button
+                        onClick={() => handleDismiss(s.slug)}
+                        className="rounded p-1 text-text-muted hover:bg-surface-3 hover:text-text-secondary transition-colors"
+                        title="Never show this company again"
+                      >
+                        <X size={12} />
+                      </button>
+                    </td>
                   </Tr>
                 ))
               )}
             </tbody>
           </TableContainer>
         </section>
+
+        {/* Section 4: Hidden by Filter (collapsed) */}
+        {hidden.length > 0 && (
+          <section>
+            <button
+              onClick={() => setHiddenExpanded(!hiddenExpanded)}
+              className="flex items-center gap-2 text-[13px] text-text-muted hover:text-text-secondary transition-colors"
+            >
+              {hiddenExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <EyeOff size={12} />
+              Hidden by Filter ({hidden.length})
+            </button>
+            {hiddenExpanded && (
+              <div className="mt-3">
+                <TableContainer>
+                  <thead className="border-b border-border-subtle bg-surface-1">
+                    <tr>
+                      <Th>Company</Th>
+                      <Th>Funding</Th>
+                      <Th>Reason</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hidden.map((s) => (
+                      <Tr key={s.slug} zebra>
+                        <td className="px-3 py-3 text-text-secondary">
+                          <Link
+                            href={`/companies/${s.slug}`}
+                            className="hover:text-accent transition-colors"
+                          >
+                            {s.name}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-3 tabular-nums"><FundingPill amount={s.amount} /></td>
+                        <td className="px-3 py-3 text-[12px] text-text-muted">
+                          {s.match.match_status === "confirmed_no_match"
+                            ? "No matching archetypes"
+                            : "Dismissed"}
+                        </td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </TableContainer>
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </Shell>
   );

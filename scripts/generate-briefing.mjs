@@ -319,6 +319,15 @@ async function callClaude(prompt) {
 
   if (!res.ok) {
     const body = await res.text();
+    // Credit-exhausted detection — surfaced via a sentinel prefix so the
+    // dashboard's /api/briefing/regenerate route can return a structured 402
+    // with a top-up link instead of a raw stderr dump in the regen toast.
+    let parsedErr = null;
+    try { parsedErr = JSON.parse(body); } catch {}
+    const apiMsg = parsedErr?.error?.message ?? "";
+    if (res.status === 400 && /credit balance|credits.*too low|purchase credits/i.test(apiMsg)) {
+      throw new Error(`CREDITS_EXHAUSTED: ${apiMsg}`);
+    }
     throw new Error(`Anthropic API ${res.status}: ${body.slice(0, 500)}`);
   }
 

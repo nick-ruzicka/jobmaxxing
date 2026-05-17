@@ -113,6 +113,7 @@ export function ContextPageClient({
           return (
             <button
               key={s.key}
+              data-action={`context:view_${s.key}`}
               onClick={() => setSection(s.key)}
               className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-medium transition-colors ${
                 active

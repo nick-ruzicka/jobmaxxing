@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { readFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import type {
@@ -351,7 +352,7 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
       : explainScore(cleanedTitle, company, location, allTrackedSlugs, score);
 
     roles.push({
-      id: Buffer.from(url).toString("base64").slice(0, 12),
+      id: createHash("sha256").update(url).digest("hex").slice(0, 16),
       url,
       title: cleanedTitle,
       company,
@@ -478,6 +479,20 @@ export function getCompanies(): Company[] {
 // ---------------------------------------------------------------------------
 // Stats
 // ---------------------------------------------------------------------------
+
+/** Cheap helper: just the last scan date from report filenames. No role parsing. */
+export function getLastScanDate(): string {
+  const reportsDir = join(ROOT, "reports");
+  if (!existsSync(reportsDir)) return "";
+  const scanFiles = readdirSync(reportsDir)
+    .filter((f) => f.startsWith("job-scan-") && f.endsWith(".md"))
+    .sort()
+    .reverse();
+  return scanFiles.length > 0
+    ? scanFiles[0].replace("job-scan-", "").replace(".md", "")
+    : "";
+}
+
 export function getStats(): ScanStats {
   const roles = getRoles();
   const signals = getSignals();

@@ -36,7 +36,7 @@ export function ArchetypeCard({
   const tier2Count = archetype.institutional_companies_boost?.tier_2?.length ?? 0;
 
   return (
-    <div className="rounded-lg border border-border-subtle bg-surface-2 p-4">
+    <div className="rounded-lg border border-border-subtle bg-surface-2 p-4" data-action={`context:view_archetype_${archetype.id}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -75,6 +75,7 @@ export function ArchetypeCard({
           href={`/api/context/resume?archetype=${archetype.id}`}
           target="_blank"
           rel="noopener noreferrer"
+          data-action={`context:view_resume_${archetype.id}`}
           className="inline-flex items-center gap-1 text-accent hover:underline"
         >
           view <ExternalLink size={10} />
