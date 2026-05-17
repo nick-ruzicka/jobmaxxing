@@ -1,6 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
+import { mkdtempSync, writeFileSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 
-import { getCompanyDetail, type CompanyDetail } from "./company-detail";
+import {
+  getCompanyDetail,
+  getCompanyDetailWithThesis,
+  type CompanyDetail,
+  type CompanyDetailWithThesis,
+} from "./company-detail";
 
 // Shared fixture — identical shape to scripts/lib/company-aggregator.test.mjs's
 // fixtures so behaviour parity between the .mjs library and the TS wrapper is
@@ -88,5 +96,67 @@ describe("getCompanyDetail", () => {
     expect(r1.archetype_primary).toBe("gtm-engineering");
     expect(r1.score_base).toBe(7);
     expect(r1.score_adjusted).toBe(8);
+  });
+});
+
+describe("getCompanyDetailWithThesis", () => {
+  let cacheDir: string;
+  beforeEach(() => {
+    cacheDir = mkdtempSync(join(tmpdir(), "company-detail-thesis-"));
+  });
+
+  it("returns null for an unknown slug", async () => {
+    const detail = await getCompanyDetailWithThesis("doesnotexist", {
+      ...FIXTURES,
+      cacheDir,
+      readOnly: true,
+    });
+    expect(detail).toBeNull();
+  });
+
+  it("returns aggregate with thesis=null when readOnly and no cache", async () => {
+    const detail = (await getCompanyDetailWithThesis("acmeai", {
+      ...FIXTURES,
+      cacheDir,
+      readOnly: true,
+    })) as CompanyDetailWithThesis;
+    expect(detail.identity.slug).toBe("acmeai");
+    expect(detail.thesis.text).toBeNull();
+    expect(detail.thesis.cached).toBe(false);
+  });
+
+  it("returns aggregate with cached thesis when one exists", async () => {
+    writeFileSync(
+      join(cacheDir, "acmeai.json"),
+      JSON.stringify({
+        thesis: "Acme is betting on X.",
+        generated_at: "2026-05-12T10:00:00.000Z",
+      })
+    );
+    const detail = (await getCompanyDetailWithThesis("acmeai", {
+      ...FIXTURES,
+      cacheDir,
+      readOnly: true,
+    })) as CompanyDetailWithThesis;
+    expect(detail.thesis.text).toBe("Acme is betting on X.");
+    expect(detail.thesis.cached).toBe(true);
+  });
+
+  it("generates a thesis via injected claudeCall when readOnly=false and cache is empty", async () => {
+    let calls = 0;
+    const claudeCall = async (prompt: string) => {
+      calls++;
+      expect(prompt).toMatch(/Acme AI/);
+      return "Generated thesis for Acme.";
+    };
+    const detail = (await getCompanyDetailWithThesis("acmeai", {
+      ...FIXTURES,
+      cacheDir,
+      readOnly: false,
+      claudeCall,
+    })) as CompanyDetailWithThesis;
+    expect(calls).toBe(1);
+    expect(detail.thesis.text).toBe("Generated thesis for Acme.");
+    expect(detail.thesis.cached).toBe(false);
   });
 });

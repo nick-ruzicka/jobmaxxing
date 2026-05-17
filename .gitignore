@@ -109,5 +109,8 @@ autoapply/resumes/source/*.pdf
 # Task G budget tracker — machine-local counter for Claude API spend
 data/budget/
 
+# Per-company thesis cache — local Claude output keyed by slug
+data/company-theses/
+
 # Dogfood week private notes
 notes/dogfood-week.md
