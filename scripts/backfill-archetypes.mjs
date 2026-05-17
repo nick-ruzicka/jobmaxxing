@@ -57,6 +57,7 @@ function hasFlag(name) {
 
 const LIMIT = arg("--limit") ? parseInt(arg("--limit"), 10) : null;
 const DRY_RUN = hasFlag("--dry-run");
+const FORCE = hasFlag("--force"); // re-classify even if archetype_primary is set
 const BUDGET_STOP_FRACTION = 0.95;
 
 function synthesizeDescription(enrichment) {
@@ -75,14 +76,36 @@ async function main() {
   const seen = JSON.parse(readFileSync(SEEN_PATH, "utf8"));
   const enrichments = JSON.parse(readFileSync(ENRICHMENT_PATH, "utf8"));
 
+  // Snapshot pre-state distribution for the post-run diff report
+  const preDistribution = {};
+  let preNullCount = 0;
+  for (const e of Object.values(enrichments)) {
+    if (e.error || e.enrichment_quality?.startsWith?.("rejected_")) continue;
+    if (e.archetype_primary) {
+      preDistribution[e.archetype_primary] = (preDistribution[e.archetype_primary] || 0) + 1;
+    } else {
+      preNullCount++;
+    }
+  }
+
   const targets = [];
+  let skippedFiltered = 0;
   for (const [url, entry] of Object.entries(enrichments)) {
-    if (entry.archetype_primary) continue;
-    if (entry.error) continue; // skip failed enrichments
+    if (entry.error) continue;
+    // JD-quality-rejected: never classify
+    if (entry.enrichment_quality && entry.enrichment_quality.startsWith("rejected_")) {
+      skippedFiltered++;
+      continue;
+    }
+    // Already-classified: only re-do under --force (so we can update with new
+    // threshold or new archetype config without losing past work)
+    if (entry.archetype_primary && !FORCE) continue;
     targets.push(url);
   }
 
-  console.log(`backfill-archetypes: ${targets.length} unlabeled enrichments`);
+  console.log(`backfill-archetypes: ${targets.length} target${targets.length === 1 ? "" : "s"} to classify`);
+  console.log(`  (skipping ${skippedFiltered} JD-quality-rejected enrichments)`);
+  if (FORCE) console.log(`  --force: re-classifying entries that already have archetype_primary`);
   if (LIMIT) {
     console.log(`  cap: --limit ${LIMIT}`);
     targets.splice(LIMIT);
@@ -118,26 +141,29 @@ async function main() {
       const result = await classifyArchetype(role, { rulesOnly: !claudeStillAllowed });
       if (result.stage === "claude") withClaude++;
       else rulesOnly++;
-      archetypeCounts[result.primary] = (archetypeCounts[result.primary] || 0) + 1;
+      const distKey = result.primary || "(no-match)";
+      archetypeCounts[distKey] = (archetypeCounts[distKey] || 0) + 1;
 
       if (!DRY_RUN) {
         enrichments[url] = {
           ...enr,
-          archetype_primary: result.primary,
+          archetype_primary: result.primary, // can be null under NO_MATCH_THRESHOLD
           archetype_confidence: result.confidence,
           archetype_secondary: result.secondary,
           archetype_reasoning: result.reasoning,
           archetype_classified_at: result.classified_at,
           archetype_needs_review: result.needs_review,
         };
-        try {
-          emitEvent({
-            type: "role.archetype_classified",
-            payload: { role_id: url, archetype: result.primary },
-            source: "cli",
-          });
-        } catch {
-          // event emission shouldn't break the pass
+        if (result.primary) {
+          try {
+            emitEvent({
+              type: "role.archetype_classified",
+              payload: { role_id: url, archetype: result.primary },
+              source: "cli",
+            });
+          } catch {
+            // event emission shouldn't break the pass
+          }
         }
       }
       processed++;
@@ -167,9 +193,30 @@ async function main() {
   console.log(`  failed: ${failed}`);
   console.log(`  budget consumed: ${endBudget.calls - startBudget.calls} calls, $${(endBudget.totalCostUsd - startBudget.totalCostUsd).toFixed(2)}`);
   console.log("");
-  console.log("  archetype distribution:");
+  console.log("  archetype distribution (POST):");
   for (const [id, count] of Object.entries(archetypeCounts).sort((a, b) => b[1] - a[1])) {
     console.log(`    ${id}: ${count} (${((count / processed) * 100).toFixed(1)}%)`);
+  }
+  // Pre/post diff (only meaningful under --force re-classification)
+  if (FORCE) {
+    console.log("");
+    console.log("  archetype distribution (PRE):");
+    for (const [id, count] of Object.entries(preDistribution).sort((a, b) => b[1] - a[1])) {
+      console.log(`    ${id}: ${count}`);
+    }
+    console.log(`    (no-match / null primary): ${preNullCount}`);
+    console.log("");
+    console.log("  shift summary:");
+    const allKeys = new Set([...Object.keys(preDistribution), ...Object.keys(archetypeCounts)]);
+    for (const key of allKeys) {
+      const pre = key === "(no-match)" ? preNullCount : preDistribution[key] || 0;
+      const post = archetypeCounts[key] || 0;
+      const delta = post - pre;
+      if (delta !== 0) {
+        const sign = delta > 0 ? "+" : "";
+        console.log(`    ${key.padEnd(20)}: ${pre} → ${post} (${sign}${delta})`);
+      }
+    }
   }
   if (DRY_RUN) console.log("\n  (DRY RUN — enrichments.json not modified)");
 }
