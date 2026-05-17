@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useState, useMemo, useEffect } from "react";
+import { Fragment, useState, useMemo, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { ExternalLink, ChevronRight, Search, SkipForward } from "lucide-react";
+import { ExternalLink, ChevronRight, Search, SkipForward, Pin, EyeOff, CheckSquare } from "lucide-react";
 import type { Role, RoleStatus } from "@/lib/types";
 import { ScorePill } from "./ScorePill";
 import { StatusDropdown } from "./StatusDropdown";
@@ -150,17 +150,57 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange, initialSea
     else { setSortKey(key); setSortDir("desc"); }
   }
 
-  function toggleSelect(url: string) {
+  const lastClickIdxRef = useRef<number>(-1);
+
+  function toggleSelect(url: string, idx: number, shiftKey: boolean) {
     setSelectedUrls((prev) => {
       const next = new Set(prev);
-      if (next.has(url)) next.delete(url); else next.add(url);
+      if (shiftKey && lastClickIdxRef.current >= 0) {
+        const lo = Math.min(lastClickIdxRef.current, idx);
+        const hi = Math.max(lastClickIdxRef.current, idx);
+        for (let i = lo; i <= hi; i++) {
+          if (sorted[i]) next.add(sorted[i].url);
+        }
+      } else {
+        if (next.has(url)) next.delete(url); else next.add(url);
+      }
+      lastClickIdxRef.current = idx;
       return next;
     });
+  }
+
+  function selectAll() {
+    const visible = sorted.slice(0, visibleCount);
+    const allSelected = visible.every((r) => selectedUrls.has(r.url));
+    if (allSelected) {
+      setSelectedUrls(new Set());
+    } else {
+      setSelectedUrls(new Set(visible.map((r) => r.url)));
+    }
   }
 
   function batchAction(status: RoleStatus) {
     for (const url of selectedUrls) onStatusChange(url, status);
     setSelectedUrls(new Set());
+  }
+
+  const [hideReasonOpen, setHideReasonOpen] = useState(false);
+
+  const HIDE_REASONS = [
+    "Wrong location",
+    "Comp too low",
+    "Wrong stage",
+    "Wrong industry",
+    "Wrong role type",
+    "Other",
+  ] as const;
+
+  function batchHide(reason: string) {
+    for (const url of selectedUrls) {
+      onStatusChange(url, "Skipped");
+    }
+    setSelectedUrls(new Set());
+    setHideReasonOpen(false);
   }
 
   // Keyboard navigation
@@ -205,13 +245,39 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange, initialSea
 
       {/* Batch actions */}
       {selectedUrls.size > 0 && (
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-accent-border bg-accent-dim px-3 py-2">
+        <div
+          data-action="pipeline:batch_actions"
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-accent-border bg-accent-dim px-3 py-2"
+        >
           <span className="text-[12px] font-medium text-accent">{selectedUrls.size} selected</span>
-          <Button variant="secondary" size="sm" onClick={() => batchAction("Skipped")}>
-            <SkipForward size={12} /> Skip all
+          <Button data-action="pipeline:batch_skip" variant="secondary" size="sm" onClick={() => batchAction("Skipped")}>
+            <SkipForward size={12} /> Skip ({selectedUrls.size})
           </Button>
-          <Button variant="primary" size="sm" onClick={() => batchAction("Evaluated")}>
-            Evaluate all
+          <div className="relative">
+            <Button
+              data-action="pipeline:batch_hide"
+              variant="secondary"
+              size="sm"
+              onClick={() => setHideReasonOpen(!hideReasonOpen)}
+            >
+              <EyeOff size={12} /> Hide ({selectedUrls.size})
+            </Button>
+            {hideReasonOpen && (
+              <div className="absolute left-0 top-full z-20 mt-1 w-48 rounded-lg border border-border-subtle bg-surface-2 py-1 shadow-lg">
+                {HIDE_REASONS.map((reason) => (
+                  <button
+                    key={reason}
+                    onClick={() => batchHide(reason)}
+                    className="w-full px-3 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-surface-3"
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <Button data-action="pipeline:batch_evaluate" variant="primary" size="sm" onClick={() => batchAction("Evaluated")}>
+            Evaluate ({selectedUrls.size})
           </Button>
           <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setSelectedUrls(new Set())}>
             Deselect
@@ -230,7 +296,16 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange, initialSea
                 sortDir={col.key ? (sortKey === col.key ? sortDir : false) : undefined}
                 onClick={col.key ? () => toggleSort(col.key as SortKey) : undefined}
               >
-                {col.label || null}
+                {i === 0 ? (
+                  <input
+                    type="checkbox"
+                    data-action="pipeline:select_all"
+                    checked={sorted.length > 0 && sorted.slice(0, visibleCount).every((r) => selectedUrls.has(r.url))}
+                    onChange={selectAll}
+                    aria-label="Select all visible roles"
+                    className="h-3.5 w-3.5 cursor-pointer rounded-sm accent-[var(--color-accent-strong)]"
+                  />
+                ) : col.label || null}
               </Th>
             ))}
           </tr>
@@ -277,7 +352,7 @@ export function PipelineTable({ roles, onStatusChange, onNotesChange, initialSea
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        onChange={() => toggleSelect(role.url)}
+                        onChange={(e) => toggleSelect(role.url, idx, e.nativeEvent instanceof MouseEvent && e.nativeEvent.shiftKey)}
                         aria-label={`Select ${role.company} — ${role.title}`}
                         className={`h-3.5 w-3.5 cursor-pointer rounded-sm transition-opacity accent-[var(--color-accent-strong)] ${
                           isSelected ? "opacity-100" : "opacity-40"
