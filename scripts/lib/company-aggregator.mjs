@@ -29,6 +29,28 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 
 const PRIMARY_ARCHETYPES = new Set(["gtm-engineering", "ai-operations", "fde"]);
 
+// ISSUE-002: seen-urls often stores the bare company name ("Mistral") while
+// signals/UI use the canonical-with-suffix form ("mistralai"). Without fuzzy
+// candidate lookup, aggregateCompany("mistralai") finds nothing in
+// byCompany even though the role exists. These suffixes match
+// scripts/lib/company-archetype-matcher.mjs's COMPANY_SUFFIXES and
+// dashboard-web/lib/role-matching.ts's FUZZY_SUFFIXES — change all three
+// together.
+const FUZZY_SUFFIXES = ["ai", "labs", "tech", "io", "hq", "app", "xyz"];
+
+function aggregatorCandidateKeys(slug) {
+  const primary = companyKey(slug) || String(slug).toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!primary) return [];
+  const out = [primary];
+  for (const suffix of FUZZY_SUFFIXES) {
+    if (primary.endsWith(suffix) && primary.length > suffix.length + 2) {
+      const stripped = primary.slice(0, -suffix.length);
+      if (!out.includes(stripped)) out.push(stripped);
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Disk loaders (only called when opts doesn't provide the data)
 // ---------------------------------------------------------------------------
@@ -303,9 +325,27 @@ export function aggregateCompany(slug, opts = {}) {
   const signalsIdx = indexSignals(signals);
   const watchIdx = indexWatchlist(watchlist);
 
-  const seenEntry = byCompany.get(slug);
-  const signal = signalsIdx.get(slug) || null;
-  const watchEntry = watchIdx.get(slug) || null;
+  // Fuzzy candidate-key lookup so the drilldown finds roles even when
+  // seen-urls stores the bare name ("Mistral", key "mistral") and the slug
+  // is the canonical-with-suffix form ("mistralai"). Without this we miss
+  // the role group and the drilldown reports roles:[] while /signals says
+  // "1 open role" — the QA-confirmed ISSUE-002 repro.
+  const candidates = aggregatorCandidateKeys(slug);
+  let seenEntry = null;
+  for (const k of candidates) {
+    const hit = byCompany.get(k);
+    if (hit) { seenEntry = hit; break; }
+  }
+  let signal = null;
+  for (const k of candidates) {
+    const hit = signalsIdx.get(k);
+    if (hit) { signal = hit; break; }
+  }
+  let watchEntry = null;
+  for (const k of candidates) {
+    const hit = watchIdx.get(k);
+    if (hit) { watchEntry = hit; break; }
+  }
 
   // Unknown slug — not in roles, not in signals.
   if (!seenEntry && !signal) return null;
