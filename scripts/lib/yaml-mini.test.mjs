@@ -18,6 +18,25 @@ score: 4.5
   assert.deepEqual(result, { name: "Alice", age: 30, active: true, nickname: null, notes: null, score: 4.5 });
 });
 
+test("yaml-mini — parses leading-plus integers (config readability)", () => {
+  const result = parseYaml(`
+boost: +5
+penalty: -40
+neutral: 0
+big: +10
+`);
+  assert.equal(result.boost, 5);
+  assert.equal(result.penalty, -40);
+  assert.equal(result.neutral, 0);
+  assert.equal(result.big, 10);
+});
+
+test("yaml-mini — parses leading-plus floats", () => {
+  const result = parseYaml(`a: +1.5\nb: -2.5\n`);
+  assert.equal(result.a, 1.5);
+  assert.equal(result.b, -2.5);
+});
+
 test("yaml-mini — quoted strings preserve special chars", () => {
   const result = parseYaml(`title: "Hello: World"\nother: 'a single # quoted'`);
   assert.equal(result.title, "Hello: World");

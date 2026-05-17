@@ -211,8 +211,8 @@ function parseScalar(s) {
   if (s.startsWith("[") && s.endsWith("]")) {
     return parseInlineList(s);
   }
-  if (/^-?\d+$/.test(s)) return parseInt(s, 10);
-  if (/^-?\d+\.\d+$/.test(s)) return parseFloat(s);
+  if (/^[+-]?\d+$/.test(s)) return parseInt(s, 10);
+  if (/^[+-]?\d+\.\d+$/.test(s)) return parseFloat(s);
   return s;
 }
 

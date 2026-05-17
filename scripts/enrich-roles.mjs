@@ -48,6 +48,7 @@ import { readCompaniesFile } from "./lib/companies-load.mjs";
 import { extractApplyUrl } from "./lib/apply-url-extractor.mjs";
 import { classifyArchetype } from "./lib/archetype-classifier.mjs";
 import { emitEvent as emitCareerOpsEvent } from "./lib/event-writer.mjs";
+import { adjustScore } from "./lib/scoring-layer.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -887,11 +888,40 @@ async function main() {
       console.warn(`  archetype classify failed: ${err.message}`);
     }
 
+    // G4 additive scoring layer (location / comp / archetype lens / soft prefs).
+    // Live path runs synchronously — no API calls, just config-driven math.
+    let scoreFields = {};
+    try {
+      const adj = adjustScore(
+        analysis.fit_score,
+        {
+          title: cleanedTitle,
+          company,
+          description: jdData.description || "",
+          comp_range,
+          ats: hostnameOf(url),
+        },
+        archetypeFields.archetype_primary ?? null,
+        archetypeFields.archetype_secondary ?? [],
+      );
+      scoreFields = {
+        score_base: analysis.fit_score,
+        score_adjusted: adj.adjusted_score,
+        score_adjustments: adj.adjustments,
+        score_disqualified: adj.disqualified,
+        score_disqualification_reason: adj.disqualification_reason,
+        score_adjusted_at: new Date().toISOString(),
+      };
+    } catch (err) {
+      console.warn(`  score-adjust failed: ${err.message}`);
+    }
+
     enrichments[url] = {
       ...analysis,
       comp_range,
       comp_source,
       ...archetypeFields,
+      ...scoreFields,
       timestamp: new Date().toISOString(),
     };
 
