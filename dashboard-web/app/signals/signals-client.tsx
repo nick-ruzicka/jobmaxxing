@@ -105,6 +105,126 @@ function DismissButton({ slug, onDismiss }: { slug: string; onDismiss: (slug: st
   );
 }
 
+/** Expandable signal card — click to toggle inline detail panel. */
+function SignalCard({
+  signal: s,
+  dotColor,
+  expanded,
+  onToggle,
+  onDismiss,
+  extra,
+}: {
+  signal: EnrichedSignal;
+  dotColor: string;
+  expanded: boolean;
+  onToggle: () => void;
+  onDismiss: (slug: string) => void;
+  extra?: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-2">
+      <div
+        data-action="signals:click_signal_card"
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
+        className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-3"
+      >
+        <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotColor}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/companies/${s.slug}`}
+              onClick={(e) => e.stopPropagation()}
+              className="truncate font-medium text-text-primary hover:text-accent transition-colors"
+            >
+              {s.name}
+            </Link>
+            {extra}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-text-muted">
+            <FundingPill amount={s.amount} />
+            {s.match.archetype_roles_count > 0 && (
+              <span>{s.match.archetype_roles_count} matching roles</span>
+            )}
+            <ArchetypeChips archetypes={s.match.archetypes_matched} />
+          </div>
+        </div>
+        <DismissButton slug={s.slug} onDismiss={onDismiss} />
+        <ChevronRight
+          size={14}
+          className={`shrink-0 text-text-muted transition-transform ${expanded ? "rotate-90" : ""}`}
+        />
+      </div>
+      {expanded && <SignalDetailPanel signal={s} onDismiss={onDismiss} />}
+    </div>
+  );
+}
+
+/** Inline detail panel for an expanded signal card. */
+function SignalDetailPanel({
+  signal: s,
+  onDismiss,
+}: {
+  signal: EnrichedSignal;
+  onDismiss: (slug: string) => void;
+}) {
+  const router = useRouter();
+  return (
+    <div className="border-t border-border-subtle bg-surface-1 px-4 py-3 text-[12px]">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-text-tertiary">Funding:</span>
+            <span className="text-text-secondary">{s.amount || "—"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-text-tertiary">Last checked:</span>
+            <span className="text-text-secondary">{s.lastChecked || "—"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-text-tertiary">Match status:</span>
+            <Badge color={s.match.match_status === "confirmed_match" ? "accent" : "neutral"}>
+              {s.match.match_status.replace(/_/g, " ")}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-text-tertiary">Velocity:</span>
+            <VelocityBadge velocity={s.match.hiring_velocity} />
+          </div>
+          {s.match.total_roles > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-text-tertiary">Total roles:</span>
+              <span className="text-text-secondary">{s.match.total_roles} ({s.match.archetype_roles_count} matching)</span>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <Link
+            href={`/companies/${s.slug}`}
+            className="inline-flex items-center gap-1 text-accent hover:underline"
+          >
+            Company detail →
+          </Link>
+          <Link
+            href={`/pipeline?company=${s.slug}&from=signals`}
+            className="inline-flex items-center gap-1 text-accent hover:underline"
+          >
+            View roles in pipeline →
+          </Link>
+          <button
+            onClick={() => onDismiss(s.slug)}
+            className="inline-flex items-center gap-1 text-red hover:underline"
+          >
+            <X size={12} /> Dismiss permanently
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SignalsPage({
   actingOnNow,
   warmingUp,
@@ -122,8 +242,12 @@ export function SignalsPage({
   highConviction,
 }: SignalsPageProps) {
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
+  const [expandedSignal, setExpandedSignal] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const router = useRouter();
+
+  const toggleSignal = (slug: string) =>
+    setExpandedSignal((prev) => (prev === slug ? null : slug));
 
   const handleDismiss = useCallback(async (slug: string) => {
     setDismissed((prev) => new Set([...prev, slug]));
@@ -170,36 +294,15 @@ export function SignalsPage({
             </SectionLabel>
             <div className="grid gap-2 lg:grid-cols-2">
               {visibleActing.map((s) => (
-                <div
+                <SignalCard
                   key={s.slug}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => router.push(`/pipeline?company=${s.slug}&from=signals`)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/pipeline?company=${s.slug}&from=signals`); }}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3 transition-colors hover:bg-surface-3"
-                >
-                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <Link
-                        href={`/companies/${s.slug}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="truncate font-medium text-text-primary hover:text-accent transition-colors"
-                      >
-                        {s.name}
-                      </Link>
-                      <VelocityBadge velocity={s.match.hiring_velocity} />
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-text-muted">
-                      <FundingPill amount={s.amount} />
-                      {s.match.archetype_roles_count > 0 && (
-                        <span>{s.match.archetype_roles_count} matching roles</span>
-                      )}
-                      <ArchetypeChips archetypes={s.match.archetypes_matched} />
-                    </div>
-                  </div>
-                  <DismissButton slug={s.slug} onDismiss={handleDismiss} />
-                </div>
+                  signal={s}
+                  dotColor="bg-emerald"
+                  expanded={expandedSignal === s.slug}
+                  onToggle={() => toggleSignal(s.slug)}
+                  onDismiss={handleDismiss}
+                  extra={<VelocityBadge velocity={s.match.hiring_velocity} />}
+                />
               ))}
             </div>
           </section>
@@ -213,33 +316,15 @@ export function SignalsPage({
             </SectionLabel>
             <div className="grid gap-2 lg:grid-cols-2">
               {visibleWarming.map((s) => (
-                <div
+                <SignalCard
                   key={s.slug}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => router.push(`/pipeline?company=${s.slug}&from=signals`)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/pipeline?company=${s.slug}&from=signals`); }}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3 transition-colors hover:bg-surface-3"
-                >
-                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <Link
-                        href={`/companies/${s.slug}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="truncate font-medium text-text-primary hover:text-accent transition-colors"
-                      >
-                        {s.name}
-                      </Link>
-                      {s.result === "posting" && <Badge color="emerald">Posting</Badge>}
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-[12px] text-text-muted">
-                      <FundingPill amount={s.amount} />
-                      <span>Checked {s.lastChecked}</span>
-                    </div>
-                  </div>
-                  <DismissButton slug={s.slug} onDismiss={handleDismiss} />
-                </div>
+                  signal={s}
+                  dotColor="bg-amber"
+                  expanded={expandedSignal === s.slug}
+                  onToggle={() => toggleSignal(s.slug)}
+                  onDismiss={handleDismiss}
+                  extra={s.result === "posting" ? <Badge color="emerald">Posting</Badge> : null}
+                />
               ))}
             </div>
           </section>
