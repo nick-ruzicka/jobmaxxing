@@ -30,7 +30,9 @@
     "briefing:dry": "node scripts/generate-briefing.mjs --dry-run",
     "analytics:rollup": "node scripts/generate-analytics-rollup.mjs",
     "analytics": "node scripts/analytics-cli.mjs",
-    "analytics:summary": "node scripts/analytics-cli.mjs summary"
+    "analytics:summary": "node scripts/analytics-cli.mjs summary",
+    "sync-score-feedback": "node scripts/sync-score-feedback.mjs",
+    "patterns": "node analyze-patterns.mjs"
   },
   "keywords": [
     "ai",
