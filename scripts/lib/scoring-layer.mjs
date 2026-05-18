@@ -152,7 +152,54 @@ function checkDisqualifiers(role, globalDQ, userContext) {
     }
   }
 
+  // Location hard-no: `global_disqualifiers.location` in archetypes.yaml carries
+  // entries like "fully on-site SF" / "fully on-site Chicago". Until now these
+  // were loaded but never read, so the user's stated "no on-site $CITY" deal-
+  // breakers were only floor-clamped (-75 location penalty), not explicitly
+  // disqualified. This branch makes them DQ properly — observable downstream
+  // via `score_disqualified: true`.
+  if (role.location_workplace === "onsite") {
+    const roleCity = canonLocationDqCity(role.location_city);
+    for (const entry of globalDQ.location ?? []) {
+      const dqCity = canonLocationDqCity(parseLocationDqCity(entry));
+      if (dqCity && roleCity && dqCity === roleCity) {
+        return { disqualified: true, reason: `location: ${entry}` };
+      }
+    }
+  }
+
   return { disqualified: false };
+}
+
+// City alias map used by checkDisqualifiers' location branch. Kept separate from
+// NYC_CITIES below because the DQ check has a different set of canonical targets
+// (only the explicit cities in archetypes.yaml `global_disqualifiers.location`).
+const LOCATION_DQ_CITY_ALIASES = new Map([
+  ["sf", "san francisco"],
+  ["san francisco", "san francisco"],
+  ["la", "los angeles"],
+  ["los angeles", "los angeles"],
+  ["seattle", "seattle"],
+  ["austin", "austin"],
+  ["chicago", "chicago"],
+  ["nyc", "new york"],
+  ["new york", "new york"],
+  ["new york city", "new york"],
+]);
+
+function canonLocationDqCity(s) {
+  if (s == null) return null;
+  const k = String(s).toLowerCase().trim();
+  if (!k) return null;
+  return LOCATION_DQ_CITY_ALIASES.get(k) ?? k;
+}
+
+// "fully on-site SF" → "sf". "on-site Los Angeles" → "los angeles". Returns null
+// if the entry doesn't match the on-site pattern (e.g. accidental "remote first"
+// entries should not fire this branch).
+function parseLocationDqCity(entry) {
+  const m = String(entry || "").toLowerCase().match(/(?:fully\s+)?on-?site\s+(.+?)\s*$/);
+  return m ? m[1].trim() : null;
 }
 
 // ─── location ─────────────────────────────────────────────────────────────────
