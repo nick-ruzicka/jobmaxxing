@@ -39,11 +39,27 @@ test("comp-floor consistency — modes/_profile.md (if present) uses floor match
     if (err.code === "ENOENT") return; // pre-onboarding clone; nothing to check
     throw err;
   }
-  // If the user's profile mentions a comp floor, every dollar mention should
-  // match the canonical FLOOR_K. The simplest invariant: no stale $190K (engine
-  // never had a $190K floor — only mode-prompt drift produced that string).
-  const staleFloor = body.match(/\$190K/g);
-  assert.equal(staleFloor, null, `modes/_profile.md contains stale $190K — should be ${FLOOR_K} to match config.floor_usd`);
+  // Positive sync: scan every line that mentions "floor" (case-insensitive)
+  // AND contains at least one $XXX[.Y]K dollar amount. Each such amount must
+  // equal FLOOR_K. Lines that mention "floor" without a dollar amount (e.g.,
+  // "structurally unlikely to hit this floor") are ignored. Dollar amounts in
+  // non-floor contexts (e.g., "previous role paid $180K") are also ignored —
+  // the anchor is "floor on this line".
+  const dollarK = /\$\d+(?:\.\d+)?K/g;
+  const mismatches = [];
+  for (const line of body.split("\n")) {
+    if (!/floor/i.test(line)) continue;
+    const matches = line.match(dollarK);
+    if (!matches) continue;
+    for (const m of matches) {
+      if (m !== FLOOR_K) mismatches.push({ line: line.trim(), found: m });
+    }
+  }
+  assert.deepEqual(
+    mismatches,
+    [],
+    `modes/_profile.md has floor-line dollar amounts that don't match config.floor_usd (${FLOOR_K}): ${JSON.stringify(mismatches, null, 2)}`,
+  );
 });
 
 test("comp-floor consistency — generate-briefing.mjs fallback derives from config", () => {
