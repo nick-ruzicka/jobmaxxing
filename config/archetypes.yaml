@@ -34,9 +34,6 @@ archetypes:
       high_match: ["GTM Engineer", "Revenue Engineer", "Forward Deployed Engineer", "Revenue Architect"]
       medium_match: ["Sales Engineer", "RevOps Engineer", "Growth Engineer", "Solutions Engineer"]
       low_match: ["Senior AE", "Sales Operations Manager"]
-    company_filter:
-      require_b2b_saas: true
-      exclude_industries: [consumer, gaming-mainstream, defense, government]
 
   - id: ai-operations
     name: AI Operations
@@ -57,8 +54,6 @@ archetypes:
       high_match: ["AI Operations Lead", "Head of AI", "AI Ops Engineer", "Applied AI Engineer"]
       medium_match: ["BizOps Manager", "Operations Manager", "Director of Operations"]
       low_match: ["Generic Operations Manager"]
-    company_filter:
-      require_ai_native_signals: true
 
   - id: fde
     name: Forward Deployed Engineer
