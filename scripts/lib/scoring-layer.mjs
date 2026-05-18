@@ -105,9 +105,24 @@ export function adjustScore(baseScore, role, archetypePrimary, archetypeSecondar
   const totalDelta = adjustments.reduce((sum, a) => sum + a.delta, 0);
   const baseInternal = (baseScore ?? 5) * SCALE;
   const adjustedInternal = Math.max(0, Math.min(100, baseInternal + totalDelta));
+  let finalScore = Math.round((adjustedInternal / SCALE) * 10) / 10;
+
+  // Phase 1.5: cap at 8.5 when comp:below_floor was suppressed by the trust gate.
+  // A perfect 10 on a role with unverified comp is structurally dishonest — the
+  // comp could still be below floor. The cap signals "everything we could verify
+  // looks great, but the comp check was suppressed so this is provisional."
+  const hasCompUnverified = adjustments.some(a => a.source === "comp:below_floor_suppressed");
+  if (hasCompUnverified && finalScore > 8.5) {
+    finalScore = 8.5;
+    adjustments.push({
+      source: "ceiling:comp_unverified_cap",
+      delta: 0,
+      reason: "comp_unverified status caps score at 8.5",
+    });
+  }
 
   return {
-    adjusted_score: Math.round((adjustedInternal / SCALE) * 10) / 10,
+    adjusted_score: finalScore,
     score_base: baseScore ?? null,
     adjustments,
     disqualified: false,
