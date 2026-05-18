@@ -16,6 +16,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { getCompFloorUsd, formatCompFloorString } from "./lib/comp-floor.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -116,7 +117,8 @@ function loadProfile() {
 // ---------------------------------------------------------------------------
 function extractGoals(profile) {
   if (!profile) {
-    return "GTM Engineer / RevOps roles, NYC area or remote, $200K+ floor, Series B+ companies";
+    const floor = formatCompFloorString(getCompFloorUsd());
+    return `GTM Engineer / RevOps roles, NYC area or remote, ${floor}+ floor, Series B+ companies`;
   }
   // Pull the Background + Target Roles sections — they're enough to ground the
   // agent without exploding the prompt. Cap at ~4KB so the rest of the context
