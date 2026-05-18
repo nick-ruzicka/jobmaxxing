@@ -188,14 +188,43 @@ function setupFixture(root: string): void {
       company: "AggOnlyFoo",
       source_tier: "aggregator",
     },
+    // Three fallback paths in the G4 priority chain — see the corresponding
+    // enrichments.json entries below.
+    "https://builtin.com/job/base-only-role/8888": {
+      firstSeen: twoDaysAgo,
+      title: "GTM Engineer",
+      source: "BuiltIn",
+      company: "BaseOnlyCo",
+    },
+    "https://builtin.com/job/raw-claude-role/7777": {
+      firstSeen: twoDaysAgo,
+      title: "GTM Engineer",
+      source: "BuiltIn",
+      company: "RawClaudeCo",
+    },
+    "https://builtin.com/job/high-engine-score/6666": {
+      // 9.5 from the engine — must NOT be capped at 7, must round to 10.
+      firstSeen: twoDaysAgo,
+      title: "GTM Engineer",
+      source: "BuiltIn",
+      company: "HighEngineCo",
+    },
   };
   writeJson(join(root, "data", "seen-urls.json"), seenUrls);
 
-  // ---- enrichments.json: covers the enriched scoring path ----
-  // Note the key matches the seen-urls.json entry for builtin enriched role.
+  // ---- enrichments.json: covers the four enriched branches of the G4 chain ----
+  // Note the keys match the seen-urls.json entries above.
+  //
+  //   enriched              — has score_adjusted (full G4 layer)        → /9999
+  //   enriched_base_only    — has score_base only (no adjustment layer) → /8888
+  //   enriched_raw_claude   — has fit_score only (pre-G4 record)        → /7777
+  //   no-cap-when-enriched  — score_adjusted=9.5, must round to 10, not cap to 7 → /6666
   const enrichments = {
     "https://builtin.com/job/enriched-role/9999": {
       fit_score: 8,
+      score_base: 8,
+      // G4 layer added +1 for archetype lens — score_adjusted wins over fit_score.
+      score_adjusted: 9,
       verdict: "Strong GTM fit; Python/Clay stack matches Nick's archetype.",
       archetype_primary: "gtm-engineering",
       comp_range: "$200,000 – $250,000 /yr",
@@ -206,6 +235,27 @@ function setupFixture(root: string): void {
       build_component: true,
       ai_signal: true,
       company_stage: "Series C",
+    },
+    "https://builtin.com/job/base-only-role/8888": {
+      // Older record: engine wrote score_base before the G4 adjustment
+      // layer was deployed (or adjustments were a no-op). No fit_score
+      // either — exercises step 3 of the chain in isolation.
+      score_base: 4,
+      verdict: "Base-only legacy record",
+    },
+    "https://builtin.com/job/raw-claude-role/7777": {
+      // Pre-G4-layer record: Claude wrote fit_score, neither score_base nor
+      // score_adjusted exists yet. Exercises step 4 of the chain.
+      fit_score: 6,
+      verdict: "Raw Claude verdict, no engine layer",
+    },
+    "https://builtin.com/job/high-engine-score/6666": {
+      // Engine produced a half-step decimal above the heuristic cap of 7.
+      // The cap must NOT apply (provenance is enriched), and Math.round
+      // takes 9.5 → 10.
+      score_base: 8,
+      score_adjusted: 9.5,
+      verdict: "Engine-adjusted past the heuristic cap",
     },
   };
   writeJson(join(root, "data", "enrichments.json"), enrichments);
@@ -381,19 +431,57 @@ describe("getRoles integration", () => {
     expect(designer!.scoreCapped).toBe(true);
   });
 
-  it("uses Claude verdict for the explanation when enrichment is present (enriched scoring branch)", () => {
+  it("prefers score_adjusted over fit_score when the G4 engine layer ran (enriched branch)", () => {
     const roles = data.getRoles({ includeAggregator: true });
     const enriched = roles.find((r) => r.url.includes("enriched-role/9999"));
     expect(enriched).toBeDefined();
-    expect(enriched!.score).toBe(8);
+    // Engine score_adjusted (9) beats raw fit_score (8) — this is the whole point of the fix.
+    expect(enriched!.score).toBe(9);
     expect(enriched!.scoreProvenance).toBe("enriched");
     expect(enriched!.matchReason).toBe(
       "Strong GTM fit; Python/Clay stack matches Nick's archetype."
     );
-    // Enrichment object is hydrated end-to-end
+    // Enrichment object is hydrated end-to-end — both raw and engine fields exposed
+    // so downstream surfaces can show Claude's verdict alongside the engine adjustment.
     expect(enriched!.enrichment).not.toBeNull();
     expect(enriched!.enrichment?.fit_score).toBe(8);
+    expect(enriched!.enrichment?.score_base).toBe(8);
+    expect(enriched!.enrichment?.score_adjusted).toBe(9);
     expect(enriched!.enrichment?.comp_range).toBe("$200,000 – $250,000 /yr");
+  });
+
+  it("falls back to score_base when score_adjusted is missing (enriched_base_only branch)", () => {
+    const roles = data.getRoles({ includeAggregator: true });
+    const r = roles.find((x) => x.url.includes("base-only-role/8888"));
+    expect(r).toBeDefined();
+    expect(r!.score).toBe(4);
+    expect(r!.scoreProvenance).toBe("enriched_base_only");
+    // No heuristic cap — even though score is below 7, the cap shouldn't fire on
+    // engine-derived paths. scoreCapped stays false.
+    expect(r!.scoreCapped).toBe(false);
+  });
+
+  it("falls back to fit_score when neither score_adjusted nor score_base exists (enriched_raw_claude branch)", () => {
+    const roles = data.getRoles({ includeAggregator: true });
+    const r = roles.find((x) => x.url.includes("raw-claude-role/7777"));
+    expect(r).toBeDefined();
+    expect(r!.score).toBe(6);
+    expect(r!.scoreProvenance).toBe("enriched_raw_claude");
+    expect(r!.scoreCapped).toBe(false);
+  });
+
+  it("does NOT cap enriched scores above 7 (the cap is heuristic-only)", () => {
+    const roles = data.getRoles({ includeAggregator: true });
+    const r = roles.find((x) => x.url.includes("high-engine-score/6666"));
+    expect(r).toBeDefined();
+    // score_adjusted is 9.5, rounded to 10 — the heuristic cap of 7 must NOT
+    // fire because provenance is enriched.
+    expect(r!.score).toBe(10);
+    expect(r!.scoreProvenance).toBe("enriched");
+    expect(r!.scoreCapped).toBe(false);
+    // The decimal source value is preserved in enrichment.score_adjusted for
+    // surfaces that want the full precision.
+    expect(r!.enrichment?.score_adjusted).toBe(9.5);
   });
 
   it("uses scan report score when no enrichment exists (scan-data branch of priority chain)", () => {

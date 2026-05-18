@@ -104,7 +104,9 @@ export function ExpandedRow({ role, onStatusChange, onNotesChange }: ExpandedRow
             <span className="text-text-muted">Score {role.score}/10 — </span>
             {role.scoreProvenance === "override" &&
               "set manually" + (role.scoreOverrideReason ? `: ${role.scoreOverrideReason}` : "")}
-            {role.scoreProvenance === "enriched" && "from Claude JD analysis"}
+            {role.scoreProvenance === "enriched" && "from Claude + G4 adjustment layer"}
+            {role.scoreProvenance === "enriched_base_only" && "from Claude (engine base only — no G4 adjustments)"}
+            {role.scoreProvenance === "enriched_raw_claude" && "from Claude verdict (pre-G4 record — no adjustment layer)"}
             {role.scoreProvenance === "application" && "from the application tracker"}
             {role.scoreProvenance === "heuristic" && "from a title/location heuristic; JD not analyzed by Claude"}
             {role.scoreCapped && " · heuristic score capped"}

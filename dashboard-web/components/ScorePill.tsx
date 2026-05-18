@@ -10,11 +10,15 @@ function tierColor(score: number): BadgeColor {
 
 // Tiny corner dot on the score badge — encodes where the score came from.
 // Filled = confident source; hollow ring = a capped heuristic guess.
+// enriched_base_only / enriched_raw_claude are degraded enriched states: still
+// engine-derived, just missing the G4 adjustment layer (older records).
 const PROVENANCE: Record<ScoreProvenance, { dot: string; ring: string; label: string }> = {
-  enriched:    { dot: "bg-emerald",   ring: "border-emerald",   label: "Score from Claude JD analysis" },
-  application: { dot: "bg-blue",       ring: "border-blue",       label: "Score from the application tracker" },
-  override:    { dot: "bg-violet",     ring: "border-violet",     label: "Score set manually (eval override)" },
-  heuristic:   { dot: "bg-text-muted", ring: "border-text-muted", label: "Score from a title/location heuristic — JD not analyzed" },
+  enriched:             { dot: "bg-emerald",   ring: "border-emerald",   label: "Score from Claude + G4 adjustment layer" },
+  enriched_base_only:   { dot: "bg-emerald",   ring: "border-emerald",   label: "Score from Claude (engine base only — no G4 adjustments)" },
+  enriched_raw_claude:  { dot: "bg-emerald",   ring: "border-emerald",   label: "Score from Claude verdict (pre-G4 record — no adjustment layer)" },
+  application:          { dot: "bg-blue",      ring: "border-blue",      label: "Score from the application tracker" },
+  override:             { dot: "bg-violet",    ring: "border-violet",    label: "Score set manually (eval override)" },
+  heuristic:            { dot: "bg-text-muted", ring: "border-text-muted", label: "Score from a title/location heuristic — JD not analyzed" },
 };
 
 export function ScorePill({

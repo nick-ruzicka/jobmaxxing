@@ -287,32 +287,64 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
     const location = flattenLocation(structured);
     const locationCluster = clusterForLocation(structured);
 
-    // Score priority: application score > enrichment fit_score > scan report score > computed.
-    // scoreProvenance records which branch won (drives the corner dot on the score pill).
+    // Score priority chain (highest trust first). scoreProvenance records which
+    // branch won (drives the corner dot on the score pill and the explainScore copy).
+    //
+    //   1. application       — applications.md row exists → eval score × 2 (the user's call)
+    //   2. enriched          — G4 engine-adjusted score (enrichment.score_adjusted)
+    //   3. enriched_base_only — engine base score with no adjustment layer (older record)
+    //   4. enriched_raw_claude — raw Claude fit_score only (pre-G4-layer record)
+    //   5. heuristic         — scan report score (title/location/company keyword math)
+    //   6. heuristic         — fallback computeScore (no scan, no enrichment, no app)
+    //
+    // The override layer below applies AFTER this chain and wins over everything.
     let score: number;
     let scoreProvenance: ScoreProvenance;
     if (appData?.score) {
+      // 1. application
       score = Math.round(appData.score * 2);
       scoreProvenance = "application";
-    } else if (hasEnrichment && typeof enrichment.fit_score === "number") {
-      score = enrichment.fit_score;
+    } else if (hasEnrichment && typeof enrichment.score_adjusted === "number") {
+      // 2. enriched — engine G4 layer ran
+      score = enrichment.score_adjusted;
       scoreProvenance = "enriched";
+    } else if (hasEnrichment && typeof enrichment.score_base === "number") {
+      // 3. enriched_base_only — engine ran but no adjustment layer recorded
+      score = enrichment.score_base;
+      scoreProvenance = "enriched_base_only";
+    } else if (hasEnrichment && typeof enrichment.fit_score === "number") {
+      // 4. enriched_raw_claude — pre-G4-layer record, raw Claude verdict only
+      score = enrichment.fit_score;
+      scoreProvenance = "enriched_raw_claude";
+    } else if (scanData?.score) {
+      // 5. heuristic — scan report score
+      score = scanData.score;
+      scoreProvenance = "heuristic";
     } else {
-      score = scanData?.score || computeScore(cleanedTitle, company, location, allTrackedSlugs);
+      // 6. heuristic — computeScore fallback
+      score = computeScore(cleanedTitle, company, location, allTrackedSlugs);
       scoreProvenance = "heuristic";
     }
     // Post-hoc clamps don't change provenance — they just cap the displayed number.
     let scoreCapped = false;
     if (isFalsePositiveTitle(cleanedTitle) && score > 3) {
+      // False-positive cap applies regardless of provenance (e.g. "GTM Product
+      // Designer" should never read as high-fit even with a Claude verdict).
       score = 3;
       scoreCapped = true;
     }
-    // Pre-enrichment cap: roles without Claude analysis are capped at 7
-    // to prevent title-only inflation. Enrichment fit_score or app score can raise above 7.
-    if (!hasEnrichment && !appData?.score && score > 7) {
+    // Pre-enrichment cap: only heuristic scores are capped at 7 to prevent
+    // title-only inflation. Engine-derived scores (enriched / enriched_base_only
+    // / enriched_raw_claude) and application scores already came through human
+    // or model judgment, so we trust them above 7.
+    if (scoreProvenance === "heuristic" && score > 7) {
       score = 7;
       scoreCapped = true;
     }
+    // Round to integer for backward compatibility with the score pill / sort /
+    // min-score filter. score_adjusted can be a half-step (e.g. 9.5) — we keep
+    // the engine's precision intact in enrichment.score_adjusted (see below)
+    // for surfaces that want it; the headline number rounds.
     score = Math.round(score);
 
     // Manual eval override (data/score-overrides.json) — the final word: wins over the
@@ -388,6 +420,8 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
         ai_signal: enrichment.ai_signal as boolean | undefined,
         company_stage: enrichment.company_stage as string | undefined,
         fit_score: enrichment.fit_score as number | undefined,
+        score_base: enrichment.score_base as number | undefined,
+        score_adjusted: enrichment.score_adjusted as number | undefined,
         verdict: enrichment.verdict as string | undefined,
       } : null,
     });
