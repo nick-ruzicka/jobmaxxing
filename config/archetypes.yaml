@@ -157,5 +157,4 @@ global_disqualifiers:
     - "fully on-site Seattle"
     - "fully on-site Austin"
     - "fully on-site Chicago"
-  comp_below: 200000
   industries_blocked: [gambling, weapons, predatory-lending, mlm, tobacco, vape]

@@ -110,9 +110,6 @@ function validate(config) {
     if (typeof gd !== "object" || Array.isArray(gd)) {
       throw new Error("archetypes.yaml: global_disqualifiers must be a mapping");
     }
-    if (gd.comp_below !== undefined && typeof gd.comp_below !== "number") {
-      throw new Error("archetypes.yaml: global_disqualifiers.comp_below must be a number");
-    }
   }
 }
 
