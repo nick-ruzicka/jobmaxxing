@@ -22,6 +22,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { locationFields, structuredLocationFields } from "./lib/location.mjs";
+import { upgradeAtsResult } from "./lib/ats-url-upgrade.mjs";
 import { cleanTitle } from "./lib/title-cleanup.mjs";
 import { companyKey } from "./lib/normalize-company.mjs";
 import {
@@ -1570,6 +1571,24 @@ async function main() {
 
   // --- Validation pipeline ---
   console.log(`\n--- Validation ---`);
+
+  // STEP 0: ATS-aware location upgrade — when a URL was discovered via a generic
+  // tier (e.g. Tier 8 Exa deep search) but is transparently from a known ATS
+  // (Ashby, Greenhouse), re-fetch the API so location/company/comp are clean
+  // instead of parsed-from-HTML-title. Closes the gap where a Tier-8 Exa snippet
+  // lacked workplace keywords (e.g. the Gumloop SF role landing with
+  // location_workplace="unknown" → no -75 location penalty downstream).
+  let atsUpgraded = 0;
+  for (let i = 0; i < netNew.length; i++) {
+    const upgraded = await upgradeAtsResult(netNew[i]);
+    if (upgraded !== netNew[i]) {
+      netNew[i] = upgraded;
+      atsUpgraded++;
+    }
+  }
+  if (atsUpgraded > 0) {
+    console.log(`  ATS upgrade: ${atsUpgraded} records re-fetched from ATS APIs`);
+  }
 
   // STEP 1: Resolve companies for entries that don't have one
   let resolved = 0;
