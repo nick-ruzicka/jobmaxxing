@@ -8,11 +8,19 @@ export type RoleStatus =
   | "Skipped";
 
 /** Where a role's score came from, in trust order:
- *  "override"    — manual eval override from data/score-overrides.json (wins over everything)
- *  "enriched"    — Claude analyzed the JD (enrichment.fit_score)
- *  "application" — pulled from the application tracker (applications.md)
- *  "heuristic"   — title/location/company keyword math, no JD read (scan report or computeScore) */
-export type ScoreProvenance = "override" | "enriched" | "application" | "heuristic";
+ *  "override"             — manual eval override from data/score-overrides.json (wins over everything)
+ *  "application"          — pulled from the application tracker (applications.md)
+ *  "enriched"             — Claude + G4 engine adjustment layer (enrichment.score_adjusted)
+ *  "enriched_base_only"   — base Claude score with no engine layer (enrichment.score_base) — backfill remnant
+ *  "enriched_raw_claude"  — raw Claude verdict only (enrichment.fit_score) — pre-G4 record
+ *  "heuristic"            — title/location/company keyword math, no JD read (scan report or computeScore) */
+export type ScoreProvenance =
+  | "override"
+  | "enriched"
+  | "enriched_base_only"
+  | "enriched_raw_claude"
+  | "application"
+  | "heuristic";
 
 export interface Role {
   id: string;
@@ -59,7 +67,14 @@ export interface Role {
     build_component?: boolean;
     ai_signal?: boolean;
     company_stage?: string;
+    /** Raw Claude verdict score (0–10). Pre-G4 records only carry this; newer
+     *  records also have score_base + score_adjusted. */
     fit_score?: number;
+    /** Engine layer base score before adjustments (G4: location/comp/archetype/soft/anti). */
+    score_base?: number;
+    /** Engine layer final score after G4 adjustments. This is what the dashboard
+     *  prefers for display when present. */
+    score_adjusted?: number;
     verdict?: string;
   } | null;
 }
