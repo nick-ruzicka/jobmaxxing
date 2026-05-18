@@ -562,6 +562,119 @@ test("scoring-layer — null primary archetype is handled gracefully (no archety
   assert.equal(arch, undefined);
 });
 
+// ─── comp unverified ceiling cap (Phase 1.5) ────────────────────────────────
+// When comp:below_floor_suppressed is in the adjustments trail, a perfect 10
+// is structurally dishonest — the comp could still be below floor. Cap at 8.5.
+
+test("ceiling cap — Anaconda-shaped: base 8 + remote + suppressed + archetype → capped to 8.5", () => {
+  // base 8 → internal 80, +5 remote, +0 suppressed, +25 archetype cap = 110 → clamp 100 → 10.0 → cap 8.5
+  const result = adjustScore(
+    8,
+    {
+      title: "GTM Engineer",
+      company: "Anaconda",
+      comp_range: "$101,500 – $135,000 /yr",
+      comp_source: "jsonld_basesalary",
+      location_workplace: "remote",
+      verdict: "Excellent fit but no comp listed is concerning.",
+      red_flags: ["No compensation mentioned"],
+      description: "Build outbound signal engines on Python + HubSpot + Claude API. RevOps engineering.",
+    },
+    "gtm-engineering",
+  );
+  assert.equal(result.adjusted_score, 8.5, "should be capped at 8.5");
+  const suppressed = result.adjustments.find(a => a.source === "comp:below_floor_suppressed");
+  const cap = result.adjustments.find(a => a.source === "ceiling:comp_unverified_cap");
+  assert.ok(suppressed, "comp:below_floor_suppressed should be present");
+  assert.ok(cap, "ceiling:comp_unverified_cap should be present");
+  assert.equal(cap.delta, 0);
+});
+
+test("ceiling cap — does NOT fire when comp_unverified is absent", () => {
+  // base 8 → internal 80, +5 remote, +25 archetype = 110 → clamp 100 → 10.0 (no suppression → no cap)
+  const result = adjustScore(
+    8,
+    {
+      title: "GTM Engineer",
+      company: "Acme",
+      location_workplace: "remote",
+      description: "Build outbound signal engines on Python + HubSpot + Claude API. RevOps engineering.",
+    },
+    "gtm-engineering",
+  );
+  assert.equal(result.adjusted_score, 10.0, "should NOT be capped without comp:below_floor_suppressed");
+  const cap = result.adjustments.find(a => a.source === "ceiling:comp_unverified_cap");
+  assert.equal(cap, undefined, "ceiling cap should not be in adjustments");
+});
+
+test("ceiling cap — does NOT fire when score is already below 8.5", () => {
+  // base 4 → internal 40, +10 hybrid_nyc, +0 suppressed, +13 secondary archetype = 63 → 6.3 (below 8.5)
+  const result = adjustScore(
+    4,
+    {
+      title: "GTM Engineer",
+      company: "Acme",
+      comp_range: "$101,500 – $135,000 /yr",
+      comp_source: "jsonld_basesalary",
+      location_workplace: "hybrid",
+      location_city: "New York",
+      location_region: "NY",
+      verdict: "No comp listed.",
+      red_flags: ["No compensation mentioned"],
+      description: "Customer-facing engineering. RevOps.",
+    },
+    null,
+    ["gtm-engineering"],
+  );
+  assert.ok(result.adjusted_score <= 8.5, "score should already be below 8.5");
+  const cap = result.adjustments.find(a => a.source === "ceiling:comp_unverified_cap");
+  assert.equal(cap, undefined, "ceiling cap should NOT fire when score is below 8.5");
+});
+
+test("ceiling cap — does NOT fire at exactly 8.5 boundary", () => {
+  // Need uncapped score of exactly 8.5: internal 85 after clamp → 8.5
+  // base 8 → 80, +5 remote, +0 suppressed = 85 → 8.5 (condition is > 8.5, not >=)
+  const result = adjustScore(
+    8,
+    {
+      title: "Office Manager",
+      company: "Acme",
+      comp_range: "$101,500 – $135,000 /yr",
+      comp_source: "jsonld_basesalary",
+      location_workplace: "remote",
+      verdict: "No comp listed.",
+      red_flags: ["No compensation mentioned"],
+      description: "Manage office operations.",
+    },
+    null, // no archetype → no archetype boost
+  );
+  assert.equal(result.adjusted_score, 8.5, "score should be exactly 8.5");
+  const cap = result.adjustments.find(a => a.source === "ceiling:comp_unverified_cap");
+  assert.equal(cap, undefined, "ceiling cap should NOT fire at exactly 8.5 (only > 8.5)");
+});
+
+test("ceiling cap — fires at 9.0, caps to 8.5", () => {
+  // base 9 → 90, +5 remote, +0 suppressed = 95 → 9.5 → cap to 8.5
+  const result = adjustScore(
+    9,
+    {
+      title: "Office Manager",
+      company: "Acme",
+      comp_range: "$101,500 – $135,000 /yr",
+      comp_source: "jsonld_basesalary",
+      location_workplace: "remote",
+      verdict: "No comp listed.",
+      red_flags: ["No compensation mentioned"],
+      description: "Manage office operations.",
+    },
+    null,
+  );
+  assert.equal(result.adjusted_score, 8.5, "should be capped at 8.5");
+  const cap = result.adjustments.find(a => a.source === "ceiling:comp_unverified_cap");
+  assert.ok(cap, "ceiling:comp_unverified_cap should be present");
+  assert.equal(cap.delta, 0);
+});
+
 test("scoring-layer — adjusted_score is clamped to >= 0", () => {
   // Base 1, with heavy onsite + comp penalty
   const result = adjustScore(
