@@ -175,11 +175,11 @@ function locationAdjustment(role, ctx) {
     else if (city === "san francisco" || city === "sf") key = "hybrid_sf";
     else if (city === "los angeles" || city === "la") key = "hybrid_la";
     else if (city === "chicago") key = "hybrid_chicago";
-    else if (isUS(region)) key = "hybrid_other_us";
+    else if (isUS(region, city)) key = "hybrid_other_us";
     else key = "hybrid_international";
   } else if (workplace === "onsite" || workplace === "on-site") {
     if (NYC_CITIES.has(city) || NYC_AREA_CITIES.has(city)) key = "onsite_nyc";
-    else if (isUS(region)) key = "onsite_other_us";
+    else if (isUS(region, city)) key = "onsite_other_us";
     else key = "onsite_international";
   } else {
     return null; // unknown workplace, skip
@@ -194,22 +194,126 @@ function locationAdjustment(role, ctx) {
   };
 }
 
-// Common non-US 2-letter region/country codes we see on remote job boards.
-// Anything else 2-letter is assumed to be a US state.
+// US state codes (50 + DC + territories). Checked FIRST in isUS so that 2-letter
+// codes that overlap with foreign country codes (CA = California vs Canada,
+// DE = Delaware vs Germany, IL = Illinois vs Israel, AR = Arkansas vs Argentina,
+// CO = Colorado vs Colombia, IN = Indiana vs India) classify as US.
+//
+// This was the source of the "California is Canada" bug — `NON_US_CODES.has("ca")`
+// returned true, so every California-region role was routed to onsite_international
+// (-75) or hybrid_international (-50) instead of the correct onsite_other_us /
+// hybrid_other_us bucket.
+const US_STATE_CODES = new Set([
+  "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id",
+  "il", "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms",
+  "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok",
+  "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv",
+  "wi", "wy",
+  "dc",                                    // District of Columbia
+  "pr", "gu", "as", "vi", "mp",            // Territories
+]);
+
+// US state full names → US. Used when location_region (or location_country
+// fallback) carries a full state name instead of the 2-letter code.
+const US_STATE_NAMES = new Set([
+  "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+  "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
+  "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine",
+  "maryland", "massachusetts", "michigan", "minnesota", "mississippi",
+  "missouri", "montana", "nebraska", "nevada", "new hampshire", "new jersey",
+  "new mexico", "new york", "north carolina", "north dakota", "ohio",
+  "oklahoma", "oregon", "pennsylvania", "rhode island", "south carolina",
+  "south dakota", "tennessee", "texas", "utah", "vermont", "virginia",
+  "washington", "west virginia", "wisconsin", "wyoming",
+  "district of columbia",
+]);
+
+// Canadian province codes. The mirror image of the California-is-Canada bug —
+// without these, "BC" / "ON" / "QC" would fall through the US_STATE_CODES check
+// (they're not there) and then hit the legacy 2-letter fallback that defaults
+// to US.
+const CA_PROVINCE_CODES = new Set([
+  "on", "qc", "bc", "ab", "mb", "sk", "ns", "nb", "nl", "pe", "yt", "nt", "nu",
+]);
+
+// Canadian province full names → non-US.
+const CA_PROVINCE_NAMES = new Set([
+  "ontario", "quebec", "british columbia", "alberta", "manitoba",
+  "saskatchewan", "nova scotia", "new brunswick",
+  "newfoundland and labrador", "newfoundland", "prince edward island",
+  "yukon", "northwest territories", "nunavut",
+]);
+
+// Major Canadian cities — used to disambiguate ambiguous 2-letter regions like
+// "CA" (could be California OR Canada). When the city is unmistakably Canadian
+// and the region is the ambiguous "ca", we classify as non-US. Without a city
+// signal, "ca" defaults to California (US). Toronto/Montreal/etc. are the
+// minimum cases called out in the test brief.
+//
+// Note: "london" deliberately excluded — London, ON vs London, UK is itself
+// ambiguous; safer to require an explicit region signal for London cases.
+const CA_CITY_NAMES = new Set([
+  "toronto", "montreal", "vancouver", "calgary", "ottawa", "edmonton",
+  "winnipeg", "quebec city", "halifax", "victoria", "saskatoon", "regina",
+  "mississauga", "brampton", "hamilton", "kitchener",
+]);
+
+// Non-US 2-letter codes that don't overlap with US state codes. The overlapping
+// codes (CA, DE, IL, AR, CO, IN) are intentionally absent — they're US states
+// and isUS() checks US_STATE_CODES first.
 const NON_US_CODES = new Set([
-  "gb", "uk", "ie", "de", "fr", "es", "it", "nl", "be", "ch", "at", "se", "no",
-  "dk", "fi", "pl", "cz", "hu", "pt", "gr", "ro", "tr", "il", "ua", "ru",
-  "ca", "mx", "br", "ar", "cl", "co", "pe",
-  "jp", "kr", "cn", "tw", "hk", "sg", "in", "id", "th", "vn", "ph", "my",
+  "gb", "uk", "ie", "fr", "es", "it", "nl", "be", "ch", "at", "se", "no",
+  "dk", "fi", "pl", "cz", "hu", "pt", "gr", "ro", "tr", "ua", "ru",
+  "mx", "br", "cl", "pe",
+  "jp", "kr", "cn", "tw", "hk", "sg", "id", "th", "vn", "ph", "my",
   "au", "nz", "ae", "sa", "qa", "kw", "eg", "ng", "ke", "za",
 ]);
 
-function isUS(region) {
+/**
+ * Classify a (region, city) pair as US-or-not.
+ *
+ * Precedence (highest → lowest):
+ *   1. Explicit country names ("us"/"usa"/"united states" → US; "canada" → non-US)
+ *   2. Full state name (US) or province name (non-US)
+ *   3. City-based disambiguation for ambiguous regions: a Canadian city beats
+ *      an ambiguous region code
+ *   4. 2-letter codes: US states FIRST (the fix), then CA provinces, then other
+ *      non-US codes
+ *   5. Fallback for unknown 2-letter codes → US (legacy behavior)
+ *
+ * @param {string|null|undefined} region — location_region OR location_country
+ * @param {string|null|undefined} [city] — location_city (optional; used for
+ *   ambiguous 2-letter region disambiguation only)
+ * @returns {boolean}
+ */
+export function isUS(region, city) {
   if (!region) return false;
-  const r = region.toLowerCase();
+  const r = String(region).toLowerCase();
+  const c = (city || "").toLowerCase();
+
+  // 1. Explicit country names
   if (r === "us" || r === "usa" || r === "united states") return true;
+  if (r === "canada") return false;
+
+  // 2. Full state / province name
+  if (US_STATE_NAMES.has(r)) return true;
+  if (CA_PROVINCE_NAMES.has(r)) return false;
+
+  // 3. City-based disambiguation for ambiguous 2-letter regions.
+  //    Only applies to "ca" (California vs Canada) — the other overlapping
+  //    codes (DE, IL, AR, CO, IN) are biased toward their US state meaning
+  //    because that's the more common case in this corpus.
+  if (r === "ca" && CA_CITY_NAMES.has(c)) return false;
+
+  // 4. 2-letter codes — US states FIRST. This is the fix.
+  if (US_STATE_CODES.has(r)) return true;
+  if (CA_PROVINCE_CODES.has(r)) return false;
   if (NON_US_CODES.has(r)) return false;
-  return /^[a-z]{2}$/.test(r); // 2-letter and not on the non-US list → US state
+
+  // 5. Unknown 2-letter code → assume US (legacy behavior, kept for
+  //    backward compatibility with any obscure US territory codes not in
+  //    US_STATE_CODES)
+  return /^[a-z]{2}$/.test(r);
 }
 
 // ─── compensation ─────────────────────────────────────────────────────────────

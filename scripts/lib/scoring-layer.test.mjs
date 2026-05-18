@@ -6,6 +6,7 @@ import {
   loadUserContext,
   clearUserContextCache,
   detectCompSourceDisagreement,
+  isUS,
   ARCHETYPE_REWARD_CAP,
   SECONDARY_CAP,
 } from "./scoring-layer.mjs";
@@ -52,6 +53,162 @@ test("scoring-layer — onsite international maps to onsite_international", () =
   const result = adjustScore(
     7,
     { title: "x", company: "y", location_workplace: "onsite", location_city: "London", location_region: "GB" },
+    null,
+  );
+  const loc = result.adjustments.find((a) => a.source.startsWith("location:"));
+  assert.equal(loc.source, "location:onsite_international");
+});
+
+// ─── isUS — California-is-Canada fix coverage ────────────────────────────────
+//
+// Bug history: NON_US_CODES used to contain "ca" (Canada), and isUS lowercased
+// before lookup. So every California-region role (region="CA" or "ca") was
+// routed to onsite_international/-75 or hybrid_international/-50 instead of
+// the correct onsite_other_us/-60 or hybrid_other_us/-25 buckets. That
+// silently dropped roles at OpenAI, Databricks, Skydio, Insight Partners, etc.
+// to 0/10 after the May-13 locations backfill populated location_region.
+//
+// Fix: US_STATE_CODES (50 + DC + territories) is checked FIRST. Canadian
+// province codes/names get their own buckets. The "ca" ambiguity defaults to
+// California (US) unless a known Canadian city overrides it.
+
+test("isUS — 'CA' (uppercase) is California (US)", () => {
+  assert.equal(isUS("CA"), true);
+});
+
+test("isUS — 'ca' (lowercase) is California (US)", () => {
+  assert.equal(isUS("ca"), true);
+});
+
+test("isUS — 'California' (full name) is US", () => {
+  assert.equal(isUS("California"), true);
+});
+
+test("isUS — 'NY' is US (sanity check — no regression on other state codes)", () => {
+  assert.equal(isUS("NY"), true);
+});
+
+test("isUS — region 'Canada' with city Toronto is non-US", () => {
+  assert.equal(isUS("Canada", "Toronto"), false);
+});
+
+test("isUS — region 'Canada' with city Montreal is non-US", () => {
+  assert.equal(isUS("Canada", "Montreal"), false);
+});
+
+test("isUS — 'Ontario' (province full name) is non-US", () => {
+  assert.equal(isUS("Ontario"), false);
+});
+
+test("isUS — 'BC' (province code) is non-US", () => {
+  assert.equal(isUS("BC"), false);
+});
+
+// Additional defensive cases around the disambiguation logic
+
+test("isUS — 'ca' + Canadian city (Toronto) → non-US (city overrides ambiguous region)", () => {
+  assert.equal(isUS("ca", "toronto"), false);
+});
+
+test("isUS — 'ca' + non-Canadian city (San Jose) → US (default California)", () => {
+  assert.equal(isUS("ca", "San Jose"), true);
+});
+
+test("isUS — 'ca' with no city → US (default California, no Canadian signal)", () => {
+  assert.equal(isUS("ca"), true);
+});
+
+test("isUS — other previously-conflicting state codes resolve to US (DE/IL/AR/CO/IN)", () => {
+  // These were all in the old NON_US_CODES (DE=Germany, IL=Israel, AR=Argentina,
+  // CO=Colombia, IN=India). The fix moves them out and into US_STATE_CODES.
+  assert.equal(isUS("DE"), true, "Delaware not Germany");
+  assert.equal(isUS("IL"), true, "Illinois not Israel");
+  assert.equal(isUS("AR"), true, "Arkansas not Argentina");
+  assert.equal(isUS("CO"), true, "Colorado not Colombia");
+  assert.equal(isUS("IN"), true, "Indiana not India");
+});
+
+test("isUS — unambiguous non-US country codes stay non-US (GB, FR, DE→wait DE is now US)", () => {
+  assert.equal(isUS("GB"), false);
+  assert.equal(isUS("FR"), false);
+  assert.equal(isUS("JP"), false);
+  assert.equal(isUS("MX"), false);
+});
+
+test("isUS — explicit country names: 'US', 'USA', 'United States' → US", () => {
+  assert.equal(isUS("US"), true);
+  assert.equal(isUS("USA"), true);
+  assert.equal(isUS("united states"), true);
+});
+
+test("isUS — empty/null/undefined → false (defensive)", () => {
+  assert.equal(isUS(""), false);
+  assert.equal(isUS(null), false);
+  assert.equal(isUS(undefined), false);
+});
+
+test("isUS — Canadian province codes: QC, AB, NS, etc.", () => {
+  assert.equal(isUS("QC"), false, "Quebec");
+  assert.equal(isUS("AB"), false, "Alberta");
+  assert.equal(isUS("NS"), false, "Nova Scotia");
+  assert.equal(isUS("NU"), false, "Nunavut");
+});
+
+test("isUS — Canadian province full names: 'Quebec', 'British Columbia', 'Alberta'", () => {
+  assert.equal(isUS("Quebec"), false);
+  assert.equal(isUS("British Columbia"), false);
+  assert.equal(isUS("Alberta"), false);
+});
+
+// ─── locationAdjustment — integration: California roles get the correct bucket ─
+
+test("location — onsite San Jose, CA → onsite_other_us (was onsite_international before fix)", () => {
+  const result = adjustScore(
+    7,
+    { title: "x", company: "y", location_workplace: "onsite", location_city: "San Jose", location_region: "CA" },
+    null,
+  );
+  const loc = result.adjustments.find((a) => a.source.startsWith("location:"));
+  assert.ok(loc, "expected a location adjustment");
+  assert.equal(loc.source, "location:onsite_other_us");
+});
+
+test("location — hybrid Sacramento, CA → hybrid_other_us (was hybrid_international before fix)", () => {
+  const result = adjustScore(
+    7,
+    { title: "x", company: "y", location_workplace: "hybrid", location_city: "Sacramento", location_region: "CA" },
+    null,
+  );
+  const loc = result.adjustments.find((a) => a.source.startsWith("location:"));
+  assert.equal(loc.source, "location:hybrid_other_us");
+});
+
+test("location — onsite Toronto, Canada → onsite_international (Canadian city + region)", () => {
+  const result = adjustScore(
+    7,
+    { title: "x", company: "y", location_workplace: "onsite", location_city: "Toronto", location_region: "Canada" },
+    null,
+  );
+  const loc = result.adjustments.find((a) => a.source.startsWith("location:"));
+  assert.equal(loc.source, "location:onsite_international");
+});
+
+test("location — onsite Vancouver, BC → onsite_international (province code)", () => {
+  const result = adjustScore(
+    7,
+    { title: "x", company: "y", location_workplace: "onsite", location_city: "Vancouver", location_region: "BC" },
+    null,
+  );
+  const loc = result.adjustments.find((a) => a.source.startsWith("location:"));
+  assert.equal(loc.source, "location:onsite_international");
+});
+
+test("location — onsite Toronto with region 'ca' (ambiguous, city disambiguates) → onsite_international", () => {
+  // This is the disambiguation test: region 'ca' could be California OR Canada;
+  // city 'Toronto' makes it unambiguously Canadian.
+  const result = adjustScore(
+    7,
+    { title: "x", company: "y", location_workplace: "onsite", location_city: "Toronto", location_region: "ca" },
     null,
   );
   const loc = result.adjustments.find((a) => a.source.startsWith("location:"));
