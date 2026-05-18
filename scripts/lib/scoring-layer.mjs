@@ -403,18 +403,33 @@ function claudeSaysNoComp(text) {
   return NO_COMP_PATTERNS.some((re) => re.test(text));
 }
 
+// Threshold above which a JSON-LD basesalary value is too specific to be a
+// generic role-class placeholder. BuiltIn's known-unreliable bands cluster
+// in the $80K-$130K range (default level bands). A max above $150K means the
+// JSON-LD almost certainly reflects real posted comp — don't trust Claude's
+// possibly-hallucinated "no comp" claim against it.
+const COMP_GENERIC_PLACEHOLDER_CEILING = 150000;
+
 /**
  * Trust gate for the comp:below_floor penalty.
  *
  * @param {object} input
  * @param {string} [input.comp_source]   - one of jsonld_basesalary | jsonld_description | jd_prose | jd_estimate | qualitative_only | claude_extracted | none
+ * @param {string} [input.comp_range]    - the parsed comp string ("$191K-$249K"). Used to defend against Claude's hallucinated "no comp" claims when the JSON-LD value is clearly real (max >= $150K).
  * @param {string} [input.verdict]       - Claude's prose verdict
  * @param {string[]} [input.red_flags]   - Claude's red-flag array
  * @returns {{ disagrees: boolean, reason: string|null }}
  */
-export function detectCompSourceDisagreement({ comp_source, verdict, red_flags } = {}) {
+export function detectCompSourceDisagreement({ comp_source, comp_range, verdict, red_flags } = {}) {
   // Source-gated: only the known-unreliable jsonld_basesalary path triggers.
   if (comp_source !== "jsonld_basesalary") {
+    return { disagrees: false, reason: null };
+  }
+  // Defense (added 2026-05-18 after Airtable false-positive): if comp_range
+  // has a real numeric max >= $150K, the data is too specific to be a generic
+  // BuiltIn placeholder band. Trust JSON-LD over Claude's claim.
+  const maxComp = extractMaxComp(comp_range);
+  if (maxComp !== null && maxComp >= COMP_GENERIC_PLACEHOLDER_CEILING) {
     return { disagrees: false, reason: null };
   }
   const verdictHit = claudeSaysNoComp(verdict);
@@ -444,10 +459,18 @@ function compAdjustment(role, ctx) {
   }
   const min = extractMinComp(rangeStr);
   if (min === null) return null;
-  if (min < comp.floor_usd) {
+  // Fix D (2026-05-18): use midpoint of the comp range instead of min when
+  // comparing against floor. A band $191K-$249K straddles the $200K floor —
+  // the midpoint $220K is the more honest "expected" comp. Single-value
+  // comps (min == max) behave identically to before.
+  const max = extractMaxComp(rangeStr);
+  const mid = max !== null && max > min ? Math.round((min + max) / 2) : min;
+  const usedMid = mid !== min;
+  if (mid < comp.floor_usd) {
     // Trust gate: contested JSON-LD comp data → suppress penalty, tag for visibility.
     const disagreement = detectCompSourceDisagreement({
       comp_source: role.comp_source,
+      comp_range: role.comp_range,
       verdict: role.verdict,
       red_flags: role.red_flags,
     });
@@ -458,10 +481,11 @@ function compAdjustment(role, ctx) {
         reason: disagreement.reason,
       };
     }
+    const label = usedMid ? "mid" : "min";
     return {
       source: "comp:below_floor",
       delta: comp.below_floor_penalty ?? 0,
-      reason: `min $${min.toLocaleString()} < floor $${comp.floor_usd.toLocaleString()}`,
+      reason: `${label} $${mid.toLocaleString()} < floor $${comp.floor_usd.toLocaleString()}`,
     };
   }
   return null;
@@ -478,6 +502,25 @@ function extractMinComp(s) {
   else if (suffix === "m") n *= 1000000;
   else if (n < 1000) n *= 1000; // bare "150" → 150,000
   return n;
+}
+
+// Largest dollar number in the comp string. Used by the comp trust gate
+// (to detect non-generic JSON-LD values) and by compMidpoint (Fix D).
+function extractMaxComp(s) {
+  if (!s) return null;
+  const norm = String(s).replace(/,/g, "");
+  const matches = [...norm.matchAll(/\$?(\d+(?:\.\d+)?)\s*(k|m)?/gi)];
+  if (matches.length === 0) return null;
+  let max = 0;
+  for (const m of matches) {
+    let n = parseFloat(m[1]);
+    const suffix = (m[2] || "").toLowerCase();
+    if (suffix === "k") n *= 1000;
+    else if (suffix === "m") n *= 1000000;
+    else if (n < 1000) n *= 1000;
+    if (n > max) max = n;
+  }
+  return max || null;
 }
 
 // ─── archetype lens ───────────────────────────────────────────────────────────
