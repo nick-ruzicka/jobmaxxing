@@ -23,6 +23,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { locationFields, structuredLocationFields } from "./lib/location.mjs";
 import { upgradeAtsResult } from "./lib/ats-url-upgrade.mjs";
+import { upgradeBuiltinResult } from "./lib/builtin-jsonld-upgrade.mjs";
 import { cleanTitle } from "./lib/title-cleanup.mjs";
 import { companyKey } from "./lib/normalize-company.mjs";
 import {
@@ -1572,7 +1573,7 @@ async function main() {
   // --- Validation pipeline ---
   console.log(`\n--- Validation ---`);
 
-  // STEP 0: ATS-aware location upgrade — when a URL was discovered via a generic
+  // STEP 0a: ATS-aware location upgrade — when a URL was discovered via a generic
   // tier (e.g. Tier 8 Exa deep search) but is transparently from a known ATS
   // (Ashby, Greenhouse), re-fetch the API so location/company/comp are clean
   // instead of parsed-from-HTML-title. Closes the gap where a Tier-8 Exa snippet
@@ -1588,6 +1589,29 @@ async function main() {
   }
   if (atsUpgraded > 0) {
     console.log(`  ATS upgrade: ${atsUpgraded} records re-fetched from ATS APIs`);
+  }
+
+  // STEP 0b: BuiltIn JSON-LD upgrade — when a BuiltIn URL's card scrape left
+  // location_city=null (the card icon often shows "5 Locations" instead of a
+  // single city), fetch the job page and parse its JSON-LD JobPosting. Handles
+  // multi-location postings by picking the user's preferred city (NYC bias).
+  // Closes the gap where the Airtable GTM Engineer role landed with
+  // workplace=onsite, city=null → onsite_international (-75) when it's really
+  // multi-office (NYC, SF, Sea, LA) hybrid.
+  const BUILTIN_PREFS = {
+    preferred: ["new york", "brooklyn", "queens", "jersey city", "hoboken"],
+    avoid: ["san francisco", "los angeles", "chicago", "austin", "seattle"],
+  };
+  let builtinUpgraded = 0;
+  for (let i = 0; i < netNew.length; i++) {
+    const upgraded = await upgradeBuiltinResult(netNew[i], { preferences: BUILTIN_PREFS });
+    if (upgraded !== netNew[i]) {
+      netNew[i] = upgraded;
+      builtinUpgraded++;
+    }
+  }
+  if (builtinUpgraded > 0) {
+    console.log(`  BuiltIn JSON-LD upgrade: ${builtinUpgraded} records re-fetched from job pages`);
   }
 
   // STEP 1: Resolve companies for entries that don't have one
