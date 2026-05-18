@@ -485,7 +485,6 @@ function softPreferenceAdjustments(role, ctx) {
 const ANTI_SIGNAL_PATTERNS = [
   { key: "acqui_hire_in_last_18_months", patterns: ["acqui-hire", "talent acquisition"] },
   { key: "five_plus_rounds_in_18_months", patterns: ["bridge round", "down round", "extension round"] },
-  { key: "glassdoor_below_3_5", patterns: [] }, // requires external data; skipped at JD time
 ];
 
 function antiSignalAdjustments(role, ctx) {
@@ -494,7 +493,6 @@ function antiSignalAdjustments(role, ctx) {
   const body = ((role.description || "") + " " + (role.company || "")).toLowerCase();
   const out = [];
   for (const { key, patterns } of ANTI_SIGNAL_PATTERNS) {
-    if (patterns.length === 0) continue;
     if (patterns.some((p) => body.includes(p))) {
       const delta = sigs[key];
       if (typeof delta === "number" && delta !== 0) {
