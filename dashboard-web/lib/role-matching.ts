@@ -31,10 +31,11 @@
 // do both the company match and the open-status filter.
 
 import type { Role } from "./types";
-import { companyKey } from "../../scripts/lib/normalize-company.mjs";
-// Suffix tokens we strip when fuzzily matching company names. Single source:
-// scripts/lib/company-matching.mjs (shared with the Node scripts).
-import { FUZZY_SUFFIXES } from "../../scripts/lib/company-matching.mjs";
+// companyCandidateKeys lives in the shared module (single source for Node +
+// dashboard). Imported for internal use AND re-exported so existing
+// `import … from "./role-matching"` sites (e.g. lib/data.ts) keep working.
+import { companyCandidateKeys } from "../../scripts/lib/company-matching.mjs";
+export { companyCandidateKeys };
 
 // Role statuses we treat as "open" — i.e. roles still worth showing in a
 // company's open-roles list. Applied/Interview/Offer all count: a role you've
@@ -47,31 +48,6 @@ const OPEN_STATUSES = new Set<Role["status"]>([
   "Interview",
   "Offer",
 ]);
-
-/**
- * All keys a slug-or-name could match. Used everywhere a company is identified
- * by slug. Strips known common suffixes so "mistralai" also matches "mistral".
- *
- * Returns at least one element (the canonical companyKey form). De-duped.
- *
- * Examples:
- *   companyCandidateKeys("Mistral AI")  → ["mistralai", "mistral"]
- *   companyCandidateKeys("mistralai")   → ["mistralai", "mistral"]
- *   companyCandidateKeys("EliseAI")     → ["eliseai", "elise"]
- *   companyCandidateKeys("Rillet")      → ["rillet"]
- */
-export function companyCandidateKeys(slugOrName: string): string[] {
-  const primary = companyKey(slugOrName) || slugOrName.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (!primary) return [];
-  const out = [primary];
-  for (const suffix of FUZZY_SUFFIXES) {
-    if (primary.endsWith(suffix) && primary.length > suffix.length + 2) {
-      const stripped = primary.slice(0, -suffix.length);
-      if (!out.includes(stripped)) out.push(stripped);
-    }
-  }
-  return out;
-}
 
 /** True when the role's status counts as "still open" (applyable). */
 export function isOpenRoleStatus(role: Pick<Role, "status" | "stale" | "closed">): boolean {
