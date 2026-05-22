@@ -10,25 +10,10 @@
 
 import { companyKey } from "./normalize-company.mjs";
 import { getAllArchetypes } from "./archetype-config.mjs";
-import { FUZZY_SUFFIXES, PRIMARY_ARCHETYPES } from "./company-matching.mjs";
+import { PRIMARY_ARCHETYPES, companyCandidateKeys } from "./company-matching.mjs";
 
 // Hiring velocity thresholds
 const VELOCITY_THRESHOLDS = { cold: 0, warming: 1, hot: 3, on_fire: 10 };
-
-/**
- * Generate candidate keys for fuzzy matching (strips common suffixes).
- * @param {string} key - already-lowercased alphanumeric key
- * @returns {string[]} - array of candidate keys to try
- */
-function candidateKeys(key) {
-  const candidates = [key];
-  for (const suffix of FUZZY_SUFFIXES) {
-    if (key.endsWith(suffix) && key.length > suffix.length + 2) {
-      candidates.push(key.slice(0, -suffix.length));
-    }
-  }
-  return candidates;
-}
 
 /**
  * Classify hiring velocity from archetype-matched role count.
@@ -71,7 +56,7 @@ export function matchSignalCompanies(signals, seenUrls, enrichments, opts = {}) 
       const entry = { archetypes: new Map(), totalRoles: 0 };
       companyRoles.set(ck, entry);
       // Register suffix-stripped aliases pointing to same object
-      for (const alias of candidateKeys(ck)) {
+      for (const alias of companyCandidateKeys(role.company)) {
         if (alias !== ck && !companyRoles.has(alias)) {
           companyRoles.set(alias, entry);
         }
@@ -106,11 +91,13 @@ export function matchSignalCompanies(signals, seenUrls, enrichments, opts = {}) 
   // Step 3: Match each signal company
   const results = new Map();
   for (const signal of signals) {
-    const ck = signal.slug.replace(/[^a-z0-9]/g, "");
-    const nameKey = companyKey(signal.name);
-
-    // Try exact match first, then fuzzy (suffix-stripped) match
-    const allCandidates = [...new Set([...candidateKeys(ck), ...candidateKeys(nameKey)])];
+    // Candidates from both the slug and the display name, each normalized the
+    // same way as the role index (companyKey + suffix-strip + dedup) so signals
+    // resolve to the same company keys as the pipeline roles. (A2 fix: the slug
+    // path used to skip companyKey normalization, diverging from the role side.)
+    const allCandidates = [
+      ...new Set([...companyCandidateKeys(signal.slug), ...companyCandidateKeys(signal.name)]),
+    ];
     let roleData = null;
     for (const candidate of allCandidates) {
       if (companyRoles.has(candidate)) {

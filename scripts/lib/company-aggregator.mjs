@@ -23,29 +23,15 @@ import { fileURLToPath } from "url";
 import { companyKey } from "./normalize-company.mjs";
 import { classifyVelocity } from "./company-archetype-matcher.mjs";
 import { readCompaniesFile } from "./companies-load.mjs";
-import { FUZZY_SUFFIXES, PRIMARY_ARCHETYPES_SET } from "./company-matching.mjs";
+import { PRIMARY_ARCHETYPES_SET, companyCandidateKeys } from "./company-matching.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
-// PRIMARY_ARCHETYPES_SET + FUZZY_SUFFIXES now come from ./company-matching.mjs
+// PRIMARY_ARCHETYPES_SET + companyCandidateKeys now come from ./company-matching.mjs
 // (single source shared with company-archetype-matcher.mjs and role-matching.ts).
 // ISSUE-002 context: seen-urls stores bare names ("Mistral") while signals/UI use
-// the suffix form ("mistralai"); the shared suffix list lets the fuzzy candidate
-// lookup bridge them.
-
-function aggregatorCandidateKeys(slug) {
-  const primary = companyKey(slug) || String(slug).toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (!primary) return [];
-  const out = [primary];
-  for (const suffix of FUZZY_SUFFIXES) {
-    if (primary.endsWith(suffix) && primary.length > suffix.length + 2) {
-      const stripped = primary.slice(0, -suffix.length);
-      if (!out.includes(stripped)) out.push(stripped);
-    }
-  }
-  return out;
-}
+// the suffix form ("mistralai"); companyCandidateKeys bridges them.
 
 // ---------------------------------------------------------------------------
 // Disk loaders (only called when opts doesn't provide the data)
@@ -326,7 +312,7 @@ export function aggregateCompany(slug, opts = {}) {
   // is the canonical-with-suffix form ("mistralai"). Without this we miss
   // the role group and the drilldown reports roles:[] while /signals says
   // "1 open role" — the QA-confirmed ISSUE-002 repro.
-  const candidates = aggregatorCandidateKeys(slug);
+  const candidates = companyCandidateKeys(slug);
   let seenEntry = null;
   for (const k of candidates) {
     const hit = byCompany.get(k);
