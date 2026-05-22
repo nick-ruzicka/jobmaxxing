@@ -70,6 +70,7 @@ export function adjustScore(baseScore, role, archetypePrimary, archetypeSecondar
       adjustments: [{ source: "disqualifier", delta: -(baseScore ?? 0) * SCALE, reason: dq.reason }],
       disqualified: true,
       disqualification_reason: dq.reason,
+      clamp_reason: null, // disqualified, not floor-clamped
     };
   }
 
@@ -105,8 +106,23 @@ export function adjustScore(baseScore, role, archetypePrimary, archetypeSecondar
 
   const totalDelta = adjustments.reduce((sum, a) => sum + a.delta, 0);
   const baseInternal = (baseScore ?? 5) * SCALE;
-  const adjustedInternal = Math.max(0, Math.min(100, baseInternal + totalDelta));
+  const preClampInternal = baseInternal + totalDelta;
+  const adjustedInternal = Math.max(0, Math.min(100, preClampInternal));
   let finalScore = Math.round((adjustedInternal / SCALE) * 10) / 10;
+
+  // E4: floor-clamp provenance. When penalties drove the score below 0 (clamped
+  // to 0), record the single largest-magnitude negative adjustment so a "great
+  // role, killed by location/comp" 0 is distinguishable from a genuine low-fit 0.
+  // Provenance only — does NOT affect the score. Null when not floor-clamped.
+  let clampReason = null;
+  if (preClampInternal < 0) {
+    const negatives = adjustments
+      .filter((a) => a.delta < 0)
+      .sort((x, y) => x.delta - y.delta); // most-negative first
+    if (negatives.length > 0) {
+      clampReason = `${negatives[0].source} (${negatives[0].delta})`;
+    }
+  }
 
   // Phase 1.5: cap at 8.5 when comp:below_floor was suppressed by the trust gate.
   // A perfect 10 on a role with unverified comp is structurally dishonest — the
@@ -128,6 +144,7 @@ export function adjustScore(baseScore, role, archetypePrimary, archetypeSecondar
     adjustments,
     disqualified: false,
     disqualification_reason: null,
+    clamp_reason: clampReason,
   };
 }
 

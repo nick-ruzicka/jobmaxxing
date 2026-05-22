@@ -691,3 +691,38 @@ test("scoring-layer — adjusted_score is clamped to >= 0", () => {
   );
   assert.ok(result.adjusted_score >= 0);
 });
+
+// ─── E4: clamp_reason provenance ────────────────────────────────────────────
+
+test("clamp_reason — floor-clamped role records the largest negative adjustment", () => {
+  // base 6 (=60 internal) + onsite international (-75) → preclamp -15 → clamps to 0
+  const result = adjustScore(
+    6,
+    { title: "GTM Engineer", company: "Acme", location_workplace: "onsite", location_city: "Berlin", location_region: "Germany" },
+    null,
+  );
+  assert.equal(result.adjusted_score, 0, "should floor-clamp to 0");
+  assert.equal(result.disqualified, false, "clamp is not a disqualification");
+  assert.equal(result.clamp_reason, "location:onsite_international (-75)");
+});
+
+test("clamp_reason — genuine low-fit role (no clamp) carries NO clamp_reason", () => {
+  // base 1 (=10 internal), no big penalties → stays >= 0, never clamped
+  const result = adjustScore(
+    1,
+    { title: "Backend Engineer", company: "Acme", location_workplace: "remote" },
+    null,
+  );
+  assert.ok(result.adjusted_score > 0, "not clamped to 0");
+  assert.equal(result.clamp_reason, null);
+});
+
+test("clamp_reason — disqualified role is null (DQ, not a clamp)", () => {
+  const result = adjustScore(
+    8,
+    { title: "Engineer", company: "PokerStars", description: "gambling platform", location_workplace: "remote" },
+    null,
+  );
+  assert.equal(result.disqualified, true);
+  assert.equal(result.clamp_reason, null);
+});
