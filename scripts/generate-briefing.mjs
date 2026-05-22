@@ -17,6 +17,15 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { getCompFloorUsd, formatCompFloorString } from "./lib/comp-floor.mjs";
+import { defaultGoalFallback } from "./lib/default-goal.mjs";
+import {
+  BRIEFING_APPLY_THRESHOLD,
+  BRIEFING_MISSED_THRESHOLD,
+  BRIEFING_RECALIBRATE_MIN,
+  BRIEFING_RECALIBRATE_MAX,
+  STALE_APPLICATION_DAYS,
+  CHAT_PRUNING_DAYS,
+} from "./lib/thresholds.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -117,8 +126,7 @@ function loadProfile() {
 // ---------------------------------------------------------------------------
 function extractGoals(profile) {
   if (!profile) {
-    const floor = formatCompFloorString(getCompFloorUsd());
-    return `GTM Engineer / RevOps roles, NYC area or remote, ${floor}+ floor, Series B+ companies`;
+    return defaultGoalFallback(formatCompFloorString(getCompFloorUsd()));
   }
   // Pull the Background + Target Roles sections — they're enough to ground the
   // agent without exploding the prompt. Cap at ~4KB so the rest of the context
@@ -180,16 +188,16 @@ function buildAppliedSet(applications) {
   return set;
 }
 
-/** Top N highest-fit Discovered roles (no application row, fit_score >= 6). */
+/** Top N highest-fit Discovered roles (no application row, fit_score >= apply threshold). */
 function topApplyCandidates(roles, appliedSet, n = 5) {
   return roles
-    .filter((r) => r.fit_score !== null && r.fit_score >= 6)
+    .filter((r) => r.fit_score !== null && r.fit_score >= BRIEFING_APPLY_THRESHOLD)
     .filter((r) => !appliedSet.has(`${r.company.toLowerCase()}|${r.title.toLowerCase()}`))
     .sort((a, b) => (b.fit_score ?? 0) - (a.fit_score ?? 0))
     .slice(0, n);
 }
 
-/** Applications stale > 3 days, non-terminal. Terminal = Rejected, Skipped, Discarded, Offer. */
+/** Applications stale beyond STALE_APPLICATION_DAYS, non-terminal. Terminal = Rejected, Skipped, Discarded, Offer. */
 function staleApplications(applications) {
   const TERMINAL = new Set(["rejected", "skipped", "discarded", "offer"]);
   return applications
@@ -198,14 +206,14 @@ function staleApplications(applications) {
       return !TERMINAL.has(s) && s !== "" && s !== "discovered";
     })
     .map((a) => ({ ...a, days_stale: daysAgo(a.date) }))
-    .filter((a) => a.days_stale > 3)
+    .filter((a) => a.days_stale > STALE_APPLICATION_DAYS)
     .sort((a, b) => b.days_stale - a.days_stale);
 }
 
-/** High-fit (>=7) roles you might've missed — Discovered + not applied. */
+/** High-fit roles you might've missed — Discovered + not applied. */
 function missedCandidates(roles, appliedSet, n = 5) {
   return roles
-    .filter((r) => r.fit_score !== null && r.fit_score >= 7)
+    .filter((r) => r.fit_score !== null && r.fit_score >= BRIEFING_MISSED_THRESHOLD)
     .filter((r) => !appliedSet.has(`${r.company.toLowerCase()}|${r.title.toLowerCase()}`))
     .sort((a, b) => (b.fit_score ?? 0) - (a.fit_score ?? 0))
     .slice(0, n);
@@ -214,7 +222,7 @@ function missedCandidates(roles, appliedSet, n = 5) {
 /** Top-fit roles missing location metadata — recoverable by a manual check. */
 function verifyLocationCandidates(roles, n = 5) {
   return roles
-    .filter((r) => r.fit_score !== null && r.fit_score >= 6)
+    .filter((r) => r.fit_score !== null && r.fit_score >= BRIEFING_APPLY_THRESHOLD)
     .filter((r) => r.location_workplace === "unknown" || r.location_city === null)
     .sort((a, b) => (b.fit_score ?? 0) - (a.fit_score ?? 0))
     .slice(0, n);
@@ -225,7 +233,7 @@ function verifyLocationCandidates(roles, n = 5) {
  *  surfacing as a "recalibrate" item. */
 function recalibrateCandidates(roles, n = 5) {
   return roles
-    .filter((r) => r.fit_score !== null && r.fit_score >= 4 && r.fit_score <= 6)
+    .filter((r) => r.fit_score !== null && r.fit_score >= BRIEFING_RECALIBRATE_MIN && r.fit_score <= BRIEFING_RECALIBRATE_MAX)
     .sort((a, b) => (b.fit_score ?? 0) - (a.fit_score ?? 0))
     .slice(0, n);
 }
@@ -259,19 +267,19 @@ ${ctx.goals}
 
 PIPELINE CONTEXT (deterministically pre-filtered — you choose which to surface, you don't recompute):
 
-TOP_APPLY_CANDIDATES (Discovered, fit_score >= 6, not yet applied):
+TOP_APPLY_CANDIDATES (Discovered, fit_score >= ${BRIEFING_APPLY_THRESHOLD}, not yet applied):
 ${JSON.stringify(ctx.applyCandidates, null, 2)}
 
-STALE_APPLICATIONS (non-terminal status, > 3 days since application date):
+STALE_APPLICATIONS (non-terminal status, > ${STALE_APPLICATION_DAYS} days since application date):
 ${JSON.stringify(ctx.staleApps, null, 2)}
 
-MISSED_CANDIDATES (fit_score >= 7, not yet applied — may overlap with apply candidates):
+MISSED_CANDIDATES (fit_score >= ${BRIEFING_MISSED_THRESHOLD}, not yet applied — may overlap with apply candidates):
 ${JSON.stringify(ctx.missedCandidates, null, 2)}
 
-VERIFY_LOCATION_CANDIDATES (fit_score >= 6 with unknown workplace/city):
+VERIFY_LOCATION_CANDIDATES (fit_score >= ${BRIEFING_APPLY_THRESHOLD} with unknown workplace/city):
 ${JSON.stringify(ctx.verifyLocationCandidates, null, 2)}
 
-RECALIBRATE_CANDIDATES (fit_score 4-6 — judge whether the verdict + flags suggest a higher score):
+RECALIBRATE_CANDIDATES (fit_score ${BRIEFING_RECALIBRATE_MIN}-${BRIEFING_RECALIBRATE_MAX} — judge whether the verdict + flags suggest a higher score):
 ${JSON.stringify(ctx.recalibrateCandidates, null, 2)}
 
 INTERVIEWS_TODAY_AND_TOMORROW: (calendar integration not yet wired — assume empty unless surfaced via the stale apps' notes)
@@ -361,7 +369,7 @@ function parseBriefingResponse(text) {
 function pruneOldChats() {
   const dir = join(ROOT, "data", "chats");
   if (!existsSync(dir)) return { pruned: 0 };
-  const cutoff = Date.now() - 30 * 86_400_000;
+  const cutoff = Date.now() - CHAT_PRUNING_DAYS * 86_400_000;
   let pruned = 0;
   for (const f of readdirSync(dir)) {
     if (!f.endsWith(".json")) continue;
