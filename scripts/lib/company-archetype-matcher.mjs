@@ -10,15 +10,10 @@
 
 import { companyKey } from "./normalize-company.mjs";
 import { getAllArchetypes } from "./archetype-config.mjs";
+import { FUZZY_SUFFIXES, PRIMARY_ARCHETYPES } from "./company-matching.mjs";
 
 // Hiring velocity thresholds
 const VELOCITY_THRESHOLDS = { cold: 0, warming: 1, hot: 3, on_fire: 10 };
-
-// Primary archetypes the user actively targets
-const PRIMARY_ARCHETYPES = ["gtm-engineering", "ai-operations", "fde"];
-
-// Common suffixes to strip for fuzzy company matching (lowercased, no separators)
-const COMPANY_SUFFIXES = ["ai", "labs", "tech", "io", "hq", "app", "xyz"];
 
 /**
  * Generate candidate keys for fuzzy matching (strips common suffixes).
@@ -27,7 +22,7 @@ const COMPANY_SUFFIXES = ["ai", "labs", "tech", "io", "hq", "app", "xyz"];
  */
 function candidateKeys(key) {
   const candidates = [key];
-  for (const suffix of COMPANY_SUFFIXES) {
+  for (const suffix of FUZZY_SUFFIXES) {
     if (key.endsWith(suffix) && key.length > suffix.length + 2) {
       candidates.push(key.slice(0, -suffix.length));
     }

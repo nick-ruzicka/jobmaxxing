@@ -23,20 +23,16 @@ import { fileURLToPath } from "url";
 import { companyKey } from "./normalize-company.mjs";
 import { classifyVelocity } from "./company-archetype-matcher.mjs";
 import { readCompaniesFile } from "./companies-load.mjs";
+import { FUZZY_SUFFIXES, PRIMARY_ARCHETYPES_SET } from "./company-matching.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
-const PRIMARY_ARCHETYPES = new Set(["gtm-engineering", "ai-operations", "fde"]);
-
-// ISSUE-002: seen-urls often stores the bare company name ("Mistral") while
-// signals/UI use the canonical-with-suffix form ("mistralai"). Without fuzzy
-// candidate lookup, aggregateCompany("mistralai") finds nothing in
-// byCompany even though the role exists. These suffixes match
-// scripts/lib/company-archetype-matcher.mjs's COMPANY_SUFFIXES and
-// dashboard-web/lib/role-matching.ts's FUZZY_SUFFIXES — change all three
-// together.
-const FUZZY_SUFFIXES = ["ai", "labs", "tech", "io", "hq", "app", "xyz"];
+// PRIMARY_ARCHETYPES_SET + FUZZY_SUFFIXES now come from ./company-matching.mjs
+// (single source shared with company-archetype-matcher.mjs and role-matching.ts).
+// ISSUE-002 context: seen-urls stores bare names ("Mistral") while signals/UI use
+// the suffix form ("mistralai"); the shared suffix list lets the fuzzy candidate
+// lookup bridge them.
 
 function aggregatorCandidateKeys(slug) {
   const primary = companyKey(slug) || String(slug).toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -278,7 +274,7 @@ function buildAggregate({
   // Count archetype-matched roles (primary archetypes only — matches the
   // existing /signals matcher) and feed classifyVelocity.
   const primaryArchetypeRoles = enrichedRows.filter(
-    (e) => typeof e.archetype_primary === "string" && PRIMARY_ARCHETYPES.has(e.archetype_primary)
+    (e) => typeof e.archetype_primary === "string" && PRIMARY_ARCHETYPES_SET.has(e.archetype_primary)
   ).length;
   const hiringVelocity = classifyVelocity(primaryArchetypeRoles);
 

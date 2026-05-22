@@ -32,11 +32,9 @@
 
 import type { Role } from "./types";
 import { companyKey } from "../../scripts/lib/normalize-company.mjs";
-
-// Suffix tokens we strip when fuzzily matching company names. Kept in sync
-// with scripts/lib/company-archetype-matcher.mjs's COMPANY_SUFFIXES so /signals
-// and /companies/[slug] resolve the same company to the same role set.
-const FUZZY_SUFFIXES = ["ai", "labs", "tech", "io", "hq", "app", "xyz"] as const;
+// Suffix tokens we strip when fuzzily matching company names. Single source:
+// scripts/lib/company-matching.mjs (shared with the Node scripts).
+import { FUZZY_SUFFIXES } from "../../scripts/lib/company-matching.mjs";
 
 // Role statuses we treat as "open" — i.e. roles still worth showing in a
 // company's open-roles list. Applied/Interview/Offer all count: a role you've
