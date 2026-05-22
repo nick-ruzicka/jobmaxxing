@@ -34,6 +34,7 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { normalizeCompany, companyKey } from "./lib/normalize-company.mjs";
+import { FEEDBACK_CONFLICT_THRESHOLD } from "./lib/thresholds.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -139,14 +140,14 @@ function computeDesired(appRows, claudeFit) {
     } else if (maxScore !== null && maxScore <= 2.5) {
       entry = { bucket: "penalize", score: maxScore, reason: mkReason(`eval ${maxScore}/5`) };
     } else if (anyReject) {
-      const conflict = maxScore !== null && maxScore >= 4.0;
+      const conflict = maxScore !== null && maxScore >= FEEDBACK_CONFLICT_THRESHOLD;
       entry = {
         bucket: "penalize",
         score: maxScore !== null && maxScore <= 2.5 ? maxScore : null,
         reason: mkReason(`rejected${conflict ? ` (eval ${maxScore}/5 — CONFLICT)` : ""}`),
         conflict,
       };
-    } else if (maxScore !== null && maxScore >= 4.0) {
+    } else if (maxScore !== null && maxScore >= FEEDBACK_CONFLICT_THRESHOLD) {
       entry = { bucket: "boost", score: maxScore, reason: mkReason(`eval ${maxScore}/5`) };
     } else {
       entry = { bucket: null }; // no auto override (incl. plain "Skipped" when not treated as reject)
