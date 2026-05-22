@@ -399,6 +399,12 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
       scoreProvenance,
       scoreCapped,
       scoreOverrideReason,
+      // E4: surface the floor-clamp reason only when the engine clamped this
+      // role to 0 (not when an override / cap produced the number).
+      clampReason:
+        scoreProvenance === "enriched" && score === 0
+          ? (enrichment?.score_clamp_reason as string | undefined)
+          : undefined,
       status: appData?.status || "Discovered",
       firstSeen: meta.firstSeen || "",
       publishedDate: scanData?.posted || "",

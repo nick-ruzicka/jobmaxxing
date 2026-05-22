@@ -388,6 +388,7 @@ export function PipelineTable({
                           provenance={role.scoreProvenance}
                           scoreCapped={role.scoreCapped}
                           overrideReason={role.scoreOverrideReason}
+                          clampReason={role.clampReason}
                         />
                         {hasBuild && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald" title="Build component" />}
                         {hasAI && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue" title="AI signal" />}

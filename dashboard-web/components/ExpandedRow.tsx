@@ -8,6 +8,7 @@ import {
 import type { Role, RoleStatus } from "@/lib/types";
 import { StatusDropdown } from "./StatusDropdown";
 import { Badge, Button } from "@/components/ui";
+import { parseClampReason } from "@/lib/clamp-reason";
 
 interface ExpandedRowProps {
   role: Role;
@@ -111,6 +112,18 @@ export function ExpandedRow({ role, onStatusChange, onNotesChange }: ExpandedRow
             {role.scoreProvenance === "heuristic" && "from a title/location heuristic; JD not analyzed by Claude"}
             {role.scoreCapped && " · heuristic score capped"}
           </div>
+
+          {/* E4: floor-clamp callout — explains a 0 that's "great role, wrong factor" */}
+          {role.clampReason && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-border bg-amber-dim px-3 py-1.5 text-[11px] text-text-tertiary">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber" aria-hidden />
+              <span>
+                Killed by <span className="text-text-secondary">{parseClampReason(role.clampReason).factor}</span>
+                {parseClampReason(role.clampReason).detail && ` (${parseClampReason(role.clampReason).detail})`}
+                {" "}— base score was clamped to 0 by this factor alone.
+              </span>
+            </div>
+          )}
 
           {/* Unknown company hint */}
           {role.company === "Unknown" && (

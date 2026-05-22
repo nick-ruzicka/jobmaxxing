@@ -50,6 +50,11 @@ export interface Role {
   scoreCapped: boolean;
   /** When scoreProvenance === "override", the `reason` from score-overrides.json. */
   scoreOverrideReason?: string;
+  /** E4: when the engine floor-clamped this role to 0, the dominant negative
+   *  adjustment that killed it (e.g. "location:onsite_international (-75)").
+   *  Present only on enriched score===0 roles — distinguishes "great role,
+   *  wrong location" from genuine low-fit. */
+  clampReason?: string;
   status: RoleStatus;
   firstSeen: string;
   publishedDate: string;
