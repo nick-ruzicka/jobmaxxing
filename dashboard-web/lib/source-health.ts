@@ -1,5 +1,6 @@
 import { join } from "path";
 import { readJsonSafe, ROOT } from "./data";
+import { hasRealComp } from "../../scripts/lib/comp-display.mjs";
 import type {
   AuditFinding,
   SourceHealthRow,
@@ -180,29 +181,6 @@ export type EnrichmentEntry = { error?: string; timestamp?: string } & Record<
 >;
 export type EnrichmentsFile = Record<string, EnrichmentEntry>;
 
-// comp_range values that mean "no usable comp"
-const EMPTY_COMP = new Set([
-  "",
-  "not listed",
-  "none",
-  "n/a",
-  "na",
-  "not specified",
-  "not disclosed",
-  "unknown",
-]);
-// bare-qualitative comp strings (no $ amount) — count as "not listed" for coverage purposes
-const QUALITATIVE_COMP_RE =
-  /^(competitive|market|top of market|industry[- ]standard|commensurate|negotiable|doe\b|depends on experience)/i;
-
-function hasRealComp(comp_range: unknown): boolean {
-  if (typeof comp_range !== "string") return false;
-  const c = comp_range.trim();
-  if (!c) return false;
-  if (EMPTY_COMP.has(c.toLowerCase())) return false;
-  if (QUALITATIVE_COMP_RE.test(c) && !/[$\d]/.test(c)) return false;
-  return /[$\d]/.test(c); // require a dollar sign or a digit
-}
 
 function hostnameOf(url: string): string | null {
   try {

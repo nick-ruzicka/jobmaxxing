@@ -115,10 +115,10 @@ describe("canonical counts agree across views", () => {
   });
 
   it("candidate keys stay consistent with the signals matcher's suffix list", () => {
-    // If anyone edits FUZZY_SUFFIXES in role-matching.ts they should also
-    // edit COMPANY_SUFFIXES in scripts/lib/company-archetype-matcher.mjs
-    // and FUZZY_SUFFIXES in scripts/lib/company-aggregator.mjs. This test
-    // exists to pin the shared list — if it fails, audit all three.
+    // FUZZY_SUFFIXES now lives in scripts/lib/company-matching.mjs (single
+    // source for all runtimes). This test still pins the fuzzy-match BEHAVIOR
+    // end-to-end; if it fails, check company-matching.mjs and the candidate-key
+    // functions that consume it.
     expect(companyCandidateKeys("Mistral AI")).toEqual(["mistralai", "mistral"]);
     expect(companyCandidateKeys("EliseAI")).toEqual(["eliseai", "elise"]);
     expect(companyCandidateKeys("Anthropic Labs")).toContain("anthropic");

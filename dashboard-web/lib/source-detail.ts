@@ -13,6 +13,7 @@
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { ROOT } from "./data";
+import { hasRealComp } from "../../scripts/lib/comp-display.mjs";
 import {
   loadRollups,
   type Range,
@@ -110,27 +111,6 @@ export interface SourceDetail {
   suggested_actions: string[];
 }
 
-// Keep in lockstep with scripts/lib/analytics-rollup.mjs:hasRealComp.
-const EMPTY_COMP_VALUES = new Set([
-  "",
-  "not listed",
-  "none",
-  "n/a",
-  "na",
-  "not specified",
-  "not disclosed",
-  "unknown",
-]);
-const QUALITATIVE_COMP_RE =
-  /^(competitive|market|top of market|industry[- ]standard|commensurate|negotiable|doe\b|depends on experience)/i;
-function hasRealComp(comp_range: string | undefined): boolean {
-  if (typeof comp_range !== "string") return false;
-  const c = comp_range.trim();
-  if (!c) return false;
-  if (EMPTY_COMP_VALUES.has(c.toLowerCase())) return false;
-  if (QUALITATIVE_COMP_RE.test(c) && !/[$\d]/.test(c)) return false;
-  return /[$\d]/.test(c);
-}
 
 function daysAgoFrom(today: Date, n: number): string {
   const d = new Date(today);
