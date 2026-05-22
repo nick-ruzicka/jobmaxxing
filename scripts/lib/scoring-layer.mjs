@@ -20,6 +20,7 @@ import { fileURLToPath } from "url";
 
 import { parseYaml } from "./yaml-mini.mjs";
 import { getArchetype, getGlobalDisqualifiers, loadArchetypeConfig } from "./archetype-config.mjs";
+import { INSTITUTIONAL_BOOST, TITLE_SIGNAL_WEIGHTS } from "./scoring-weights.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PATH = resolve(__dirname, "..", "..", "config", "user-context.yaml");
@@ -541,15 +542,17 @@ function archetypeLensAdjustment(role, archetype, multiplier) {
   // institutional-but-not-stablecoin (small bump). tier_2 is DeFi (minimal).
   const boost = archetype.institutional_companies_boost;
   if (boost) {
-    if ((boost.stablecoin_tier ?? []).some((c) => company.includes(c.toLowerCase()))) raw += 35;
-    else if ((boost.tier_1 ?? []).some((c) => company.includes(c.toLowerCase()))) raw += 12;
-    else if ((boost.tier_2 ?? []).some((c) => company.includes(c.toLowerCase()))) raw += 6;
+    const w = INSTITUTIONAL_BOOST.scoringLayer;
+    if ((boost.stablecoin_tier ?? []).some((c) => company.includes(c.toLowerCase()))) raw += w.stablecoin_tier;
+    else if ((boost.tier_1 ?? []).some((c) => company.includes(c.toLowerCase()))) raw += w.tier_1;
+    else if ((boost.tier_2 ?? []).some((c) => company.includes(c.toLowerCase()))) raw += w.tier_2;
   }
   // Title-signal bonus (separate channel from the classifier title scoring;
   // here it's a smaller contribution to fit-score uplift)
   const ts = archetype.title_signals ?? {};
-  if ((ts.high_match ?? []).some((t) => title.includes(t.toLowerCase()))) raw += 8;
-  else if ((ts.medium_match ?? []).some((t) => title.includes(t.toLowerCase()))) raw += 4;
+  const tw = TITLE_SIGNAL_WEIGHTS.scoringLayer;
+  if ((ts.high_match ?? []).some((t) => title.includes(t.toLowerCase()))) raw += tw.high_match;
+  else if ((ts.medium_match ?? []).some((t) => title.includes(t.toLowerCase()))) raw += tw.medium_match;
 
   if (raw === 0) return null;
   const capped = Math.min(ARCHETYPE_REWARD_CAP, raw);

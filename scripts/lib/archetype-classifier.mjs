@@ -12,6 +12,7 @@
 import { getAllArchetypes, loadArchetypeConfig } from "./archetype-config.mjs";
 import { hasBudget, trackCall } from "./claude-budget.mjs";
 import { buildDisambiguationPrompt } from "./archetype-classifier-prompt.mjs";
+import { INSTITUTIONAL_BOOST, TITLE_SIGNAL_WEIGHTS } from "./scoring-weights.mjs";
 
 // Tunables (exported for tests + visibility from the /context route)
 //
@@ -128,14 +129,15 @@ function scoreAllArchetypes(role, archetypes) {
     const breakdown = [];
 
     const ts = a.title_signals ?? {};
+    const tw = TITLE_SIGNAL_WEIGHTS.classifier;
     if (ts.high_match?.some((t) => titleLower.includes(t.toLowerCase()))) {
-      score += 100;
+      score += tw.high_match;
       breakdown.push("title:high");
     } else if (ts.medium_match?.some((t) => titleLower.includes(t.toLowerCase()))) {
-      score += 50;
+      score += tw.medium_match;
       breakdown.push("title:medium");
     } else if (ts.low_match?.some((t) => titleLower.includes(t.toLowerCase()))) {
-      score += 20;
+      score += tw.low_match;
       breakdown.push("title:low");
     }
 
@@ -150,14 +152,15 @@ function scoreAllArchetypes(role, archetypes) {
 
     const boost = a.institutional_companies_boost;
     if (boost) {
+      const w = INSTITUTIONAL_BOOST.classifier;
       if (boost.stablecoin_tier?.some((c) => companyLower.includes(c.toLowerCase()))) {
-        score += 60;
+        score += w.stablecoin_tier;
         breakdown.push("inst-stablecoin");
       } else if (boost.tier_1?.some((c) => companyLower.includes(c.toLowerCase()))) {
-        score += 20;
+        score += w.tier_1;
         breakdown.push("inst-tier-1");
       } else if (boost.tier_2?.some((c) => companyLower.includes(c.toLowerCase()))) {
-        score += 10;
+        score += w.tier_2;
         breakdown.push("inst-tier-2");
       }
     }
