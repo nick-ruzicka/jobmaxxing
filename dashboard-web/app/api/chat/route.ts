@@ -29,6 +29,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
+import { getCompFloorUsd, formatCompFloorString } from "@/lib/comp-floor";
 import type { Briefing } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -84,7 +85,8 @@ function readBriefingForDate(date: string): Briefing | null {
 function readUserGoals(): string {
   const path = join(projectRoot(), "modes", "_profile.md");
   if (!existsSync(path)) {
-    return "GTM Engineer / RevOps roles, NYC area or remote, $200K+ floor, Series B+ companies";
+    const floor = formatCompFloorString(getCompFloorUsd());
+    return `GTM Engineer / RevOps roles, NYC area or remote, ${floor}+ floor, Series B+ companies`;
   }
   const md = readFileSync(path, "utf-8");
   // Grab Background + Target Roles + Career Narrative — same slice the

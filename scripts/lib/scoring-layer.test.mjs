@@ -263,7 +263,7 @@ test("scoring-layer — jsonld_basesalary + Claude says 'no comp mentioned' → 
       company: "y",
       comp_range: "$101,500 – $135,000 /yr",
       comp_source: "jsonld_basesalary",
-      verdict: "Excellent fit. However, no comp listed is concerning given the $190K floor.",
+      verdict: "Excellent fit. However, no comp listed is concerning given the $200K floor.",
       red_flags: ["No compensation mentioned"],
     },
     null,
@@ -334,7 +334,7 @@ test("scoring-layer — Anaconda's actual record shape → suppressed", () => {
         "This is an excellent match - the JD reads like it was written for this candidate's exact skill set. " +
         "The role emphasizes building AI-powered GTM systems using Clay/n8n/Zapier, which directly aligns with " +
         "the Linera and Chariot Signal Engines. However, Anaconda being a large established company may mean " +
-        "slower GTM execution and bureaucracy, plus no comp listed is concerning given the $190K floor requirement.",
+        "slower GTM execution and bureaucracy, plus no comp listed is concerning given the $200K floor requirement.",
       red_flags: [
         "5-7 years experience requirement when candidate has clear track record",
         "Bachelor's degree requirement",

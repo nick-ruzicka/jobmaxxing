@@ -71,9 +71,8 @@ test("archetype-config — institutional_companies_boost is deep-copied, not ali
 test("archetype-config — global disqualifiers loaded", () => {
   const gd = getGlobalDisqualifiers();
   assert.ok(Array.isArray(gd.location));
-  assert.equal(typeof gd.comp_below, "number");
   assert.ok(Array.isArray(gd.industries_blocked));
-  assert.equal(gd.comp_below, 200000);
+  assert.equal(gd.comp_below, undefined, "comp_below was removed in favor of user-context floor_usd");
 });
 
 test("archetype-config — gtm-engineering has 4 reward_signals groups with numeric weights", () => {
