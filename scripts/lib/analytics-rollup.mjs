@@ -9,6 +9,8 @@
  * Test coverage: scripts/lib/analytics-rollup.test.mjs
  */
 
+import { hasRealComp } from "./comp-display.mjs";
+
 /** Roles with fit_score >= FIT_THRESHOLD count as "high-fit". */
 export const FIT_THRESHOLD = 6;
 
@@ -116,8 +118,7 @@ export function computeRollup(events, { date }) {
           }
         }
         // Comp coverage — count enrichments whose comp_range carries a real number,
-        // not "Not listed" / "Competitive" / etc. Kept in lockstep with the
-        // hasRealComp() implementation in dashboard-web/lib/source-health.ts.
+        // not "Not listed" / "Competitive" / etc. hasRealComp from ./comp-display.mjs.
         if (hasRealComp(e.comp_range)) {
           totals.has_comp_count += 1;
           if (src) src.has_comp_count += 1;
@@ -438,30 +439,6 @@ function safeHost(url) {
   }
 }
 
-// Mirror of dashboard-web/lib/source-health.ts:hasRealComp — keep these in sync.
-// "Real comp" means a string that carries a numeric range or amount; "Not listed",
-// "Competitive", or qualitative-only entries don't count.
-const EMPTY_COMP_VALUES = new Set([
-  "",
-  "not listed",
-  "none",
-  "n/a",
-  "na",
-  "not specified",
-  "not disclosed",
-  "unknown",
-]);
-const QUALITATIVE_COMP_RE =
-  /^(competitive|market|top of market|industry[- ]standard|commensurate|negotiable|doe\b|depends on experience)/i;
-
-function hasRealComp(comp_range) {
-  if (typeof comp_range !== "string") return false;
-  const c = comp_range.trim();
-  if (!c) return false;
-  if (EMPTY_COMP_VALUES.has(c.toLowerCase())) return false;
-  if (QUALITATIVE_COMP_RE.test(c) && !/[$\d]/.test(c)) return false;
-  return /[$\d]/.test(c);
-}
 
 function round6(n) {
   return Math.round(n * 1_000_000) / 1_000_000;
