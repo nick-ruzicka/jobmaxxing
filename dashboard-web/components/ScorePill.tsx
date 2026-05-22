@@ -1,5 +1,6 @@
 import { Badge, type BadgeColor } from "@/components/ui";
 import type { ScoreProvenance } from "@/lib/types";
+import { parseClampReason } from "@/lib/clamp-reason";
 
 function tierColor(score: number): BadgeColor {
   if (score >= 8) return "emerald";
@@ -26,30 +27,39 @@ export function ScorePill({
   provenance,
   scoreCapped,
   overrideReason,
+  clampReason,
 }: {
   score: number;
   provenance?: ScoreProvenance;
   scoreCapped?: boolean;
   overrideReason?: string;
+  clampReason?: string;
 }) {
   const p = provenance ? PROVENANCE[provenance] : null;
   const title = p
     ? p.label
         + (provenance === "override" && overrideReason ? ` — ${overrideReason}` : "")
         + (scoreCapped ? " — heuristic score capped (Claude has not analyzed this JD)" : "")
-    : undefined;
+        + (clampReason ? ` — floor-clamped to 0, killed by ${clampReason}` : "")
+    : clampReason
+      ? `floor-clamped to 0, killed by ${clampReason}`
+      : undefined;
+  const clamp = clampReason ? parseClampReason(clampReason) : null;
 
   return (
-    <span className="relative inline-flex items-center" title={title}>
-      <Badge color={tierColor(score)}>{score}</Badge>
-      {p && (
-        <span
-          aria-hidden
-          className={`pointer-events-none absolute right-[2px] top-[2px] h-[5px] w-[5px] rounded-full ${
-            scoreCapped ? `border bg-transparent ${p.ring}` : p.dot
-          }`}
-        />
-      )}
+    <span className="relative inline-flex items-center gap-1.5" title={title}>
+      <span className="relative inline-flex items-center">
+        <Badge color={tierColor(score)}>{score}</Badge>
+        {p && (
+          <span
+            aria-hidden
+            className={`pointer-events-none absolute right-[2px] top-[2px] h-[5px] w-[5px] rounded-full ${
+              scoreCapped ? `border bg-transparent ${p.ring}` : p.dot
+            }`}
+          />
+        )}
+      </span>
+      {clamp && <Badge color="amber">killed: {clamp.factor}</Badge>}
     </span>
   );
 }

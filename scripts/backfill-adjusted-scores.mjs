@@ -109,6 +109,7 @@ function main() {
       score_adjustments: result.adjustments,
       score_disqualified: result.disqualified,
       score_disqualification_reason: result.disqualification_reason,
+      score_clamp_reason: result.clamp_reason ?? null,
       score_adjusted_at: new Date().toISOString(),
     };
 
