@@ -338,11 +338,21 @@ function ldHiringOrgName(html) {
 
 async function fetchViaHtml(url, title) {
   // Generic HTML fetch — works for BuiltIn, YC, VC boards, aggregators, etc.
+  // SSRF hardening (CHECK 2 follow-up, docs/audits/2026-05-22-upstream-bug-
+  // verification.md): URL legitimate-host surface is open-ended (every VC
+  // portfolio site + aggregator), so we don't allowlist hostnames here.
+  // Instead we (a) validate URL parses cleanly and (b) fail-closed on 3xx
+  // so a poisoned URL can't redirect into an internal host.
   try {
+    try {
+      new URL(url); // throws on malformed URL — caught by outer catch → return null
+    } catch {
+      return null;
+    }
     const res = await fetch(url, {
       headers: BROWSER_HEADERS,
       signal: AbortSignal.timeout(12000),
-      redirect: "follow",
+      redirect: "manual", // fail closed on 3xx — don't pivot to attacker-chosen Location
     });
     if (!res.ok) return null;
     const html = await res.text();
@@ -559,12 +569,24 @@ function hostMatches(urlHost, target) {
   return urlHost === target || urlHost.endsWith("." + target);
 }
 
-async function fetchRawHtml(url) {
+async function fetchRawHtml(url, allowedHost = null) {
+  // SSRF hardening (CHECK 2 follow-up): apply the existing hostMatches()
+  // guard inside the fetch instead of trusting every caller. The single
+  // current caller (backfillComp at L654) already pre-filters via L612,
+  // but the function should enforce its own invariant. Caller passes the
+  // scoped host (e.g. backfillComp's args.host = "builtin.com"); if
+  // omitted, behaves as before (back-compat, but logs).
   try {
+    if (allowedHost && allowedHost !== "all") {
+      const urlHost = hostnameOf(url);
+      if (!hostMatches(urlHost, allowedHost)) {
+        return { dead: true, reason: `host "${urlHost}" not on allowlist for "${allowedHost}"` };
+      }
+    }
     const res = await fetch(url, {
       headers: BROWSER_HEADERS,
       signal: AbortSignal.timeout(12000),
-      redirect: "follow",
+      redirect: "manual", // fail closed on 3xx — was "follow" pre-CHECK 2
     });
     if (!res.ok) return { dead: true, reason: `HTTP ${res.status}`, status: res.status };
     const finalUrl = res.url || url;
@@ -651,7 +673,7 @@ async function backfillComp(args) {
       process.stdout.write(`  [cooldown] ${urlHost} — waiting ${waitS}s\n`);
       await sleepUntil(until);
     }
-    const r = await fetchRawHtml(url);
+    const r = await fetchRawHtml(url, host);
     if (args.cooldownOn403Secs > 0) {
       const rec = tracker.record(urlHost, r.status, Date.now());
       if (rec.triggered) {
