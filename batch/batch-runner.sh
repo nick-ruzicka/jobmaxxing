@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ============================================================================
+# DEAD — do not run. Carries upstream (santifer) archetypes that mislabel our
+# roles and bypasses our scoring engine. See
+# docs/audits/2026-05-22-upstream-bug-verification.md before reviving.
+# ============================================================================
+
 # career-ops batch runner — standalone orchestrator for claude -p workers
 # Reads batch-input.tsv, delegates each offer to a claude -p worker,
 # tracks state in batch-state.tsv for resumability.
