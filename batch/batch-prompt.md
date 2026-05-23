@@ -1,3 +1,5 @@
+> **⚠️ DEAD — do not run.** Carries upstream (santifer) archetypes that mislabel our roles and bypasses our scoring engine. See [`docs/audits/2026-05-22-upstream-bug-verification.md`](../docs/audits/2026-05-22-upstream-bug-verification.md) before reviving.
+
 # career-ops Batch Worker — Evaluación Completa + PDF + Tracker Line
 
 Eres un worker de evaluación de ofertas de empleo for the candidate (read name from config/profile.yml). Recibes una oferta (URL + JD text) y produces:
