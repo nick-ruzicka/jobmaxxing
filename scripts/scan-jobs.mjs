@@ -1896,10 +1896,17 @@ async function main() {
   }
 }
 
-main()
-  .then(() => flushEvents())
-  .catch((err) => {
-    flushEvents();
-    console.error("Fatal error:", err);
-    process.exit(1);
-  });
+// Import-side-effect guard (CHECK 2 follow-up, docs/audits/2026-05-22-upstream-
+// bug-verification.md): without this guard, importing the module triggered a
+// live scan + event-log writes. The pattern matches generate-briefing.mjs:471
+// and generate-pipeline-health.mjs:347.
+const isMain = import.meta.url === `file://${process.argv[1]}`;
+if (isMain) {
+  main()
+    .then(() => flushEvents())
+    .catch((err) => {
+      flushEvents();
+      console.error("Fatal error:", err);
+      process.exit(1);
+    });
+}
