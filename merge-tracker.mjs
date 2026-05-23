@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, existsSync } from 'fs';
 import { join, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { roleFuzzyMatch } from './scripts/lib/role-matching.mjs';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
@@ -66,12 +67,11 @@ function normalizeCompany(name) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-function roleFuzzyMatch(a, b) {
-  const wordsA = a.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  const wordsB = b.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  const overlap = wordsA.filter(w => wordsB.some(wb => wb.includes(w) || w.includes(wb)));
-  return overlap.length >= 2;
-}
+// roleFuzzyMatch moved to scripts/lib/role-matching.mjs (CHECK 3 fix,
+// docs/audits/2026-05-22-upstream-bug-verification.md). The previous
+// inline implementation collapsed distinct roles (IC↔manager, PM↔PD,
+// "Senior Software Engineer" ≡ "Senior Software Architect") because
+// it only required ≥ 2 substring-overlapping baseline tokens.
 
 function extractReportNum(reportStr) {
   const m = reportStr.match(/\[(\d+)\]/);
