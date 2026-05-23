@@ -138,6 +138,14 @@ export function PipelineTable({
     }
 
     return [...filtered].sort((a, b) => {
+      // With a comp floor active, unknown-comp rows are kept but shown on
+      // sufferance — sink them below rows that pass on merit, independent of
+      // the active sort column/direction.
+      if (filters.minComp > 0) {
+        const au = isUnknownUnderFloor(extractComp(a), filters.minComp) ? 1 : 0;
+        const bu = isUnknownUnderFloor(extractComp(b), filters.minComp) ? 1 : 0;
+        if (au !== bu) return au - bu;
+      }
       let cmp = 0;
       switch (sortKey) {
         case "score": cmp = a.score - b.score; break;
