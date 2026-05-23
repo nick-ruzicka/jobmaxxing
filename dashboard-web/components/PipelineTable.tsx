@@ -15,7 +15,8 @@ import { CLUSTER_ORDER } from "@/lib/location-clusters";
 // would pull `fs`/`path` into the client bundle (Next.js refuses to compile).
 import { companyKey } from "../../scripts/lib/normalize-company.mjs";
 import { passesCompFloor, isUnknownUnderFloor } from "@/lib/comp-filter";
-import { TableContainer, Th, Tr, EmptyState, Button } from "./ui";
+import { parseClampReason } from "@/lib/clamp-reason";
+import { TableContainer, Th, Tr, EmptyState, Button, Badge } from "./ui";
 
 type SortKey = "score" | "company" | "location" | "status" | "firstSeen" | "comp";
 type SortDir = "asc" | "desc";
@@ -356,6 +357,7 @@ export function PipelineTable({
               const isSelected = selectedUrls.has(role.url);
               const comp = extractComp(role);
               const compUnknownUnderFloor = isUnknownUnderFloor(comp, filters.minComp);
+              const clamp = role.clampReason ? parseClampReason(role.clampReason) : null;
               const hasBuild = role.enrichment?.build_component === true;
               const hasAI = role.enrichment?.ai_signal === true;
               const age = daysAgo(role.firstSeen);
@@ -428,8 +430,14 @@ export function PipelineTable({
                         </Link>
                       )}
                     </td>
-                    {/* Role */}
+                    {/* Role — a floor-clamped (score 0) role leads with an amber
+                        "killed: {factor}" tag explaining the kill; the title truncates after it. */}
                     <td className="truncate px-3 py-2.5 text-text-secondary" title={role.title}>
+                      {clamp && (
+                        <Badge color="amber" className="mr-1.5 align-middle">
+                          killed: {clamp.factor}
+                        </Badge>
+                      )}
                       {role.title}
                     </td>
                     {/* Comp — silent when absent: empty cell reads quieter than a wall of em-dashes.
