@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, existsSync } from 'fs';
 import { join, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { execFileSync } from 'child_process';
 import { roleFuzzyMatch } from './scripts/lib/role-matching.mjs';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,10 @@ const ADDITIONS_DIR = join(CAREER_OPS, 'batch/tracker-additions');
 const MERGED_DIR = join(ADDITIONS_DIR, 'merged');
 const DRY_RUN = process.argv.includes('--dry-run');
 const VERIFY = process.argv.includes('--verify');
+
+// Ensure required directories exist (fresh setup)
+mkdirSync(join(CAREER_OPS, 'data'), { recursive: true });
+mkdirSync(ADDITIONS_DIR, { recursive: true });
 
 // Canonical states and aliases
 const CANONICAL_STATES = ['Evaluated', 'Applied', 'Responded', 'Interview', 'Offer', 'Rejected', 'Discarded', 'SKIP'];
@@ -67,11 +72,13 @@ function normalizeCompany(name) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-// roleFuzzyMatch moved to scripts/lib/role-matching.mjs (CHECK 3 fix,
-// docs/audits/2026-05-22-upstream-bug-verification.md). The previous
-// inline implementation collapsed distinct roles (IC↔manager, PM↔PD,
-// "Senior Software Engineer" ≡ "Senior Software Architect") because
-// it only required ≥ 2 substring-overlapping baseline tokens.
+// roleFuzzyMatch lives in scripts/lib/role-matching.mjs (imported above).
+// It supersedes v1.8.1's inline matcher, which over-corrected for Issue
+// #633 by treating backend/frontend/fullstack as baseline tokens and
+// dropping 3-char specialties like "gtm" — breaking legitimate dedup of
+// seniority variants ("GTM Engineer" vs "Senior GTM Engineer"). The shared
+// module keeps distinct specialties apart via a management-track guard +
+// non-baseline specialty-overlap requirement.
 
 function extractReportNum(reportStr) {
   const m = reportStr.match(/\[(\d+)\]/);
@@ -322,9 +329,8 @@ if (DRY_RUN) console.log('(dry-run — no changes written)');
 // Optional verify
 if (VERIFY && !DRY_RUN) {
   console.log('\n--- Running verification ---');
-  const { execSync } = await import('child_process');
   try {
-    execSync(`node ${join(CAREER_OPS, 'verify-pipeline.mjs')}`, { stdio: 'inherit' });
+    execFileSync('node', [join(CAREER_OPS, 'verify-pipeline.mjs')], { stdio: 'inherit' });
   } catch (e) {
     process.exit(1);
   }
