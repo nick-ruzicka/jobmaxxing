@@ -39,6 +39,9 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT_SRC = join(REPO_ROOT, "merge-tracker.mjs");
+// merge-tracker.mjs imports roleFuzzyMatch from this lib module — the
+// fixture must mirror the project layout in the temp dir or the import fails.
+const ROLE_MATCHING_SRC = join(REPO_ROOT, "scripts/lib/role-matching.mjs");
 
 const HEADER = [
   "# Applications Tracker",
@@ -64,6 +67,8 @@ function row({
 function makeFixture({ apps = HEADER, tsvs = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "merge-tracker-"));
   copyFileSync(SCRIPT_SRC, join(dir, "merge-tracker.mjs"));
+  mkdirSync(join(dir, "scripts/lib"), { recursive: true });
+  copyFileSync(ROLE_MATCHING_SRC, join(dir, "scripts/lib/role-matching.mjs"));
   mkdirSync(join(dir, "data"), { recursive: true });
   writeFileSync(join(dir, "data/applications.md"), apps);
   mkdirSync(join(dir, "batch/tracker-additions"), { recursive: true });

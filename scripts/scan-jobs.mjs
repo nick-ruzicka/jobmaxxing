@@ -1618,6 +1618,15 @@ async function main() {
   let resolved = 0;
   let resolveAttempts = 0;
   const NEEDS_RESOLUTION = ["YC"]; // BuiltIn now arrives with company resolved (Tier 9 direct scrape)
+  // SSRF hardening (CHECK 2, docs/audits/2026-05-22-upstream-bug-verification.md):
+  // the resolution fetch happens against URLs that came in from Exa search
+  // results — meaning they're attacker-influenceable. Allowlist the hosts we
+  // actually know how to extract a company from, parse the URL strictly, and
+  // fail closed on redirects so a 3xx to an internal host doesn't pivot.
+  const COMPANY_RESOLUTION_HOSTS = new Set([
+    "www.workatastartup.com",
+    "workatastartup.com",
+  ]);
   for (const r of netNew) {
     // Clean up display fields first
     if (!r.location) {
@@ -1628,31 +1637,40 @@ async function main() {
       r.company = r.source.startsWith("Tier 1") ? r.company : extractCompany(r.title, r.url);
     }
 
-    // If company is still missing and source supports resolution, fetch the page
-    if ((!r.company || r.company === "—" || r.company === "Unknown") &&
-        (NEEDS_RESOLUTION.includes(r.source) || r.url.includes("workatastartup.com"))) {
-      resolveAttempts++;
-      try {
-        const res = await fetch(r.url, {
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; career-ops/1.0)" },
-          signal: AbortSignal.timeout(6000),
-          redirect: "follow",
-        });
-        if (res.ok) {
-          const html = await res.text();
-          const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-          const pageTitle = titleMatch ? titleMatch[1].trim() : "";
+    // If company is still missing and source supports resolution, fetch the page.
+    // Skip if URL is malformed or hostname isn't on the allowlist (was a loose
+    // substring check that an attacker-controlled URL could bypass).
+    if (!(!r.company || r.company === "—" || r.company === "Unknown")) continue;
+    if (!(NEEDS_RESOLUTION.includes(r.source) || (r.url || "").includes("workatastartup.com"))) continue;
+    let parsedHost;
+    try {
+      parsedHost = new URL(r.url).hostname.toLowerCase();
+    } catch {
+      continue; // malformed URL — skip silently, same as the old try/catch
+    }
+    if (!COMPANY_RESOLUTION_HOSTS.has(parsedHost)) continue;
 
-          if (r.url.includes("workatastartup.com") && pageTitle) {
-            const atMatch = pageTitle.match(/\bat\s+(.+?)\s*(?:\||$)/i);
-            if (atMatch) r.company = atMatch[1].trim();
-          }
+    resolveAttempts++;
+    try {
+      const res = await fetch(r.url, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; career-ops/1.0)" },
+        signal: AbortSignal.timeout(6000),
+        redirect: "manual", // fail closed on 3xx — don't follow into internal hosts
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        const pageTitle = titleMatch ? titleMatch[1].trim() : "";
 
-          if (r.company && r.company !== "—") resolved++;
+        if (parsedHost.endsWith("workatastartup.com") && pageTitle) {
+          const atMatch = pageTitle.match(/\bat\s+(.+?)\s*(?:\||$)/i);
+          if (atMatch) r.company = atMatch[1].trim();
         }
-      } catch {
-        // Timeout or network error — skip silently
+
+        if (r.company && r.company !== "—") resolved++;
       }
+    } catch {
+      // Timeout or network error — skip silently
     }
   }
   if (resolveAttempts > 0) {
