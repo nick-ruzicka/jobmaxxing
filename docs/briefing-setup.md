@@ -32,7 +32,7 @@ To schedule a daily run at **7:00 AM Eastern**:
 
 ```cron
 # m  h  dom mon dow   command
-  0  7   *   *   *   cd /Users/nicholasruzicka/projects/job-search/nick-career-ops-agent && /opt/homebrew/opt/node@25/bin/node scripts/generate-briefing.mjs >> logs/briefing.log 2>&1
+  0  7   *   *   *   cd $HOME/nick-career-ops-agent && /opt/homebrew/opt/node@25/bin/node scripts/generate-briefing.mjs >> logs/briefing.log 2>&1
 ```
 
 Install it with `crontab -e`. Verify with `crontab -l`. macOS will prompt for

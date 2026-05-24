@@ -242,7 +242,7 @@ When the underlying YAML parse throws, the API returns `HTTP 500` with **0 bytes
 - **Category:** Dev / config
 - **From:** `next dev` startup log
 
-> Warning: Next.js inferred your workspace root, but it may not be correct. We detected multiple lockfiles and selected the directory of `/Users/nicholasruzicka/package-lock.json` as the root directory.
+> Warning: Next.js inferred your workspace root, but it may not be correct. We detected multiple lockfiles and selected the directory of `$HOME/package-lock.json` as the root directory.
 
 There's a stray `package-lock.json` in `$HOME` (not the project) that's confusing Turbopack's root inference. Either delete the home-dir lockfile or set `turbopack.root` in `next.config`. Not user-facing but spammy in dev logs.
 
