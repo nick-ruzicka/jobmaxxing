@@ -21,6 +21,7 @@ import { fileURLToPath } from "url";
 import { parseYaml } from "./yaml-mini.mjs";
 import { getArchetype, getGlobalDisqualifiers, loadArchetypeConfig } from "./archetype-config.mjs";
 import { INSTITUTIONAL_BOOST, TITLE_SIGNAL_WEIGHTS } from "./scoring-weights.mjs";
+import { extractMinComp, extractMaxComp, compMidpoint } from "./comp-parse.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PATH = resolve(__dirname, "..", "..", "config", "user-context.yaml");
@@ -477,12 +478,10 @@ function compAdjustment(role, ctx) {
   }
   const min = extractMinComp(rangeStr);
   if (min === null) return null;
-  // Fix D (2026-05-18): use midpoint of the comp range instead of min when
-  // comparing against floor. A band $191K-$249K straddles the $200K floor —
-  // the midpoint $220K is the more honest "expected" comp. Single-value
-  // comps (min == max) behave identically to before.
-  const max = extractMaxComp(rangeStr);
-  const mid = max !== null && max > min ? Math.round((min + max) / 2) : min;
+  // Fix D (2026-05-18): compare the range midpoint against the floor, not the
+  // min. A band $191K-$249K straddles a $200K floor — midpoint $220K is the
+  // more honest "expected" comp. See compMidpoint in comp-parse.mjs.
+  const mid = compMidpoint(rangeStr);
   const usedMid = mid !== min;
   if (mid < comp.floor_usd) {
     // Trust gate: contested JSON-LD comp data → suppress penalty, tag for visibility.
@@ -507,38 +506,6 @@ function compAdjustment(role, ctx) {
     };
   }
   return null;
-}
-
-function extractMinComp(s) {
-  // Patterns like "$150k - $200k", "$150,000 to $200,000", "$150,000+", "150-200k"
-  const norm = s.replace(/,/g, "");
-  const dollar = norm.match(/\$?(\d+(?:\.\d+)?)\s*(k|m)?/i);
-  if (!dollar) return null;
-  let n = parseFloat(dollar[1]);
-  const suffix = (dollar[2] || "").toLowerCase();
-  if (suffix === "k") n *= 1000;
-  else if (suffix === "m") n *= 1000000;
-  else if (n < 1000) n *= 1000; // bare "150" → 150,000
-  return n;
-}
-
-// Largest dollar number in the comp string. Used by the comp trust gate
-// (to detect non-generic JSON-LD values) and by compMidpoint (Fix D).
-function extractMaxComp(s) {
-  if (!s) return null;
-  const norm = String(s).replace(/,/g, "");
-  const matches = [...norm.matchAll(/\$?(\d+(?:\.\d+)?)\s*(k|m)?/gi)];
-  if (matches.length === 0) return null;
-  let max = 0;
-  for (const m of matches) {
-    let n = parseFloat(m[1]);
-    const suffix = (m[2] || "").toLowerCase();
-    if (suffix === "k") n *= 1000;
-    else if (suffix === "m") n *= 1000000;
-    else if (n < 1000) n *= 1000;
-    if (n > max) max = n;
-  }
-  return max || null;
 }
 
 // ─── archetype lens ───────────────────────────────────────────────────────────

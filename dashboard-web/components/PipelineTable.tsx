@@ -14,7 +14,9 @@ import { CLUSTER_ORDER } from "@/lib/location-clusters";
 // Import companyKey from the pure source — re-exporting through lib/data.ts
 // would pull `fs`/`path` into the client bundle (Next.js refuses to compile).
 import { companyKey } from "../../scripts/lib/normalize-company.mjs";
-import { TableContainer, Th, Tr, EmptyState, Button } from "./ui";
+import { passesCompFloor, isUnknownUnderFloor } from "@/lib/comp-filter";
+import { parseClampReason } from "@/lib/clamp-reason";
+import { TableContainer, Th, Tr, EmptyState, Button, Badge } from "./ui";
 
 type SortKey = "score" | "company" | "location" | "status" | "firstSeen" | "comp";
 type SortDir = "asc" | "desc";
@@ -26,6 +28,7 @@ function emptyFilters(minScore: number): Filters {
     status: "all",
     locations: new Set<string>(),
     minScore,
+    minComp: 0,
     requireBuild: false,
     requireAI: false,
     hasComp: false,
@@ -128,7 +131,21 @@ export function PipelineTable({
     // Has comp data
     if (filters.hasComp) filtered = filtered.filter((r) => extractComp(r) !== "");
 
+    // Comp floor — keeps roles whose comp midpoint meets the floor, plus roles
+    // whose comp doesn't parse (unknowns stay visible, marked in the row).
+    if (filters.minComp > 0) {
+      filtered = filtered.filter((r) => passesCompFloor(extractComp(r), filters.minComp));
+    }
+
     return [...filtered].sort((a, b) => {
+      // With a comp floor active, unknown-comp rows are kept but shown on
+      // sufferance — sink them below rows that pass on merit, independent of
+      // the active sort column/direction.
+      if (filters.minComp > 0) {
+        const au = isUnknownUnderFloor(extractComp(a), filters.minComp) ? 1 : 0;
+        const bu = isUnknownUnderFloor(extractComp(b), filters.minComp) ? 1 : 0;
+        if (au !== bu) return au - bu;
+      }
       let cmp = 0;
       switch (sortKey) {
         case "score": cmp = a.score - b.score; break;
@@ -150,7 +167,7 @@ export function PipelineTable({
   // Reset pagination when the filter set changes — done during render (React's
   // "adjust state when something changes" pattern) rather than in an effect.
   const filtersKey = JSON.stringify([
-    filters.search, filters.status, filters.minScore, filters.requireBuild,
+    filters.search, filters.status, filters.minScore, filters.minComp, filters.requireBuild,
     filters.requireAI, filters.hasComp, filters.includeAggregator, [...filters.locations],
   ]);
   const [prevFiltersKey, setPrevFiltersKey] = useState(filtersKey);
@@ -347,6 +364,8 @@ export function PipelineTable({
               const isFocused = focusIdx === idx;
               const isSelected = selectedUrls.has(role.url);
               const comp = extractComp(role);
+              const compUnknownUnderFloor = isUnknownUnderFloor(comp, filters.minComp);
+              const clamp = role.clampReason ? parseClampReason(role.clampReason) : null;
               const hasBuild = role.enrichment?.build_component === true;
               const hasAI = role.enrichment?.ai_signal === true;
               const age = daysAgo(role.firstSeen);
@@ -419,13 +438,30 @@ export function PipelineTable({
                         </Link>
                       )}
                     </td>
-                    {/* Role */}
+                    {/* Role — a floor-clamped (score 0) role leads with an amber
+                        "killed: {factor}" tag explaining the kill; the title truncates after it. */}
                     <td className="truncate px-3 py-2.5 text-text-secondary" title={role.title}>
+                      {clamp && (
+                        <Badge color="amber" className="mr-1.5 align-middle">
+                          killed: {clamp.factor}
+                        </Badge>
+                      )}
                       {role.title}
                     </td>
-                    {/* Comp — silent when absent: empty cell reads quieter than a wall of em-dashes. */}
+                    {/* Comp — silent when absent: empty cell reads quieter than a wall of em-dashes.
+                        Under an active comp floor, roles with no parseable comp are kept but
+                        marked (dimmed + italic) so it's legible they're shown on sufferance. */}
                     <td className="truncate px-3 py-2.5 text-[12px] tabular-nums text-text-secondary">
-                      {comp}
+                      {compUnknownUnderFloor ? (
+                        <span
+                          className="italic text-text-muted"
+                          title="Shown despite the comp filter — no comp figure to check against the floor"
+                        >
+                          {comp || "no comp"}
+                        </span>
+                      ) : (
+                        comp
+                      )}
                     </td>
                     {/* Location */}
                     <td className="px-3 py-2.5"><LocationTag location={role.location} cluster={role.location_cluster} /></td>
