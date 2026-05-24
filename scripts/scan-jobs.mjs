@@ -14,8 +14,8 @@
  *   npm run scan-jobs:evening
  *
  * Cron (twice daily at 8am and 6pm ET):
- *   0 8 * * *  cd /Users/nicholasruzicka/projects/job-search/nick-career-ops && npm run scan-jobs:morning >> /tmp/scan-jobs.log 2>&1
- *   0 18 * * * cd /Users/nicholasruzicka/projects/job-search/nick-career-ops && npm run scan-jobs:evening >> /tmp/scan-jobs.log 2>&1
+ *   0 8 * * *  cd $HOME/nick-career-ops && npm run scan-jobs:morning >> /tmp/scan-jobs.log 2>&1
+ *   0 18 * * * cd $HOME/nick-career-ops && npm run scan-jobs:evening >> /tmp/scan-jobs.log 2>&1
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
