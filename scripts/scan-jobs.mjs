@@ -96,9 +96,30 @@ const TITLE_ANCHORS = [
   "sales ops",
 ];
 
+// FDE-shaped title anchors. Parallel to TITLE_ANCHORS but for the Forward
+// Deployed Engineer archetype. Empirical title variants drawn from the
+// fwddeploy.com job board and bloomberry's analysis of 1K FDE postings (2026-05).
+// Multi-word anchors are preferred over single words to avoid over-matching
+// ("customer" alone would catch "Customer Success"; "customer engineer" won't).
+const FDE_TITLE_ANCHORS = [
+  "forward deployed",         // canonical (Palantir / Anthropic / many)
+  "applied ai",               // Anthropic's framing — "Applied AI Engineer"
+  "deployment strategist",    // common Palantir-derived title
+  "deployment engineer",
+  "field engineer",
+  "customer engineer",
+  "implementation engineer",
+  "solutions engineer",       // medium-confidence — body keywords disambiguate
+  "solutions architect",
+  "technical consultant",
+];
+
 const TITLE_ROLE_TOKENS = new Set([
   "engineer", "engineering", "operations", "ops", "systems", "infrastructure",
   "manager", "lead", "leader", "head", "director", "vp", "architect", "developer",
+  // FDE-archetype tokens. "Strategist" covers "Deployment Strategist";
+  // "consultant" covers "Technical Consultant" / "Forward Deployed AI Consultant".
+  "strategist", "consultant",
   // the bigram "vice president" is handled separately in titleHasRoleToken()
 ]);
 
@@ -290,6 +311,68 @@ const BUILTIN_SEARCHES = [
   "VP Revenue Operations",
 ];
 
+// ─── FDE-archetype query sets ────────────────────────────────────────────────
+// Parallel structure to the GTM query sets above. Each FDE_* set runs against
+// the SAME discovery surface (Exa neural, VC portfolios, HN, Twitter intent,
+// funding news, BuiltIn direct scrape) — same channels, FDE-shaped queries.
+// Empirical query language derived from bloomberry's analysis of 1K FDE JDs
+// + fwddeploy.com job-board listings (2026-05).
+
+// Tier 2 FDE: Exa neural search — broad discovery
+const FDE_EXA_QUERIES = [
+  "Forward Deployed Engineer role at an AI company embedded with customers building production systems",
+  "Applied AI Engineer role at an AI lab deploying LLM-backed workflows for enterprise customers",
+  "Forward Deployed AI Engineer at a Series B / Series C AI startup hiring 2026",
+  "Customer Engineer or Field Engineer role at an AI-native SaaS company in New York or remote US",
+  "Deployment Strategist role at a B2B AI company embedded with customers for production rollout",
+  "Forward Deployed Engineer remote US role building agent or LLM systems for enterprise customers",
+  "Solutions Engineer or Implementation Engineer role at an AI company with prompt engineering and LLM evaluation",
+];
+
+// Tier 3 FDE: VC portfolio queries
+const FDE_VC_QUERIES = [
+  "Forward Deployed Engineer at an a16z portfolio AI company hiring now",
+  "Applied AI Engineer at a Sequoia or Greylock backed AI startup",
+  "Customer Engineer or Field Engineer at a General Catalyst or Insight Partners portfolio company",
+  "Forward Deployed AI Engineer at a Founders Fund or Index Ventures backed AI lab",
+];
+
+// Tier 3 FDE: HN / YC Who is Hiring
+const FDE_HN_QUERIES = [
+  "Forward Deployed Engineer or Applied AI Engineer Hacker News Who is Hiring April 2026",
+  "Customer Engineer or Field Engineer YC startup hiring 2026 AI",
+];
+
+// Tier 5 FDE: Social signals (hiring manager intent)
+const FDE_SOCIAL_QUERIES = [
+  "we're hiring our first Forward Deployed Engineer twitter 2026 AI startup",
+  "looking for Applied AI Engineer twitter 2026 deployment customer-facing",
+  "building our customer engineering team twitter AI startup 2026",
+];
+
+// Tier 6 FDE: Hiring intent signals (pre-posting)
+const FDE_INTENT_QUERIES = [
+  "building our forward deployed team from scratch 2026 AI startup",
+  "just hired our first applied AI engineer 2026",
+  "looking for someone to deploy our LLM platform with customers 2026",
+  "hiring customer engineer to embed with enterprise customers AI 2026",
+];
+
+// (No FDE_FUNDING_QUERIES — GTM FUNDING_QUERIES are declared but never wired
+// into the scan flow; matching that pattern on the FDE side would just be more
+// dead code. Re-add if funding-news signal proves valuable for GTM first.)
+
+// Tier 9 FDE: BuiltIn direct-search queries
+const FDE_BUILTIN_SEARCHES = [
+  "Forward Deployed Engineer",
+  "Forward Deployed AI Engineer",
+  "Applied AI Engineer",
+  "Customer Engineer",
+  "Field Engineer",
+  "Deployment Strategist",
+  "Solutions Engineer AI",
+];
+
 // Tier 10: YC Work at a Startup
 const YC_DOMAINS = ["workatastartup.com"];
 const YC_SEARCHES = [
@@ -361,10 +444,12 @@ function normalizeTitle(s) {
 }
 
 // Returns the matched anchor phrase (for match-reason reporting), or null.
-function titleMatchAnchor(title) {
+// Parameterized over the anchor list so the same matcher serves the GTM
+// (TITLE_ANCHORS) and FDE (FDE_TITLE_ANCHORS) archetype gates.
+function titleMatchAnchor(title, anchors = TITLE_ANCHORS) {
   const n = normalizeTitle(title);
   if (!n) return null;
-  for (const a of TITLE_ANCHORS) {
+  for (const a of anchors) {
     if (n.includes(normalizeTitle(a))) return a;
   }
   return null;
@@ -379,8 +464,14 @@ function titleHasRoleToken(title) {
   return false;
 }
 
+// A title passes the positive gate when it carries a role token AND a
+// recognized archetype anchor. Multi-archetype: GTM-anchor OR FDE-anchor wins.
 function titleMatchesPositive(title) {
-  return !!titleMatchAnchor(title) && titleHasRoleToken(title);
+  if (!titleHasRoleToken(title)) return false;
+  return !!(
+    titleMatchAnchor(title, TITLE_ANCHORS) ||
+    titleMatchAnchor(title, FDE_TITLE_ANCHORS)
+  );
 }
 
 function titleMatchesNegative(title) {
@@ -1050,9 +1141,9 @@ function builtinCardAttr(cardHtml, faIcon) {
   return "";
 }
 
-async function scanBuiltIn() {
+async function scanBuiltIn(queries = BUILTIN_SEARCHES, tier = "tier_9_builtin", sourceLabel = "BuiltIn") {
   const results = [];
-  for (const query of BUILTIN_SEARCHES) {
+  for (const query of queries) {
     process.stdout.write(`  ${query.padEnd(28)}...`);
     let matched = 0;
     try {
@@ -1065,7 +1156,7 @@ async function scanBuiltIn() {
             signal: AbortSignal.timeout(15000),
             redirect: "follow",
           },
-          { tier: "tier_9_builtin", source: "BuiltIn" },
+          { tier, source: sourceLabel },
         );
         if (!res.ok) {
           process.stdout.write(` HTTP ${res.status}`);
@@ -1117,6 +1208,128 @@ async function scanBuiltIn() {
 }
 
 // ---------------------------------------------------------------------------
+// Tier 10: fwddeploy.com — dedicated FDE-archetype job board
+// ---------------------------------------------------------------------------
+// fwddeploy.com is the canonical Forward Deployed Engineer aggregator board
+// (~540 active FDE-shaped postings as of 2026-05; per fdepulse.com hiring
+// trends, FDE jobs grew 1,165% YoY through Q4 2025). The site exposes
+// /jobs.rss — standard RSS 2.0, server-rendered, no auth, no rate limit
+// hints. RSS beats HTML scrape on stability + cost (one request → full list)
+// and matches the existing zero-token discovery pattern used by Tiers 1/9.
+//
+// Title format in each item: "<Job Title> - <Company> - <Location>"
+// Some job titles contain " - " (e.g. "Sr. - Forward Deployed"), so we split
+// from the right and take the last two segments as company + location.
+//
+// No title-gate filter is applied here: every listing on an FDE-dedicated
+// board is by definition FDE-shaped, and downstream classification will
+// drop genuine misfits with confidence < threshold.
+
+const FWDDEPLOY_RSS_URL = "https://www.fwddeploy.com/jobs.rss";
+
+function decodeXmlEntities(s) {
+  return (s || "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch { return _; } })
+    .replace(/&#(\d+);/g, (_, d) => { try { return String.fromCodePoint(parseInt(d, 10)); } catch { return _; } })
+    .replace(/&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&");
+}
+
+function stripCdata(s) {
+  return (s || "").replace(/^\s*<!\[CDATA\[/, "").replace(/\]\]>\s*$/, "");
+}
+
+// Strip HTML tags + collapse whitespace — used to turn the CDATA-wrapped
+// description into a plain-text excerpt suitable for the existing analytics
+// fields. We keep ~1500 chars to match Exa's text length budget.
+function htmlToPlainExcerpt(html, maxChars = 1500) {
+  const text = decodeXmlEntities(stripCdata(html))
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > maxChars ? text.slice(0, maxChars) : text;
+}
+
+// "Job Title - Company - Location" — split from the right so dashes inside
+// the title don't corrupt the company/location parse.
+function parseFwdDeployTitle(raw) {
+  const parts = (raw || "").split(/\s+-\s+/);
+  if (parts.length < 2) return { title: (raw || "").trim(), company: "", location: "" };
+  if (parts.length === 2) return { title: parts[0].trim(), company: parts[1].trim(), location: "" };
+  const location = parts.pop().trim();
+  const company = parts.pop().trim();
+  const title = parts.join(" - ").trim();
+  return { title, company, location };
+}
+
+async function scanFwdDeploy() {
+  process.stdout.write(`  Fetching ${FWDDEPLOY_RSS_URL}...`);
+  let xml;
+  try {
+    const res = await loggedFetch(
+      FWDDEPLOY_RSS_URL,
+      {
+        headers: {
+          "User-Agent": BUILTIN_UA,
+          Accept: "application/rss+xml, text/xml, */*",
+        },
+        signal: AbortSignal.timeout(20000),
+        redirect: "follow",
+      },
+      { tier: "tier_10_fwddeploy", source: "FwdDeploy" },
+    );
+    if (!res.ok) {
+      process.stdout.write(` HTTP ${res.status}\n`);
+      return [];
+    }
+    xml = await res.text();
+  } catch (err) {
+    process.stdout.write(` ERROR: ${err.message}\n`);
+    return [];
+  }
+
+  const itemBlocks = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
+  const results = [];
+  for (const block of itemBlocks) {
+    const titleMatch = block.match(/<title>([\s\S]*?)<\/title>/);
+    const linkMatch = block.match(/<link>([\s\S]*?)<\/link>/);
+    const descMatch = block.match(/<description>([\s\S]*?)<\/description>/);
+    const pubMatch = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+
+    const rawTitle = decodeXmlEntities((titleMatch?.[1] ?? "").trim());
+    const url = (linkMatch?.[1] ?? "").trim();
+    if (!rawTitle || !url) continue;
+
+    const { title, company, location } = parseFwdDeployTitle(rawTitle);
+    const excerpt = htmlToPlainExcerpt(descMatch?.[1] ?? "");
+    const publishedDate = pubMatch
+      ? (() => {
+          try { return new Date(pubMatch[1].trim()).toISOString().slice(0, 10); }
+          catch { return ""; }
+        })()
+      : "";
+
+    results.push({
+      title,
+      company,
+      url: normalizeUrl(url),
+      publishedDate,
+      ...locationFields(title, url, location + " " + excerpt),
+      source: "Tier 10: FwdDeploy",
+      comp: "",
+      text: excerpt,
+      highlights: location,
+    });
+  }
+  process.stdout.write(` ${results.length} items\n`);
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -1149,6 +1362,14 @@ async function main() {
     ycDirect: { queries: YC_SEARCHES.length, matches: 0, failed: [] },
     vcBoards: { queries: VC_BOARD_CONFIGS.length * VC_BOARD_SEARCHES.length, matches: 0 },
     google: { queries: GOOGLE_QUERIES.length, matches: 0 },
+    // FDE-archetype parallel sourcing tiers (see FDE_*_QUERIES above).
+    fdeExa: { queries: FDE_EXA_QUERIES.length, matches: 0 },
+    fdeVc: { queries: FDE_VC_QUERIES.length, matches: 0 },
+    fdeHn: { queries: FDE_HN_QUERIES.length, matches: 0 },
+    fdeSocial: { queries: FDE_SOCIAL_QUERIES.length, matches: 0 },
+    fdeIntent: { queries: FDE_INTENT_QUERIES.length, matches: 0 },
+    fdeBuiltin: { queries: FDE_BUILTIN_SEARCHES.length, matches: 0 },
+    fwdDeploy: { matches: 0 },
   };
 
   const allResults = [];
@@ -1231,6 +1452,13 @@ async function main() {
   allResults.push(...exaResults);
   console.log(`  Total Exa broad: ${exaResults.length}\n`);
 
+  // --- Tier 2: Exa FDE archetype ---
+  console.log(`[Tier 2] Exa FDE archetype — ${FDE_EXA_QUERIES.length} queries`);
+  const fdeExaResults = await runExaQueries(FDE_EXA_QUERIES, "Tier 2: FDE Exa", "tier_2_fde_exa");
+  stats.fdeExa.matches = fdeExaResults.length;
+  allResults.push(...fdeExaResults);
+  console.log(`  Total FDE Exa: ${fdeExaResults.length}\n`);
+
   // --- Tier 3: VC portfolio ---
   console.log(`[Tier 3] VC portfolio queries — ${VC_QUERIES.length} queries`);
   const vcResults = await runExaQueries(VC_QUERIES, "Tier 3: VC", "tier_3_vc");
@@ -1238,12 +1466,26 @@ async function main() {
   allResults.push(...vcResults);
   console.log(`  Total VC: ${vcResults.length}\n`);
 
+  // --- Tier 3: VC portfolio FDE archetype ---
+  console.log(`[Tier 3] VC FDE archetype — ${FDE_VC_QUERIES.length} queries`);
+  const fdeVcResults = await runExaQueries(FDE_VC_QUERIES, "Tier 3: FDE VC", "tier_3_fde_vc");
+  stats.fdeVc.matches = fdeVcResults.length;
+  allResults.push(...fdeVcResults);
+  console.log(`  Total FDE VC: ${fdeVcResults.length}\n`);
+
   // --- Tier 3: HN/YC ---
   console.log(`[Tier 3] HN/YC queries — ${HN_QUERIES.length} queries`);
   const hnResults = await runExaQueries(HN_QUERIES, "Tier 3: HN", "tier_3_hn");
   stats.hn.matches = hnResults.length;
   allResults.push(...hnResults);
   console.log(`  Total HN/YC: ${hnResults.length}\n`);
+
+  // --- Tier 3: HN/YC FDE archetype ---
+  console.log(`[Tier 3] HN FDE archetype — ${FDE_HN_QUERIES.length} queries`);
+  const fdeHnResults = await runExaQueries(FDE_HN_QUERIES, "Tier 3: FDE HN", "tier_3_fde_hn");
+  stats.fdeHn.matches = fdeHnResults.length;
+  allResults.push(...fdeHnResults);
+  console.log(`  Total FDE HN: ${fdeHnResults.length}\n`);
 
   // --- Tier 4: GTM Engineers Club ---
   console.log(`[Tier 4] GTM Engineers Club — ${GTM_CLUB_QUERIES.length} queries`);
@@ -1270,9 +1512,15 @@ async function main() {
     stats.social.matches = socialResults.length;
     allResults.push(...socialResults);
     console.log(`  Total Social signals: ${socialResults.length}\n`);
+
+    console.log(`[Tier 5] Social signals FDE archetype — ${FDE_SOCIAL_QUERIES.length} queries`);
+    const fdeSocialResults = await runExaQueries(FDE_SOCIAL_QUERIES, "FDE Social Signal", "tier_5_fde_social");
+    stats.fdeSocial.matches = fdeSocialResults.length;
+    allResults.push(...fdeSocialResults);
+    console.log(`  Total FDE Social signals: ${fdeSocialResults.length}\n`);
   } else {
     console.log(
-      `[Tier 5] Social signals — SKIPPED (set ENABLE_SOCIAL_SIGNALS=true to re-enable)\n`,
+      `[Tier 5] Social signals — SKIPPED (set ENABLE_SOCIAL_SIGNALS=true to re-enable; covers GTM + FDE)\n`,
     );
   }
 
@@ -1323,6 +1571,13 @@ async function main() {
   allResults.push(...intentResults);
   console.log(`  Total intent: ${intentResults.length}\n`);
 
+  // --- Tier 7: Hiring intent FDE archetype ---
+  console.log(`[Tier 7] Hiring intent FDE archetype — ${FDE_INTENT_QUERIES.length} queries`);
+  const fdeIntentResults = await runExaQueries(FDE_INTENT_QUERIES, "Tier 7: FDE Intent", "tier_7_fde_intent");
+  stats.fdeIntent.matches = fdeIntentResults.length;
+  allResults.push(...fdeIntentResults);
+  console.log(`  Total FDE intent: ${fdeIntentResults.length}\n`);
+
   // --- Tier 8: Deep search on primary archetypes ---
   const DEEP_QUERIES = [
     "GTM Engineer building revenue infrastructure at a high-growth AI startup",
@@ -1362,6 +1617,23 @@ async function main() {
   stats.builtin.matches = builtinResults.length;
   allResults.push(...builtinResults);
   console.log(`  Total BuiltIn: ${builtinResults.length}\n`);
+
+  // --- Tier 9: BuiltIn FDE archetype — direct search scrape ---
+  console.log(`[Tier 9] BuiltIn FDE archetype — ${FDE_BUILTIN_SEARCHES.length} searches (direct scrape)`);
+  const fdeBuiltinResults = await tierTimer(
+    "tier_9_fde_builtin",
+    () => scanBuiltIn(FDE_BUILTIN_SEARCHES, "tier_9_fde_builtin", "FDE BuiltIn"),
+  );
+  stats.fdeBuiltin.matches = fdeBuiltinResults.length;
+  allResults.push(...fdeBuiltinResults);
+  console.log(`  Total FDE BuiltIn: ${fdeBuiltinResults.length}\n`);
+
+  // --- Tier 10: fwddeploy.com FDE-dedicated board (RSS) ---
+  console.log(`[Tier 10] fwddeploy.com — RSS feed (FDE-dedicated board)`);
+  const fwdDeployResults = await tierTimer("tier_10_fwddeploy", () => scanFwdDeploy());
+  stats.fwdDeploy.matches = fwdDeployResults.length;
+  allResults.push(...fwdDeployResults);
+  console.log(`  Total fwddeploy: ${fwdDeployResults.length}\n`);
 
   // --- Helper: run keyword search on a specific domain set ---
   // `tier` is the analytics slug (e.g. "tier_10_yc_keyword", "tier_11_vc_board").

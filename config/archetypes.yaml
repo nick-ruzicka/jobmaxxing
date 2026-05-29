@@ -57,22 +57,100 @@ archetypes:
 
   - id: fde
     name: Forward Deployed Engineer
-    description: Engineer embedded with customers to deploy and customize products
+    description: Engineer embedded with customers to deploy and customize products — full-stack engineering for production deployments, AI/ML integration, and customer-facing implementation. High title variance (FDE / Applied AI Engineer / Deployment Strategist / Customer Engineer); see audit 2026-05-28-fde-sourcing for the empirical title + JD-keyword study.
     maturity: primary
     resume: autoapply/resumes/parsed/fde.html
     required_signals:
       - technical_role
       - customer_facing
     reward_signals:
-      - keywords: [Forward Deployed, FDE, deployed engineer, customer engineer, solutions architect]
+      # High-signal title-stem keywords that appear in the role name itself.
+      - keywords:
+          - Forward Deployed
+          - FDE
+          - Applied AI Engineer
+          - Customer Engineer
+          - Field Engineer
+          - Deployment Strategist
+          - Deployment Engineer
+          - Implementation Engineer
         weight: 20
-      - keywords: [customer-facing engineering, deployment, customization, integration]
+      # Empirical JD theme keywords. Derived from bloomberry's analysis of 1K
+      # FDE postings (2026-05): "work directly with customers" appears in 55%,
+      # "build and deploy AI/ML systems" in 37%, "integrate systems/APIs" in 32%.
+      # Bare "deployment" / "deploy" kept alongside more-specific phrases because
+      # they're the simplest FDE-signal-words in any role description; precision
+      # is preserved by the required_signals gate (technical_role + customer_facing).
+      - keywords:
+          - deployment
+          - deploy
+          - work directly with customers
+          - customer-facing engineering
+          - embedded with the customer
+          - production deployment
+          - production engineering
+          - deployment playbook
+          - customization
+          - integration
         weight: 8
-      - keywords: [Palantir, Foundry, Hebbia, Glean, Decagon, Sierra]
+      # AI/ML deployment context — distinguishes modern AI-era FDE from the
+      # classic Palantir-style data-engineering FDE. Source: bloomberry +
+      # fwddeploy.com listings; "Applied AI" is Anthropic's framing.
+      - keywords:
+          - prompt engineering
+          - LLM evaluation
+          - agent deployment
+          - MCP server
+          - production LLM
+          - AI/ML system deployment
+        weight: 6
+      # Canonical FDE-employer markers. When a JD names these as customer,
+      # competitor, or peer context, the role is more likely FDE-archetype.
+      # Expanded with fdepulse.com + bloomberry empirical top-employers (2026-05).
+      - keywords:
+          - Palantir
+          - Foundry
+          - Hebbia
+          - Glean
+          - Decagon
+          - Sierra
+          - Anthropic
+          - Anyscale
+          - Databricks
+          - Reducto
+          - Intercom
+          - ConductorOne
+          - Vanta
         weight: 6
     title_signals:
-      high_match: ["Forward Deployed Engineer", "Applied AI Engineer", "Field Engineer", "Customer Engineer"]
-      medium_match: ["Solutions Engineer", "Implementation Engineer", "Deployment Engineer"]
+      # Canonical FDE titles + empirical variants from the fwddeploy.com job
+      # board (2026-05). Substring matched, so Senior/Lead/Principal/Staff
+      # prefixes are caught automatically.
+      high_match:
+        - Forward Deployed Engineer
+        - Forward Deployed AI Engineer
+        - Forward Deployed Software Engineer
+        - Forward Deployed Data Engineer
+        - Forward Deployed Data Solution Engineer
+        - Forward Deployed Security Engineer
+        - Forward Deployed Engineering Manager
+        - Applied AI Engineer
+        - Field Engineer
+        - Customer Engineer
+      # Medium-match: ambiguous titles. Per the existing system design
+      # (archetype-classifier.mjs:120-180), these only cross confidence
+      # threshold when JD body fires the FDE reward_signals above — handles
+      # the high-variance role-spec problem (e.g., Deployment Strategist
+      # can mean FDE OR consultant; body keywords disambiguate).
+      medium_match:
+        - Deployment Strategist
+        - Implementation Engineer
+        - Deployment Engineer
+        - Solutions Engineer
+        - Solutions Architect
+        - Technical Consultant
+        - Forward Deployed AI Consultant
+        - Forward Deployed Creative Technologist
       low_match: ["Generic Software Engineer"]
 
   - id: web3-bd
