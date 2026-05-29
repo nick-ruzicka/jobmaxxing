@@ -84,7 +84,12 @@ export function adjustScore(baseScore, role, archetypePrimary, archetypeSecondar
   if (compAdj) adjustments.push(compAdj);
 
   // Step 4: archetype lens (primary + secondary)
-  if (archetypePrimary) {
+  // Per-user archetype-fit gate (v2 productization): if the user's
+  // user-context.yaml declares archetype_fit[id].qualified=false, OR the
+  // role's archetype_confidence is below the user's configured
+  // confidence_floor for that archetype, the lens contribution is skipped.
+  // Absent config → no gate (backward-compat default).
+  if (archetypePrimary && userQualifiesForArchetype(userContext, archetypePrimary, role)) {
     const a = getArchetype(archetypePrimary, archetypeConfig);
     if (a) {
       const adj = archetypeLensAdjustment(role, a, 1.0);
@@ -92,10 +97,13 @@ export function adjustScore(baseScore, role, archetypePrimary, archetypeSecondar
     }
   }
   if (Array.isArray(archetypeSecondary) && archetypeSecondary.length > 0) {
-    const a = getArchetype(archetypeSecondary[0], archetypeConfig);
-    if (a) {
-      const adj = archetypeLensAdjustment(role, a, SECONDARY_CAP);
-      if (adj) adjustments.push(adj);
+    const secondaryId = archetypeSecondary[0];
+    if (userQualifiesForArchetype(userContext, secondaryId, role)) {
+      const a = getArchetype(secondaryId, archetypeConfig);
+      if (a) {
+        const adj = archetypeLensAdjustment(role, a, SECONDARY_CAP);
+        if (adj) adjustments.push(adj);
+      }
     }
   }
 
@@ -509,6 +517,39 @@ function compAdjustment(role, ctx) {
 }
 
 // ─── archetype lens ───────────────────────────────────────────────────────────
+
+/**
+ * v2-productization gate. Decides whether the user (per user-context.yaml)
+ * qualifies for a given archetype, and whether the role's classification
+ * confidence clears the user's per-archetype floor.
+ *
+ * Returns true when:
+ *   - userContext has no archetype_fit block (backward-compat default), OR
+ *   - archetype_fit[id] is missing (no per-archetype config for this id), OR
+ *   - archetype_fit[id].qualified !== false AND (no confidence_floor OR
+ *     role.archetype_confidence >= confidence_floor).
+ *
+ * Returns false when:
+ *   - archetype_fit[id].qualified === false (user is not a fit for this
+ *     archetype — zero out the lens contribution), OR
+ *   - archetype_fit[id].confidence_floor is set AND
+ *     role.archetype_confidence < confidence_floor (classifier wasn't
+ *     confident enough for this user to count it).
+ *
+ * Confidence comes from role.archetype_confidence when present; when absent
+ * (e.g. ad-hoc scoring without an enricher pass), the floor check is skipped
+ * (we don't penalize for data we don't have).
+ */
+export function userQualifiesForArchetype(userContext, archetypeId, role = {}) {
+  const fit = userContext?.archetype_fit?.[archetypeId];
+  if (!fit) return true; // no config → no gate
+  if (fit.qualified === false) return false;
+  const floor = fit.confidence_floor;
+  if (typeof floor === "number" && typeof role.archetype_confidence === "number") {
+    if (role.archetype_confidence < floor) return false;
+  }
+  return true;
+}
 
 function archetypeLensAdjustment(role, archetype, multiplier) {
   const title = (role.title || "").toLowerCase();
