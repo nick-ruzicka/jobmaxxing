@@ -1,5 +1,7 @@
 # Career-Ops
 
+> **Fork notice.** This repository is a fork of [`santifer/career-ops`](https://github.com/santifer/career-ops) maintained by [@nick-ruzicka](https://github.com/nick-ruzicka). Upstream is the original project by Santiago Fernández de Valderrama (see "Built by" section below). This fork extends the upstream framework with a per-archetype qualification gate, FDE-archetype sourcing tier, AI feature audit, and other modifications — see `docs/audits/` and `CHANGELOG.md`. Bug reports and feature requests for the upstream framework should go to santifer's repo; issues specific to this fork's modifications belong here.
+
 [English](README.md) | [Español](README.es.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [繁體中文](README.zh-TW.md)
 
 <p align="center">
