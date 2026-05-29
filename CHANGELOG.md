@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.2](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.10.1...v1.10.2) (2026-05-29)
+
+
+### Bug Fixes
+
+* **verify-pipeline:** accept 'Skipped' status + '—/5' unscored as valid ([ded883f](https://github.com/nick-ruzicka/nick-career-ops/commit/ded883ff1242b5ea5c087f35730016eb18c3bcb2))
+* **verify-pipeline:** accept 'Skipped' status + '—/5' unscored as valid ([c06ed6f](https://github.com/nick-ruzicka/nick-career-ops/commit/c06ed6f7013193e1a5cc0e35d20cb69c86d53dd7))
+
 ## [1.10.1](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.10.0...v1.10.1) (2026-05-29)
 
 
