@@ -31,11 +31,11 @@ import {
   Loader2,
 } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
-import type { BriefingItem, BriefingItemType } from "@/lib/types";
+import type { BriefingItem, BriefingItemContext, BriefingItemType } from "@/lib/types";
 
 // Re-export the types so existing callers that did
 // `import { BriefingItem } from "@/components/MorningBriefing"` keep working.
-export type { BriefingItem, BriefingItemType };
+export type { BriefingItem, BriefingItemContext, BriefingItemType };
 
 interface MorningBriefingProps {
   /** Concrete actions for today. Order matters — render top-to-bottom as-is. */
@@ -235,22 +235,32 @@ export function MorningBriefing({
 
 // ─── Inline detail panel for expanded briefing items ────────────────────
 
-function BriefingDetailPanel({ context }: { context: Record<string, unknown> }) {
-  const company = context.company as string | undefined;
-  const role = context.role as string | undefined;
-  const url = context.url as string | undefined;
-  const fitScore = context.fit_score as number | undefined;
-  const compRange = context.comp_range as string | undefined;
-  const stack = context.stack as string[] | undefined;
-  const verdictExcerpt = context.verdict_excerpt as string | undefined;
-  const draftMessage = context.draft_message as string | undefined;
-  const daysStale = context.days_stale as number | undefined;
-  const status = context.status as string | undefined;
+function BriefingDetailPanel({ context }: { context: BriefingItemContext }) {
+  // Fields are now typed via BriefingItemContext — no more `as string | undefined`
+  // casts. The previous untyped Record<string, unknown> shape was the root cause
+  // of the AI feature audit Bug A (state-loss-across-navigation) per
+  // docs/audits/2026-05-28-ai-feature-audit.md §4.
+  // role is in the BriefingItemContext shape but unused in this panel — the
+  // title row above already renders it. Omitting from destructure to keep
+  // the lint clean.
+  const {
+    company,
+    url,
+    fit_score: fitScore,
+    comp_range: compRange,
+    stack,
+    verdict_excerpt: verdictExcerpt,
+    draft_message: draftMessage,
+    days_stale: daysStale,
+    status,
+  } = context;
 
-  // Derive company slug for /companies link
-  const companySlug = company
-    ? company.toLowerCase().replace(/[^a-z0-9]/g, "")
-    : null;
+  // Derive company slug for /companies + /pipeline?company=… deep links.
+  // Prefer the generator-supplied slug when present (new briefings); fall back
+  // to deriving from the display name (old briefings missing the field).
+  const companySlug =
+    context.company_slug ??
+    (company ? company.toLowerCase().replace(/[^a-z0-9]/g, "") : null);
 
   return (
     <div className="border-t border-border-subtle bg-surface-1 px-4 py-3 text-[12px]">
@@ -311,7 +321,11 @@ function BriefingDetailPanel({ context }: { context: Record<string, unknown> }) 
             </Link>
           )}
           <Link
-            href="/pipeline"
+            href={
+              companySlug
+                ? `/pipeline?company=${companySlug}&from=briefing`
+                : "/pipeline"
+            }
             onClick={(e) => e.stopPropagation()}
             className="inline-flex items-center gap-1 text-accent hover:underline"
           >
