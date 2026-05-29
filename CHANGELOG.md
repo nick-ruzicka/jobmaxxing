@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.1](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.10.0...v1.10.1) (2026-05-29)
+
+
+### Bug Fixes
+
+* **briefing:** type BriefingItemContext + thread company_slug into pipeline deep-link ([7735ce9](https://github.com/nick-ruzicka/nick-career-ops/commit/7735ce9792a0374607846cdfe0adc7e413e1a327))
+* **briefing:** type BriefingItemContext + thread company_slug into pipeline deep-link ([59a27e3](https://github.com/nick-ruzicka/nick-career-ops/commit/59a27e3afc38384187ebf320b7587657935a7ca2))
+
 ## [1.10.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.9.0...v1.10.0) (2026-05-29)
 
 
