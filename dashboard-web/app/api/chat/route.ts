@@ -482,6 +482,115 @@ export const AGENT_TOOLS = [
   // because of the per-call confirmation cost AND because the underlying
   // endpoint mutates atomically.
   {
+    name: "update_score_override",
+    description:
+      "Add, change, or remove a score override for a company in " +
+      "data/score-overrides.json. ALWAYS pauses for confirmation in the chat " +
+      "UI — you do NOT need to ask permission in text. Use this when the " +
+      "user says things like 'boost Stripe to 8 (they confirmed remote)', " +
+      "'penalize Foo's score', 'block ConsumerCo' (industry mismatch), or " +
+      "'remove the boost on Bar'. For bulk actions, pass all changes in one " +
+      "entries[] call — do NOT loop. The endpoint moves a slug between " +
+      "categories atomically if needed (e.g. boost → penalize).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        entries: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              company_slug: {
+                type: "string",
+                description: "Lowercase kebab-case slug; alphanumeric + - _ only.",
+              },
+              kind: {
+                type: "string",
+                enum: ["boost", "penalize", "block", "delete"],
+                description:
+                  "boost = lift score; penalize = ding score; block = hard-disqualify; delete = remove from all categories.",
+              },
+              score: {
+                type: "number",
+                description: "Required when kind=boost (0-10). Optional null for penalize.",
+              },
+              reason: {
+                type: "string",
+                description: "Short human-readable why (e.g. 'recruiter confirmed remote').",
+              },
+              company: {
+                type: "string",
+                description: "Display name. Defaults to the slug if omitted.",
+              },
+              source: {
+                type: "string",
+                description: "Provenance tag. Defaults to 'manual'.",
+              },
+            },
+            required: ["company_slug", "kind"],
+          },
+          description: "One or more score override changes in a single atomic write.",
+        },
+        reason: {
+          type: "string",
+          description: "Short umbrella why shown in the confirmation preview.",
+        },
+      },
+      required: ["entries"],
+    },
+  },
+  {
+    name: "update_user_context",
+    description:
+      "Edit specific paths in config/user-context.yaml — the user's per-user " +
+      "preferences file. ALWAYS pauses for confirmation in the chat UI. Use " +
+      "for asks like 'stop showing me Web3 BD roles' " +
+      "(archetype_fit.web3-bd.qualified=false), 'switch to warm voice' " +
+      "(agent.voice=warm), 'redact my phone' (agent.redact=[\"phone\"]). " +
+      "Supported paths are restricted server-side; compensation, " +
+      "location_preferences, and hard_nos are NOT writable here (those need a " +
+      "deliberate human edit). Supported v1 paths:\n" +
+      "  archetype_fit.<id>.qualified         (boolean)\n" +
+      "  archetype_fit.<id>.confidence_floor  (number 0-1)\n" +
+      "  agent.voice                          (string)\n" +
+      "  agent.redact                         (string[])\n" +
+      "Pass either {path, value} to set or {path, delete: true} to remove.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        entries: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              path: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "Dot-path as a string array, e.g. ['archetype_fit', 'web3-bd', 'qualified'].",
+              },
+              value: {
+                description:
+                  "New value. Type depends on the path (boolean/number/string/string[]). Omit when delete=true.",
+              },
+              delete: {
+                type: "boolean",
+                description: "Set true to remove the path. value is ignored.",
+              },
+            },
+            required: ["path"],
+          },
+          description: "One or more path edits in a single atomic write.",
+        },
+        reason: {
+          type: "string",
+          description: "Short umbrella why shown in the confirmation preview.",
+        },
+      },
+      required: ["entries"],
+    },
+  },
+  {
     name: "update_application_status",
     description:
       "Mark one or more roles in the user's applications tracker with a new " +
@@ -546,7 +655,11 @@ export const AGENT_TOOLS = [
 // underlying endpoints (e.g. /api/update-status) still require confirmed_bulk
 // at the HTTP layer as defense-in-depth.
 
-const MUTATING_TOOLS = new Set<string>(["update_application_status"]);
+const MUTATING_TOOLS = new Set<string>([
+  "update_application_status",
+  "update_score_override",
+  "update_user_context",
+]);
 
 export function requiresConfirmation(name: string): boolean {
   return MUTATING_TOOLS.has(name);
@@ -569,6 +682,35 @@ export function buildConfirmationPreview(
       return `• [${status}] ${company} — ${title}`;
     });
     const head = `Update ${entries.length} role${entries.length === 1 ? "" : "s"}:`;
+    const more = entries.length > 10 ? `\n… and ${entries.length - 10} more` : "";
+    const why = reason ? `\n\nReason: ${reason}` : "";
+    return `${head}\n${lines.join("\n")}${more}${why}`;
+  }
+  if (name === "update_score_override") {
+    const entries = Array.isArray(input.entries) ? (input.entries as Array<Record<string, unknown>>) : [];
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const lines = entries.slice(0, 10).map((e) => {
+      const slug = typeof e.company_slug === "string" ? e.company_slug : "?";
+      const kind = typeof e.kind === "string" ? e.kind : "?";
+      const score = typeof e.score === "number" ? ` → ${e.score}` : "";
+      const why = typeof e.reason === "string" && e.reason ? ` (${e.reason})` : "";
+      return `• ${kind}: ${slug}${score}${why}`;
+    });
+    const head = `Update ${entries.length} score override${entries.length === 1 ? "" : "s"}:`;
+    const more = entries.length > 10 ? `\n… and ${entries.length - 10} more` : "";
+    const why = reason ? `\n\nReason: ${reason}` : "";
+    return `${head}\n${lines.join("\n")}${more}${why}`;
+  }
+  if (name === "update_user_context") {
+    const entries = Array.isArray(input.entries) ? (input.entries as Array<Record<string, unknown>>) : [];
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const lines = entries.slice(0, 10).map((e) => {
+      const path = Array.isArray(e.path) ? (e.path as unknown[]).join(".") : "?";
+      if (e.delete === true) return `• DELETE ${path}`;
+      const valStr = JSON.stringify(e.value);
+      return `• SET ${path} = ${valStr}`;
+    });
+    const head = `Update ${entries.length} user-context path${entries.length === 1 ? "" : "s"}:`;
     const more = entries.length > 10 ? `\n… and ${entries.length - 10} more` : "";
     const why = reason ? `\n\nReason: ${reason}` : "";
     return `${head}\n${lines.join("\n")}${more}${why}`;
@@ -636,6 +778,46 @@ export async function executeMutatingTool(call: ToolCall): Promise<string> {
       });
       const more = applied.length > 10 ? `\n… and ${applied.length - 10} more` : "";
       return `[update_application_status ok: updated ${updated} of ${applied.length}]\n${lines.join("\n")}${more}`;
+    }
+    if (call.name === "update_score_override") {
+      const entries = Array.isArray(call.input.entries) ? call.input.entries : [];
+      if (entries.length === 0) return "[update_score_override: refused — no entries provided]";
+      const { POST: updateOverridePost } = await import("../update-override/route");
+      const req = new Request("http://internal/api/update-override", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ entries, confirmed_bulk: true }),
+      });
+      const res = await updateOverridePost(req);
+      const json = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        return `[update_score_override failed (HTTP ${res.status}): ${JSON.stringify(json)}]`;
+      }
+      const applied = Array.isArray(json.applied) ? json.applied : [];
+      const moves = Array.isArray(json.moves) ? json.moves : [];
+      const deletions = Array.isArray(json.deletions) ? json.deletions : [];
+      const tail = [
+        moves.length ? `${moves.length} moved between categories` : null,
+        deletions.length ? `${deletions.length} deleted` : null,
+      ].filter(Boolean).join(", ");
+      return `[update_score_override ok: applied ${applied.length}${tail ? `; ${tail}` : ""}]`;
+    }
+    if (call.name === "update_user_context") {
+      const entries = Array.isArray(call.input.entries) ? call.input.entries : [];
+      if (entries.length === 0) return "[update_user_context: refused — no entries provided]";
+      const { POST: updateUserContextPost } = await import("../update-user-context/route");
+      const req = new Request("http://internal/api/update-user-context", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ entries, confirmed_bulk: true }),
+      });
+      const res = await updateUserContextPost(req);
+      const json = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        return `[update_user_context failed (HTTP ${res.status}): ${JSON.stringify(json)}]`;
+      }
+      const applied = Array.isArray(json.applied) ? json.applied : [];
+      return `[update_user_context ok: applied ${applied.length} path${applied.length === 1 ? "" : "s"}]`;
     }
     return `[mutating tool error: unknown tool "${call.name}"]`;
   } catch (err) {

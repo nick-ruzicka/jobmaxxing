@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { X, Send, Loader2, ChevronRight } from "lucide-react";
+import { X, Send, Loader2, ChevronRight, AlertTriangle, Check } from "lucide-react";
 import type { BriefingItem } from "@/lib/types";
 
 interface ChatMessage {
@@ -24,6 +24,80 @@ interface ChatMessage {
   content: string;
   item_context?: Record<string, unknown>;
   ts: string;
+}
+
+/** Mutating-tool confirmation card payload. Mirrors what the server emits
+ *  as the `tool_request` SSE event (or the `pending` field on GET /api/chat
+ *  for hydration after a page refresh). */
+interface PendingTool {
+  tool_call_id: string;
+  name: string;
+  input: Record<string, unknown>;
+  preview: string;
+}
+
+/** Callbacks the SSE consumer dispatches as it reads the chat stream.
+ *  Factored out so handleSend (fresh turn) and handleRespondToTool (resume)
+ *  can share the same parse loop. */
+interface StreamCallbacks {
+  onDelta: (text: string) => void;
+  onToolRequest: (req: PendingTool) => void;
+  onToolResolved: (action: "confirm" | "cancel") => void;
+  onPaused: () => void;
+  onDone: (history: ChatMessage[]) => void;
+}
+
+/** Parse the chat SSE stream and dispatch events to the supplied callbacks.
+ *  Throws on transport / parsing errors. The caller owns history updates,
+ *  spinner state, and error handling. */
+async function consumeChatStream(res: Response, cbs: StreamCallbacks): Promise<void> {
+  if (!res.body) throw new Error("Streaming response had no body");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let streamDone = false;
+  while (!streamDone) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const ev of events) {
+      const dataLine = ev.split("\n").find((l) => l.startsWith("data: "));
+      if (!dataLine) continue;
+      let payload: unknown;
+      try {
+        payload = JSON.parse(dataLine.slice(6));
+      } catch {
+        continue;
+      }
+      const obj = payload as Record<string, unknown>;
+      if (obj.type === "delta" && typeof obj.text === "string") {
+        cbs.onDelta(obj.text);
+      } else if (obj.type === "tool_request") {
+        cbs.onToolRequest({
+          tool_call_id: String(obj.id ?? ""),
+          name: String(obj.name ?? ""),
+          input: (obj.input as Record<string, unknown>) ?? {},
+          preview: String(obj.preview ?? ""),
+        });
+      } else if (obj.type === "tool_resolved") {
+        const action = obj.action === "confirm" ? "confirm" : "cancel";
+        cbs.onToolResolved(action);
+      } else if (obj.type === "paused") {
+        cbs.onPaused();
+        // paused signals the server ended the stream intentionally at a
+        // confirmation gate. The pending state is already in pendingTool via
+        // onToolRequest; we just stop reading.
+        streamDone = true;
+      } else if (obj.type === "done") {
+        if (Array.isArray(obj.history)) cbs.onDone(obj.history as ChatMessage[]);
+        streamDone = true;
+      } else if (obj.type === "error") {
+        throw new Error(typeof obj.message === "string" ? obj.message : "stream failed");
+      }
+    }
+  }
 }
 
 interface AgentChatPanelProps {
@@ -43,6 +117,15 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Confirmation-card state. Non-null means the chat stream paused at a
+  // mutating tool; user must confirm or cancel before more messages can flow.
+  // Hydrated from GET /api/chat on mount so a page refresh re-renders the
+  // card. Cleared on confirm/cancel resolution and on a new user message.
+  const [pendingTool, setPendingTool] = useState<PendingTool | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  // Disables both confirm/cancel buttons + the composer while we're round-
+  // tripping the POST /api/chat/respond-to-tool stream.
+  const [respondingTo, setRespondingTo] = useState<"confirm" | "cancel" | null>(null);
   // True until we've successfully attached this scoped item to a message —
   // after that, the agent has it in conversation context and we don't keep
   // re-sending it.
@@ -56,7 +139,8 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
     scopedItemPending.current = scopedItem ?? null;
   }, [scopedItem, open]);
 
-  // Hydrate history from disk when the panel opens or the day changes.
+  // Hydrate history (and any pending confirmation) from disk when the panel
+  // opens or the day changes.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -65,7 +149,18 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
         const res = await fetch(`/api/chat?date=${date}`);
         if (!res.ok) throw new Error(`GET /api/chat returned ${res.status}`);
         const body = await res.json();
-        if (!cancelled) setHistory(Array.isArray(body.history) ? body.history : []);
+        if (cancelled) return;
+        setHistory(Array.isArray(body.history) ? body.history : []);
+        if (body.pending) {
+          setPendingTool({
+            tool_call_id: String(body.pending.tool_call_id ?? ""),
+            name: String(body.pending.name ?? ""),
+            input: (body.pending.input as Record<string, unknown>) ?? {},
+            preview: String(body.pending.preview ?? ""),
+          });
+        } else {
+          setPendingTool(null);
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load history");
       }
@@ -100,10 +195,28 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
+  /** Append a delta chunk to the current assistant placeholder (the last
+   *  message). Both fresh sends and confirmation resumes share this. */
+  function appendDeltaToPlaceholder(chunk: string) {
+    setHistory((prev) => {
+      const next = prev.slice();
+      const last = next[next.length - 1];
+      if (last && last.role === "assistant") {
+        next[next.length - 1] = { ...last, content: last.content + chunk };
+      }
+      return next;
+    });
+  }
+
   async function handleSend() {
     const message = input.trim();
-    if (!message || thinking) return;
+    if (!message || thinking || respondingTo) return;
 
+    // A new user message supersedes any unresolved confirmation. The server
+    // discards pending state on POST /api/chat — mirror that locally so the
+    // confirmation card disappears.
+    setPendingTool(null);
+    setCancelReason("");
     setError(null);
     setInput("");
     setThinking(true);
@@ -136,57 +249,84 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message ?? `POST /api/chat returned ${res.status}`);
       }
-      if (!res.body) throw new Error("Streaming response had no body");
 
-      // Stream loop: parse SSE events, append deltas to the placeholder
-      // message in place, swap to the authoritative server history on done.
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let streamDone = false;
-      while (!streamDone) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() ?? "";
-        for (const ev of events) {
-          const dataLine = ev.split("\n").find((l) => l.startsWith("data: "));
-          if (!dataLine) continue;
-          let payload: unknown;
-          try {
-            payload = JSON.parse(dataLine.slice(6));
-          } catch {
-            continue;
-          }
-          const obj = payload as Record<string, unknown>;
-          if (obj.type === "delta" && typeof obj.text === "string") {
-            const chunk = obj.text;
-            setHistory((prev) => {
-              // Append to the LAST message (the placeholder). Don't touch
-              // anything else.
-              const next = prev.slice();
-              const last = next[next.length - 1];
-              if (last && last.role === "assistant") {
-                next[next.length - 1] = { ...last, content: last.content + chunk };
-              }
-              return next;
-            });
-          } else if (obj.type === "done") {
-            if (Array.isArray(obj.history)) {
-              setHistory(obj.history as ChatMessage[]);
-            }
-            streamDone = true;
-          } else if (obj.type === "error") {
-            throw new Error(typeof obj.message === "string" ? obj.message : "stream failed");
-          }
-        }
-      }
+      await consumeChatStream(res, {
+        onDelta: appendDeltaToPlaceholder,
+        onToolRequest: (req) => setPendingTool(req),
+        // tool_resolved doesn't fire on a fresh POST (no prior pending), but
+        // the callback is required by the shared shape.
+        onToolResolved: () => {},
+        onPaused: () => {
+          // Stream ended at a confirmation gate. The pending placeholder
+          // stays in history with whatever partial text streamed before the
+          // pause; the card UI takes over below.
+        },
+        onDone: (newHistory) => setHistory(newHistory),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send failed");
       rollback();
     } finally {
       setThinking(false);
+    }
+  }
+
+  async function handleRespondToTool(action: "confirm" | "cancel") {
+    if (!pendingTool || respondingTo) return;
+    setRespondingTo(action);
+    setError(null);
+
+    const tool_call_id = pendingTool.tool_call_id;
+    const reason = action === "cancel" ? cancelReason.trim() || undefined : undefined;
+
+    // Ensure there's an assistant placeholder for incoming deltas. After
+    // hydration from refresh, the last message in history is the user message
+    // that triggered the pause — no assistant placeholder yet. Add one. On
+    // mid-session confirmation the placeholder is already there (from the
+    // original POST that paused) and we reuse it.
+    setHistory((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === "assistant") return prev;
+      return [...prev, { role: "assistant", content: "", ts: new Date().toISOString() }];
+    });
+
+    try {
+      const res = await fetch("/api/chat/respond-to-tool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, tool_call_id, action, reason }),
+      });
+
+      const contentType = res.headers.get("Content-Type") ?? "";
+      if (!res.ok || !contentType.includes("text/event-stream")) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message ?? `POST /api/chat/respond-to-tool returned ${res.status}`);
+      }
+
+      await consumeChatStream(res, {
+        onDelta: appendDeltaToPlaceholder,
+        onToolRequest: (req) => setPendingTool(req),
+        onToolResolved: () => {
+          // First event off the resume stream — server confirms it applied
+          // the decision. Dismiss the card; the agent's follow-up text will
+          // arrive via deltas next.
+          setPendingTool(null);
+          setCancelReason("");
+        },
+        onPaused: () => {
+          // The agent's follow-up itself hit another confirmation gate.
+          // pendingTool was already updated via onToolRequest; we just stop.
+        },
+        onDone: (newHistory) => {
+          setHistory(newHistory);
+          setPendingTool(null);
+          setCancelReason("");
+        },
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Confirmation failed");
+    } finally {
+      setRespondingTo(null);
     }
   }
 
@@ -296,6 +436,70 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
           <div ref={listEndRef} aria-hidden />
         </div>
 
+        {/* Confirmation card — shown when the agent's last tool call is a
+            mutation awaiting user approval. Two-phase pattern from the
+            write-path map: agent proposes → user reviews + decides → server
+            executes (or feeds back a synthetic decline). Until resolved, the
+            composer is disabled to make the gate explicit. */}
+        {pendingTool && (
+          <div
+            role="region"
+            aria-label="Confirm agent action"
+            className="border-t border-amber-border bg-amber-dim px-4 py-3"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <div className="text-[12px] font-semibold text-text-primary">
+                  Confirm action
+                  <span className="ml-1.5 font-mono text-[11px] text-text-tertiary">
+                    {pendingTool.name}
+                  </span>
+                </div>
+                <pre className="mt-1.5 whitespace-pre-wrap break-words font-sans text-[12px] leading-relaxed text-text-secondary">
+                  {pendingTool.preview}
+                </pre>
+                <input
+                  type="text"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="(optional) reason if cancelling"
+                  disabled={respondingTo !== null}
+                  className="mt-2 w-full rounded-md border border-border-subtle bg-surface-1 px-2 py-1 text-[12px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-60"
+                />
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleRespondToTool("confirm")}
+                    disabled={respondingTo !== null}
+                    className="inline-flex items-center gap-1 rounded-md border border-accent-border bg-accent-dim px-2.5 py-1 text-[12px] font-medium text-accent transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {respondingTo === "confirm" ? (
+                      <Loader2 size={12} className="animate-spin" aria-hidden />
+                    ) : (
+                      <Check size={12} aria-hidden />
+                    )}
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRespondToTool("cancel")}
+                    disabled={respondingTo !== null}
+                    className="inline-flex items-center gap-1 rounded-md border border-red-border bg-red-dim px-2.5 py-1 text-[12px] font-medium text-red transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {respondingTo === "cancel" ? (
+                      <Loader2 size={12} className="animate-spin" aria-hidden />
+                    ) : (
+                      <X size={12} aria-hidden />
+                    )}
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Error banner — transient, replaced on next send attempt. */}
         {error && (
           <div
@@ -315,14 +519,18 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={2}
-              placeholder="Ask about a role, the pipeline, or today's items…"
-              disabled={thinking}
+              placeholder={
+                pendingTool
+                  ? "Resolve the pending action above to send a new message…"
+                  : "Ask about a role, the pipeline, or today's items…"
+              }
+              disabled={thinking || respondingTo !== null || pendingTool !== null}
               className="min-h-[48px] flex-1 resize-none rounded-md border border-border-subtle bg-surface-1 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-60"
             />
             <button
               type="button"
               onClick={handleSend}
-              disabled={thinking || !input.trim()}
+              disabled={thinking || !input.trim() || respondingTo !== null || pendingTool !== null}
               className="inline-flex h-[48px] items-center gap-1 rounded-md border border-accent-border bg-accent-dim px-3 text-[13px] font-medium text-accent transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
               title="Send (Enter)"
             >
