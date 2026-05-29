@@ -1,7 +1,7 @@
 /**
  * POST /api/chat
  *
- * Turn-based agent chat scoped to today's briefing.
+ * Turn-based agent chat with full pipeline + user context.
  *
  * Body: { date: "YYYY-MM-DD", message: string, item_context?: object }
  *   - date         — keys the persistence file (data/chats/<date>.json)
@@ -10,18 +10,27 @@
  *                    briefing item, the panel passes that item's context so
  *                    the agent has the role/URL/JD context.
  *
- * Behavior:
+ * Behavior (AI feature audit Step 3 — context plumbing + caching):
  *   1. Load (or initialize) the chat history for `date`
- *   2. Load today's daily briefing as conversational context
- *   3. Compose a Claude prompt with: user goals + briefing + chat history
- *      + (optional) item_context + the new message
- *   4. Call Claude (single turn, non-streaming)
+ *   2. Build a cached system block with:
+ *        — base instructions
+ *        — CV (cv.md)
+ *        — user-context.yaml (location/comp/hard-nos/archetype_fit/etc.)
+ *        — top 50 roles by score (compact one-line summaries)
+ *        — recent applications (last 30 days from applications.md)
+ *        — today's briefing summary
+ *      Tagged with `cache_control: ephemeral` so subsequent turns within
+ *      ~5 minutes hit the prompt cache (~10× cheaper per turn at scale).
+ *   3. Build proper messages array (history as turns, not concatenated)
+ *   4. Call Claude (single turn, non-streaming for now; streaming is the
+ *      follow-up PR per audit §5a)
  *   5. Append user msg + assistant response to history, write file
- *   6. Return { reply, history }
+ *   6. Return { reply, history, debug? }
  *
  * Returns:
- *   200 { reply: string, history: ChatMessage[] }
+ *   200 { reply: string, history: ChatMessage[], debug?: { tokens_estimate: number } }
  *   400 { error } — malformed request
+ *   402 { error: "credits_exhausted", message, topUpUrl } — Anthropic balance
  *   500 { error } — Claude call failed or persistence failed
  *
  * GET /api/chat?date=YYYY-MM-DD — returns { history } for hydration on page load.
@@ -30,8 +39,9 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { getCompFloorUsd, formatCompFloorString } from "@/lib/comp-floor";
+import { getRoles } from "@/lib/data";
 import { defaultGoalFallback } from "../../../../scripts/lib/default-goal.mjs";
-import type { Briefing } from "@/lib/types";
+import type { Briefing, Role } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -100,49 +110,136 @@ function readUserGoals(): string {
   return sections.join("\n\n").slice(0, 4000);
 }
 
-function buildPrompt(args: {
-  goals: string;
-  briefing: Briefing | null;
-  history: ChatMessage[];
-  itemContext: Record<string, unknown> | undefined;
-  userMessage: string;
-}): string {
-  const { goals, briefing, history, itemContext, userMessage } = args;
+// ─── Context loaders ────────────────────────────────────────────────────────
+// Each returns either content or null (file absent). The system-block builder
+// renders an "(no X available)" line when a section is null so the agent
+// knows the absence is intentional, not a parsing error.
 
-  // Compact the briefing into a few-line summary the agent can refer to —
-  // the full JSON is too much.
+function readCv(): string | null {
+  const path = join(projectRoot(), "cv.md");
+  if (!existsSync(path)) return null;
+  try {
+    // CVs typically run 1-10 KB; cap at 12 KB (~3K tokens) defensively.
+    return readFileSync(path, "utf-8").slice(0, 12000);
+  } catch {
+    return null;
+  }
+}
+
+function readUserContextYaml(): string | null {
+  const path = join(projectRoot(), "config", "user-context.yaml");
+  if (!existsSync(path)) return null;
+  try {
+    // user-context.yaml is small (~3 KB even with comments). No cap.
+    return readFileSync(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+/** Pulls the top N roles by score, returns as compact one-line summaries
+ *  for the prompt. Excludes aggregator-sourced roles (they're noisier and
+ *  bloat the prompt). Filters to score ≥ 4 (the dashboard's default cutoff).
+ *  Format per line:
+ *    "[score] Company — Role Title (status, location, comp_range) <url>"
+ */
+function readTopRoles(n: number): string {
+  let roles: Role[];
+  try {
+    roles = getRoles({ includeAggregator: false });
+  } catch {
+    return "(role data unavailable)";
+  }
+  const sorted = roles
+    .filter((r) => r.score >= 4)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, n);
+  if (sorted.length === 0) return "(no roles in pipeline yet)";
+  return sorted
+    .map((r) => {
+      const score = r.score.toFixed(1);
+      const comp = r.enrichment?.comp_range ? ` ${r.enrichment.comp_range}` : "";
+      const loc = r.location ? ` ${r.location}` : "";
+      return `[${score}] ${r.company} — ${r.title} (${r.status}${loc}${comp}) ${r.url}`;
+    })
+    .join("\n");
+}
+
+/** Reads recent rows from data/applications.md. Currently returns the most
+ *  recent N entries by file order — applications.md is human-edited so
+ *  most recent is at the top; ~30 entries is roughly 30 days of activity. */
+function readRecentApplications(maxRows: number): string {
+  const path = join(projectRoot(), "data", "applications.md");
+  if (!existsSync(path)) return "(no applications yet)";
+  try {
+    const md = readFileSync(path, "utf-8");
+    const rows = md
+      .split("\n")
+      .filter((l) => l.startsWith("|") && !l.startsWith("|#") && !l.startsWith("|--"));
+    if (rows.length === 0) return "(no applications yet)";
+    return rows.slice(0, maxRows).join("\n");
+  } catch {
+    return "(applications.md unreadable)";
+  }
+}
+
+// ─── Prompt builders ────────────────────────────────────────────────────────
+// Split into a stable SYSTEM block (cached via cache_control: ephemeral) and
+// per-turn MESSAGES. Cache hits within ~5 minutes cut per-turn cost ~10×.
+
+const BASE_INSTRUCTIONS = `You are the user's job-search agent, having a conversation about their pipeline. You have full context on their CV, preferences (user-context.yaml), the current pipeline (top 50 roles by score), recent applications, and today's briefing. Be concrete, candid, and specific — name companies, score numbers, surface trade-offs. Push back when the user's read of a role doesn't match what the data says. Don't pad answers.`;
+
+const RESPONSE_GUIDELINES = `Respond directly in plain prose. No lists unless the user asks for one. Cite the role/company by name when relevant. Keep responses under ~300 words unless the user explicitly asks for more detail. If you cite a specific role, include its URL so the user can click through.`;
+
+function buildSystemBlock(args: {
+  goals: string;
+  cv: string | null;
+  userContextYaml: string | null;
+  topRoles: string;
+  recentApps: string;
+  briefing: Briefing | null;
+}): string {
+  const { goals, cv, userContextYaml, topRoles, recentApps, briefing } = args;
+
   const briefingSummary = briefing
     ? briefing.items
         .map((i, idx) => `[${idx}] ${i.type}: ${i.title}${i.subtitle ? ` — ${i.subtitle}` : ""}`)
         .join("\n")
     : "(no briefing generated yet today)";
 
-  const historyTranscript =
-    history.length === 0
-      ? "(no prior messages today)"
-      : history
-          .map((m) => `${m.role === "user" ? "USER" : "AGENT"}: ${m.content}`)
-          .join("\n\n");
+  const sections: string[] = [
+    BASE_INSTRUCTIONS,
+    `\n\n## User goals\n\n${goals}`,
+    `\n\n## CV (cv.md)\n\n${cv ?? "(no cv.md file — user hasn't filled it in yet)"}`,
+    `\n\n## User preferences (user-context.yaml)\n\n${userContextYaml ?? "(no user-context.yaml — defaults apply)"}\n`,
+    `\n\n## Pipeline snapshot — top 50 roles by score\n\n${topRoles}`,
+    `\n\n## Recent applications (most recent first)\n\n${recentApps}`,
+    `\n\n## Today's briefing (${briefing?.date ?? "n/a"})\n\n${briefingSummary}`,
+    `\n\n## Response guidelines\n\n${RESPONSE_GUIDELINES}`,
+  ];
+  return sections.join("");
+}
 
-  const itemContextBlock = itemContext
-    ? `\nThe user is asking specifically about this briefing item:\n${JSON.stringify(itemContext, null, 2)}\n`
+/** Convert chat history + new user message into Anthropic message-turn shape.
+ *  Item context, when present, is folded into the new user message as a
+ *  trailing prelude so Claude has the role/URL/JD details for that item. */
+function buildMessages(args: {
+  history: ChatMessage[];
+  itemContext: Record<string, unknown> | undefined;
+  userMessage: string;
+}): Array<{ role: "user" | "assistant"; content: string }> {
+  const { history, itemContext, userMessage } = args;
+  const turns: Array<{ role: "user" | "assistant"; content: string }> = history.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  const itemContextPrelude = itemContext
+    ? `\n\n---\n(The user is asking specifically about this briefing item: ${JSON.stringify(itemContext)})`
     : "";
 
-  return `You are the user's job-search agent, having a conversation about today's pipeline. You have full context on their goals and what landed in today's briefing. Be concrete, candid, and specific — name companies, score numbers, surface trade-offs. Push back when the user's read of a role doesn't match what the data says. Don't pad answers.
-
-USER GOALS AND CONTEXT:
-${goals}
-
-TODAY'S BRIEFING (${briefing?.date ?? "n/a"}):
-${briefingSummary}
-${itemContextBlock}
-CONVERSATION SO FAR:
-${historyTranscript}
-
-USER'S NEW MESSAGE:
-${userMessage}
-
-Respond directly in plain prose. No lists unless the user asks for one. Cite the role/company by name when relevant. Keep responses under ~300 words unless the user explicitly asks for more detail.`;
+  turns.push({ role: "user", content: userMessage + itemContextPrelude });
+  return turns;
 }
 
 /** Lazy .env loader — Next.js only auto-loads .env files inside dashboard-web/,
@@ -173,10 +270,30 @@ function loadWorktreeEnv() {
   }
 }
 
-async function callClaude(prompt: string): Promise<string> {
+interface ClaudeCallResult {
+  text: string;
+  /** Token usage from the response — used for the soft-cap warning + a
+   *  debug payload returned to the client. Cached tokens are an order of
+   *  magnitude cheaper, so we surface the hit count explicitly. */
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
+}
+
+async function callClaude(args: {
+  systemText: string;
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+}): Promise<ClaudeCallResult> {
   loadWorktreeEnv();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
+  // Structured system block with cache_control: ephemeral on the (single)
+  // text block. Anthropic's prompt cache hits this prefix for ~5 minutes,
+  // making subsequent turns within a session ~10× cheaper at scale (CV +
+  // pipeline snapshot + briefing + user-context = the bulk of the prompt).
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -187,7 +304,14 @@ async function callClaude(prompt: string): Promise<string> {
     body: JSON.stringify({
       model: "claude-opus-4-7",
       max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
+      system: [
+        {
+          type: "text",
+          text: args.systemText,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      messages: args.messages,
     }),
   });
   if (!res.ok) {
@@ -203,7 +327,18 @@ async function callClaude(prompt: string): Promise<string> {
   const json = await res.json();
   const text = json.content?.[0]?.text;
   if (!text) throw new Error("Anthropic response missing content text");
-  return text;
+  return { text, usage: json.usage };
+}
+
+// Rough char→token estimate. Anthropic's tokenizer averages ~4 chars per
+// token for English; this is good enough for the soft-cap warning. We don't
+// truncate based on this — Anthropic API will error if the prompt is too
+// long, and the soft cap exists to flag drift during productization.
+const CHAR_PER_TOKEN_ESTIMATE = 4;
+const SOFT_CAP_TOKENS = 20_000;
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / CHAR_PER_TOKEN_ESTIMATE);
 }
 
 export async function POST(request: Request) {
@@ -228,18 +363,47 @@ export async function POST(request: Request) {
   const file = readChatFile(date);
   const briefing = readBriefingForDate(date);
   const goals = readUserGoals();
+  // Load the full-context block — CV, preferences, pipeline snapshot,
+  // applications. Each loader returns a friendly placeholder when the source
+  // file isn't present, so this never throws.
+  const cv = readCv();
+  const userContextYaml = readUserContextYaml();
+  const topRoles = readTopRoles(50);
+  const recentApps = readRecentApplications(30);
 
-  const prompt = buildPrompt({
+  const systemText = buildSystemBlock({
     goals,
+    cv,
+    userContextYaml,
+    topRoles,
+    recentApps,
     briefing,
+  });
+  const messages = buildMessages({
     history: file.messages,
     itemContext,
     userMessage: message,
   });
 
+  // Soft-cap warning — logs but doesn't truncate. If the user adds a 50K-char
+  // CV + the pipeline grows huge, this fires and we know it's time for
+  // compaction (probably promoting the "top 50 roles" listing into a tool
+  // call instead of inlining).
+  const sysTokens = estimateTokens(systemText);
+  const msgTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+  const totalEst = sysTokens + msgTokens;
+  if (totalEst > SOFT_CAP_TOKENS) {
+    console.warn(
+      `[chat] context estimated at ${totalEst} tokens (system=${sysTokens}, messages=${msgTokens}) — over soft cap ${SOFT_CAP_TOKENS}; consider promoting role listing to a tool call`,
+    );
+  }
+
   let reply: string;
+  let usage: ClaudeCallResult["usage"];
   try {
-    reply = await callClaude(prompt);
+    const result = await callClaude({ systemText, messages });
+    reply = result.text;
+    usage = result.usage;
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     if (message.includes("CREDITS_EXHAUSTED")) {
@@ -266,10 +430,19 @@ export async function POST(request: Request) {
     // Persistence failed but Claude succeeded — return the reply anyway so
     // the user isn't blocked. Log to server stderr for diagnostics.
     console.error("[chat] persistence failed:", err);
-    return Response.json({ reply, history: file.messages, persistence_warning: true });
+    return Response.json({
+      reply,
+      history: file.messages,
+      persistence_warning: true,
+      debug: usage ? { tokens_estimate: totalEst, usage } : { tokens_estimate: totalEst },
+    });
   }
 
-  return Response.json({ reply, history: file.messages });
+  return Response.json({
+    reply,
+    history: file.messages,
+    debug: usage ? { tokens_estimate: totalEst, usage } : { tokens_estimate: totalEst },
+  });
 }
 
 export async function GET(request: Request) {
