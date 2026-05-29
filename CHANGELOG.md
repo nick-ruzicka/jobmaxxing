@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.12.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.11.0...v1.12.0) (2026-05-29)
+
+
+### Features
+
+* **chat:** plumb full context + prompt caching into agent (AI audit Step 3) ([b25aa0b](https://github.com/nick-ruzicka/nick-career-ops/commit/b25aa0b7910326b917c3e72f7c08aebad8f42e8b))
+* **chat:** plumb full context + prompt caching into agent (AI audit Step 3) ([b72ec68](https://github.com/nick-ruzicka/nick-career-ops/commit/b72ec68f1420ec27454091e2de2e92a378b7d2d0))
+* **chat:** streaming responses (audit §5a follow-up to Step 3) ([b74a13d](https://github.com/nick-ruzicka/nick-career-ops/commit/b74a13dd004904d9720a37b02624395b089557e1))
+* **chat:** streaming responses (audit §5a follow-up to Step 3) ([02a96a6](https://github.com/nick-ruzicka/nick-career-ops/commit/02a96a6153a5ae9af37515499f19f050d3fe91ba))
+
 ## [1.11.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.10.2...v1.11.0) (2026-05-29)
 
 
