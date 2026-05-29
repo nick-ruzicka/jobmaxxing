@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.10.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.9.0...v1.10.0) (2026-05-29)
+
+
+### Features
+
+* **config:** user-context.example.yaml template + agent productization fields ([d576e2c](https://github.com/nick-ruzicka/nick-career-ops/commit/d576e2c33c63733fb5721ee5c09f0fef16a49dac))
+* **config:** user-context.example.yaml template + agent productization fields ([edf7d47](https://github.com/nick-ruzicka/nick-career-ops/commit/edf7d477bd334e50c655ff97d3420970222d1214))
+* **templates:** example files for the 6 user-data sources (productization) ([96d9379](https://github.com/nick-ruzicka/nick-career-ops/commit/96d9379b5e5504d7efd0b5adf6fcc989cb0babfd))
+* **templates:** example files for the 6 user-data sources (productization) ([c3fa98a](https://github.com/nick-ruzicka/nick-career-ops/commit/c3fa98ade3653f8f1f2a9b5c3222ef0a039a8042))
+
 ## [1.9.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.8.3...v1.9.0) (2026-05-29)
 
 
