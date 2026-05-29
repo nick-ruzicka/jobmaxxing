@@ -23,6 +23,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { locationFields, structuredLocationFields } from "./lib/location.mjs";
 import { upgradeAtsResult } from "./lib/ats-url-upgrade.mjs";
+import { createProgress } from "./lib/progress.mjs";
 import { upgradeBuiltinResult } from "./lib/builtin-jsonld-upgrade.mjs";
 import { cleanTitle } from "./lib/title-cleanup.mjs";
 import { companyKey } from "./lib/normalize-company.mjs";
@@ -1331,6 +1332,15 @@ async function scanFwdDeploy() {
 // ---------------------------------------------------------------------------
 
 async function main() {
+  // Progress emitter (Step 8 — emits JSONL on stdout when --progress-json
+  // is set, no-op otherwise). When enabled, console.log is rerouted to
+  // stderr so stdout stays pure JSONL for the API route's parser. We
+  // instrument at the phase level (source-tiers / validation / save-report)
+  // rather than per-tier — 15+ tiers would balloon the diff and the agent
+  // doesn't need that granularity for the progress widget.
+  const progress = createProgress({ kind: "scan-jobs" });
+  progress.start();
+
   console.log(`\n=== Job Scan — ${today()} ===\n`);
 
   const seen = loadSeen();
@@ -1370,6 +1380,14 @@ async function main() {
   };
 
   const allResults = [];
+
+  progress.phase("source-tiers", "started", {
+    meta: {
+      ashby_companies: companies.ashby.length,
+      greenhouse_companies: companies.greenhouse.length,
+      lever_companies: companies.lever.length,
+    },
+  });
 
   // --- Tier 1: Ashby ---
   console.log(`[Tier 1] Ashby API — ${companies.ashby.length} companies`);
@@ -1787,6 +1805,11 @@ async function main() {
   allResults.push(...googleResults);
   console.log(`  Total Google-style: ${googleResults.length}\n`);
 
+  progress.phase("source-tiers", "finished", {
+    meta: { raw_results: allResults.length },
+  });
+  progress.phase("validate-and-dedup", "started");
+
   // --- Deduplicate ---
   console.log(`--- Processing ---`);
   console.log(`  Raw results: ${allResults.length}`);
@@ -2067,6 +2090,11 @@ async function main() {
 
   console.log(`  Validated net-new: ${dedupedNew.length}`);
 
+  progress.phase("validate-and-dedup", "finished", {
+    meta: { validated_new: dedupedNew.length },
+  });
+  progress.phase("save-and-report", "started");
+
   // --- Auto-promotion: BuiltIn / YC discovery → direct ATS tracking ---
   // For each new role whose URL is already a recognized ATS endpoint AND whose
   // source channel is a promotable aggregator (BuiltIn, YC), add the company to
@@ -2163,6 +2191,23 @@ async function main() {
     console.log(`\n  → Full report: reports/job-scan-${date}.md`);
     console.log(`  → Evaluate top picks: paste URLs into /career-ops\n`);
   }
+
+  progress.phase("save-and-report", "finished", {
+    meta: { validated_new: validatedNew.length, seen_total: Object.keys(seen).length },
+  });
+  progress.done({
+    ok: true,
+    summary:
+      `Scanned source tiers — ${validatedNew.length} net-new role${validatedNew.length === 1 ? "" : "s"} ` +
+      `(${Object.keys(seen).length} seen total). Report at reports/job-scan-${date}.md.`,
+    meta: {
+      net_new: validatedNew.length,
+      seen_total: Object.keys(seen).length,
+      report_path: reportPath,
+      top_picks: validatedNew.filter((r) => r.score >= 8).length,
+      strong_picks: validatedNew.filter((r) => r.score >= 6 && r.score <= 7).length,
+    },
+  });
 }
 
 // Import-side-effect guard (CHECK 2 follow-up, docs/audits/2026-05-22-upstream-

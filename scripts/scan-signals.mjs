@@ -59,6 +59,7 @@ const QUERY_DELAY_MS = 300;
 // (config/source-classification.json). The old scan-signals.mjs copy was a 12-entry
 // subset, missing the post-2026-05 additions — importing closes that drift.
 import { EXCLUDE_DOMAINS } from "./lib/source-classification.mjs";
+import { createProgress } from "./lib/progress.mjs";
 
 // Crypto/web3 keywords — skip unless big raise
 const CRYPTO_KEYWORDS = [
@@ -870,16 +871,26 @@ function appendToPipeline(highConviction) {
 // ---------------------------------------------------------------------------
 
 async function main() {
+  // Progress emitter (Step 8 — emits JSONL on stdout when --progress-json
+  // is set, no-op otherwise). When enabled, console.log is rerouted to
+  // stderr so stdout stays pure JSONL for the API route's parser.
+  const progress = createProgress({ kind: "scan-signals" });
+  progress.start();
+
   console.log(`\n=== Signal Scan — ${today()} ===\n`);
 
   const signalSeen = loadSignalSeen();
   const trackedCompanies = loadTrackedCompanies();
 
   // Layer 1: Funding discovery
+  progress.phase("discover-funded", "started");
   const { candidates, queryCount: l1Queries } = await discoverFundedCompanies(
     signalSeen,
     trackedCompanies
   );
+  progress.phase("discover-funded", "finished", {
+    meta: { candidates: candidates.size, queries: l1Queries },
+  });
 
   if (candidates.size === 0) {
     console.log("No new candidates found. Nothing to check.");
@@ -893,15 +904,31 @@ async function main() {
     if (!existsSync(REPORTS_DIR)) mkdirSync(REPORTS_DIR, { recursive: true });
     writeFileSync(join(REPORTS_DIR, `signal-scan-${today()}.md`), md);
     console.log(`  Report saved: reports/signal-scan-${today()}.md\n`);
+    progress.done({
+      ok: true,
+      summary: "No new candidates found.",
+      meta: { exa_queries: l1Queries, candidates: 0 },
+    });
     return;
   }
 
   // Layer 2: Absence check + conviction signals (combined)
+  progress.phase("check-signals", "started", { meta: { candidates: candidates.size } });
   const { highConviction, monitor, alreadyPosting, queryCount: l2Queries } =
     await checkSignals(candidates, signalSeen);
+  progress.phase("check-signals", "finished", {
+    meta: {
+      high_conviction: highConviction.length,
+      monitor: monitor.length,
+      already_posting: alreadyPosting.length,
+      queries: l2Queries,
+    },
+  });
 
   // Layer 3: Outreach enrichment for high conviction targets
+  progress.phase("enrich-outreach", "started", { meta: { targets: highConviction.length } });
   const l3Queries = await enrichOutreachTargets(highConviction);
+  progress.phase("enrich-outreach", "finished", { meta: { queries: l3Queries } });
 
   // Save dedup state
   saveSignalSeen(signalSeen);
@@ -941,6 +968,21 @@ async function main() {
   } else {
     console.log(`\n  No high conviction targets this week. Check the report for monitor list.\n`);
   }
+
+  progress.done({
+    ok: true,
+    summary:
+      `Signal scan: ${highConviction.length} high-conviction, ${monitor.length} monitor, ` +
+      `${alreadyPosting.length} already posting (${candidates.size} candidates, ${totalQueries} Exa queries).`,
+    meta: {
+      high_conviction: highConviction.length,
+      monitor: monitor.length,
+      already_posting: alreadyPosting.length,
+      candidates: candidates.size,
+      exa_queries: totalQueries,
+      report_path: reportPath,
+    },
+  });
 }
 
 main().catch((err) => {

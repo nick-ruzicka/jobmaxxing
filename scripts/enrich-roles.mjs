@@ -50,6 +50,7 @@ import { classifyArchetype } from "./lib/archetype-classifier.mjs";
 import { emitEvent as emitCareerOpsEvent } from "./lib/event-writer.mjs";
 import { adjustScore } from "./lib/scoring-layer.mjs";
 import { assessJdQuality } from "./lib/jd-quality-filter.mjs";
+import { createProgress } from "./lib/progress.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -725,6 +726,14 @@ async function main() {
   const args = parseArgs();
   if (args.backfillComp) return backfillComp(args);
 
+  // Progress emitter (Step 8 — emits JSONL on stdout when --progress-json
+  // is set, no-op otherwise). When enabled, BOTH console.log and
+  // process.stdout.write are rerouted to stderr — this script's tight loop
+  // uses process.stdout.write to print "[N/total] title…" without a
+  // newline, which would otherwise corrupt the JSONL stream.
+  const progress = createProgress({ kind: "enrich-roles" });
+  progress.start({ meta: { backfill_comp: false } });
+
   console.log(`\n=== Role Enrichment — ${new Date().toISOString().slice(0, 10)} ===\n`);
 
   const seenUrls = loadJson(SEEN_PATH, {});
@@ -735,6 +744,8 @@ async function main() {
     console.error("No profile found at modes/_profile.md");
     process.exit(1);
   }
+
+  progress.phase("filter", "started");
 
   // Find URLs that need enrichment: new ones + previously failed API errors (not no_jd)
   const SKIP_DOMAINS = ["substack.com", "medium.com", "bvp.com", "twitter.com", "youtube.com", "x.com"];
@@ -782,13 +793,36 @@ async function main() {
   }
   console.log(`  To enrich: ${toEnrich.length}\n`);
 
+  progress.phase("filter", "finished", {
+    meta: {
+      seen_total: Object.keys(seenUrls).length,
+      already_enriched: Object.keys(enrichments).length,
+      to_enrich: toEnrich.length,
+      quarantined_skipped: quarantinedSkipped,
+      excluded_skipped: excludedSkipped,
+    },
+  });
+
   if (toEnrich.length === 0) {
     console.log("  Nothing new to enrich.\n");
+    progress.done({
+      ok: true,
+      summary: "Nothing new to enrich.",
+      meta: {
+        total_enrichments: Object.keys(enrichments).length,
+        seen_total: Object.keys(seenUrls).length,
+      },
+    });
     return;
   }
 
+  progress.phase("enrich", "started", { meta: { total: toEnrich.length } });
   let enriched = 0;
   let failed = 0;
+  // Loop-iteration counter independent of enriched/failed — jd-rejected and
+  // jd-quality-skipped paths don't bump either, so the visual progress would
+  // freeze without this. Used for the per-role tick.
+  let processed = 0;
 
   // Task A — BuiltIn → ATS auto-promotion at enrichment time.
   //
@@ -813,6 +847,12 @@ async function main() {
 
   for (const { url, meta } of toEnrich) {
     const shortTitle = (meta.title || "").slice(0, 50);
+    processed++;
+    // Per-role progress event. The progress widget renders this as the
+    // current step ("Enriching 42 of 763 — Forward Deployed Engineer…").
+    // Cheap to emit on every iteration — the Claude call dwarfs the
+    // serialization cost.
+    progress.tick(processed, toEnrich.length, shortTitle);
     process.stdout.write(`  [${enriched + failed + 1}/${toEnrich.length}] ${shortTitle}...`);
 
     // Extract company name from title for Tier 2/3 lookups
@@ -1021,6 +1061,25 @@ async function main() {
     console.log(`  WARNING: hit per-run auto-promotion cap (${PROMOTION_CAP_PER_RUN}); further enrichment-time candidates were skipped.`);
   }
   console.log("");
+
+  progress.phase("enrich", "finished", {
+    meta: { enriched, failed, promoted: enrichTimePromotedCount },
+  });
+  progress.done({
+    ok: true,
+    summary:
+      `Enriched ${enriched} role${enriched === 1 ? "" : "s"}, ${failed} failed ` +
+      `(${Object.keys(enrichments).length} total enrichments).` +
+      (enrichTimePromotedCount > 0 ? ` Auto-promoted ${enrichTimePromotedCount} companies.` : ""),
+    meta: {
+      enriched,
+      failed,
+      processed,
+      total_enrichments: Object.keys(enrichments).length,
+      promoted: enrichTimePromotedCount,
+      hit_promotion_cap: promotionRunState.capped,
+    },
+  });
 }
 
 main()

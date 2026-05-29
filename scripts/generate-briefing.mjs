@@ -18,6 +18,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { getCompFloorUsd, formatCompFloorString } from "./lib/comp-floor.mjs";
 import { defaultGoalFallback } from "./lib/default-goal.mjs";
+import { createProgress } from "./lib/progress.mjs";
 import {
   BRIEFING_APPLY_THRESHOLD,
   BRIEFING_MISSED_THRESHOLD,
@@ -404,9 +405,19 @@ async function main() {
     return mod.main();
   }
 
+  // Progress emitter (Step 8 — emits JSONL on stdout when --progress-json
+  // is set, no-op otherwise). When enabled, console.log is rerouted to
+  // stderr so stdout stays pure JSONL for the API route's parser. The
+  // existing `console.log(JSON.stringify(briefing))` at the bottom becomes
+  // a stderr write in that mode — harmless because the route re-reads the
+  // file (or, in Step 8, relies on the structured `done` event).
+  const progress = createProgress({ kind: "regenerate-briefing" });
+  progress.start({ meta: { kind: "daily" } });
+
   const date = todayDateString();
   console.error(`[briefing] generating for ${date}`);
 
+  progress.phase("load-inputs", "started");
   const enrichments = loadEnrichments();
   const seenUrls = loadSeenUrls();
   const applications = loadApplications();
@@ -414,7 +425,11 @@ async function main() {
 
   const roles = buildRoles(seenUrls, enrichments);
   const appliedSet = buildAppliedSet(applications);
+  progress.phase("load-inputs", "finished", {
+    meta: { roles: roles.length, applications: applications.length },
+  });
 
+  progress.phase("build-candidates", "started");
   const ctx = {
     date,
     goals: extractGoals(profile),
@@ -424,6 +439,15 @@ async function main() {
     verifyLocationCandidates: verifyLocationCandidates(roles, 5).map(compactRole),
     recalibrateCandidates: recalibrateCandidates(roles, 5).map(compactRole),
   };
+  progress.phase("build-candidates", "finished", {
+    meta: {
+      apply: ctx.applyCandidates.length,
+      stale: ctx.staleApps.length,
+      missed: ctx.missedCandidates.length,
+      verifyLoc: ctx.verifyLocationCandidates.length,
+      recalibrate: ctx.recalibrateCandidates.length,
+    },
+  });
 
   console.error(
     `[briefing] candidates — apply:${ctx.applyCandidates.length} stale:${ctx.staleApps.length} missed:${ctx.missedCandidates.length} verifyLoc:${ctx.verifyLocationCandidates.length} recalibrate:${ctx.recalibrateCandidates.length}`
@@ -433,12 +457,15 @@ async function main() {
 
   if (dryRun) {
     console.log(prompt);
+    progress.done({ ok: true, summary: "Dry run — prompt printed, nothing written." });
     return;
   }
 
   console.error(`[briefing] calling Claude (prompt ~${prompt.length} chars)…`);
+  progress.phase("claude-call", "started", { meta: { prompt_chars: prompt.length } });
   const responseText = await callClaude(prompt);
   const { items } = parseBriefingResponse(responseText);
+  progress.phase("claude-call", "finished", { meta: { items: items.length } });
 
   const briefing = {
     date,
@@ -463,8 +490,16 @@ async function main() {
   if (pruned > 0) console.error(`[briefing] pruned ${pruned} chat file(s) older than 30 days`);
 
   // Print the items list to stdout so the regenerate API route (Task 3) can
-  // capture it without re-reading the file.
+  // capture it without re-reading the file. In --progress-json mode this
+  // becomes a stderr write (console.log is rerouted); the route uses the
+  // structured `done` event below + re-reads the file as canonical source.
   console.log(JSON.stringify(briefing));
+
+  progress.done({
+    ok: true,
+    summary: `Regenerated briefing — ${items.length} items.`,
+    meta: { items: items.length, path: outPath, pruned_chats: pruned ?? 0 },
+  });
 }
 
 // Allow other scripts to import the helpers (e.g. tests) without auto-running.
