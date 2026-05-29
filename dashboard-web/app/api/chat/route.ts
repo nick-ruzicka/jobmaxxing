@@ -270,30 +270,30 @@ function loadWorktreeEnv() {
   }
 }
 
-interface ClaudeCallResult {
-  text: string;
+interface ClaudeUsage {
   /** Token usage from the response — used for the soft-cap warning + a
    *  debug payload returned to the client. Cached tokens are an order of
    *  magnitude cheaper, so we surface the hit count explicitly. */
-  usage?: {
-    input_tokens: number;
-    output_tokens: number;
-    cache_creation_input_tokens?: number;
-    cache_read_input_tokens?: number;
-  };
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
 }
 
-async function callClaude(args: {
+/** Open a streaming Claude call and return the fetch Response. Caller is
+ *  responsible for reading the SSE stream and translating events. Throws
+ *  on transport errors or non-200 status (with credit-exhausted detection
+ *  preserved from the previous non-streaming implementation). */
+async function openClaudeStream(args: {
   systemText: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
-}): Promise<ClaudeCallResult> {
+}): Promise<Response> {
   loadWorktreeEnv();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
   // Structured system block with cache_control: ephemeral on the (single)
   // text block. Anthropic's prompt cache hits this prefix for ~5 minutes,
-  // making subsequent turns within a session ~10× cheaper at scale (CV +
-  // pipeline snapshot + briefing + user-context = the bulk of the prompt).
+  // making subsequent turns within a session ~10× cheaper at scale.
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -304,6 +304,7 @@ async function callClaude(args: {
     body: JSON.stringify({
       model: "claude-opus-4-7",
       max_tokens: 1024,
+      stream: true,
       system: [
         {
           type: "text",
@@ -324,10 +325,54 @@ async function callClaude(args: {
     }
     throw new Error(`Anthropic API ${res.status}: ${body.slice(0, 300)}`);
   }
-  const json = await res.json();
-  const text = json.content?.[0]?.text;
-  if (!text) throw new Error("Anthropic response missing content text");
-  return { text, usage: json.usage };
+  return res;
+}
+
+/** Parse Anthropic's SSE stream into normalized events. Anthropic emits
+ *  message_start / content_block_delta (the text chunks) / message_delta
+ *  (final usage) / message_stop — we squash to two event types the client
+ *  cares about: { type: "delta", text } for incremental tokens and
+ *  { type: "usage", usage } for the final token count. */
+async function* parseAnthropicSSE(
+  res: Response,
+): AsyncGenerator<{ type: "delta"; text: string } | { type: "usage"; usage: ClaudeUsage }> {
+  if (!res.body) throw new Error("Anthropic stream missing body");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSE events are separated by \n\n.
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const ev of events) {
+      const dataLine = ev.split("\n").find((l) => l.startsWith("data: "));
+      if (!dataLine) continue;
+      let data: unknown;
+      try {
+        data = JSON.parse(dataLine.slice(6));
+      } catch {
+        continue;
+      }
+      const obj = data as Record<string, unknown>;
+      if (obj.type === "content_block_delta") {
+        const delta = obj.delta as { type?: string; text?: string } | undefined;
+        if (delta?.type === "text_delta" && typeof delta.text === "string") {
+          yield { type: "delta", text: delta.text };
+        }
+      } else if (obj.type === "message_start") {
+        const msg = obj.message as { usage?: ClaudeUsage } | undefined;
+        if (msg?.usage) yield { type: "usage", usage: msg.usage };
+      } else if (obj.type === "message_delta") {
+        // message_delta carries the final output_tokens count when streaming.
+        // We don't yield here because the message_start usage already had
+        // input + cache counts; the dashboard's debug surface doesn't need
+        // a separate output-token update mid-stream.
+      }
+    }
+  }
 }
 
 // Rough char→token estimate. Anthropic's tokenizer averages ~4 chars per
@@ -398,15 +443,19 @@ export async function POST(request: Request) {
     );
   }
 
-  let reply: string;
-  let usage: ClaudeCallResult["usage"];
+  // Append the user message to history NOW so the persisted file ends up
+  // with the full transcript even if streaming fails mid-flight. The
+  // assistant message is appended after the stream completes (or skipped
+  // entirely on error — caller's retry will replay cleanly).
+  const userTs = new Date().toISOString();
+  file.messages.push({ role: "user", content: message, item_context: itemContext, ts: userTs });
+
+  let upstream: Response;
   try {
-    const result = await callClaude({ systemText, messages });
-    reply = result.text;
-    usage = result.usage;
+    upstream = await openClaudeStream({ systemText, messages });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "unknown";
-    if (message.includes("CREDITS_EXHAUSTED")) {
+    const msg = err instanceof Error ? err.message : "unknown";
+    if (msg.includes("CREDITS_EXHAUSTED")) {
       return Response.json(
         {
           error: "credits_exhausted",
@@ -417,31 +466,67 @@ export async function POST(request: Request) {
         { status: 402 },
       );
     }
-    return Response.json({ error: "claude_failed", message }, { status: 500 });
+    return Response.json({ error: "claude_failed", message: msg }, { status: 500 });
   }
 
-  const now = new Date().toISOString();
-  file.messages.push({ role: "user", content: message, item_context: itemContext, ts: now });
-  file.messages.push({ role: "assistant", content: reply, ts: now });
+  // Forward Anthropic's SSE as our own normalized event stream. Three event
+  // types the client handles:
+  //   { type: "delta", text }    — append to the in-progress assistant message
+  //   { type: "done", history, debug } — final state; client replaces local history
+  //   { type: "error", message } — bubbles up; client shows toast + rolls back
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      function send(payload: unknown) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+      }
+      let assistantText = "";
+      let usage: ClaudeUsage | undefined;
+      try {
+        for await (const ev of parseAnthropicSSE(upstream)) {
+          if (ev.type === "delta") {
+            assistantText += ev.text;
+            send({ type: "delta", text: ev.text });
+          } else if (ev.type === "usage") {
+            usage = ev.usage;
+          }
+        }
+        // Persist + send final history.
+        const assistantTs = new Date().toISOString();
+        file.messages.push({ role: "assistant", content: assistantText, ts: assistantTs });
+        try {
+          writeChatFile(file);
+        } catch (persistErr) {
+          console.error("[chat] persistence failed:", persistErr);
+          send({
+            type: "done",
+            history: file.messages,
+            persistence_warning: true,
+            debug: usage ? { tokens_estimate: totalEst, usage } : { tokens_estimate: totalEst },
+          });
+          controller.close();
+          return;
+        }
+        send({
+          type: "done",
+          history: file.messages,
+          debug: usage ? { tokens_estimate: totalEst, usage } : { tokens_estimate: totalEst },
+        });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "stream failed";
+        send({ type: "error", message: errMsg });
+      } finally {
+        controller.close();
+      }
+    },
+  });
 
-  try {
-    writeChatFile(file);
-  } catch (err) {
-    // Persistence failed but Claude succeeded — return the reply anyway so
-    // the user isn't blocked. Log to server stderr for diagnostics.
-    console.error("[chat] persistence failed:", err);
-    return Response.json({
-      reply,
-      history: file.messages,
-      persistence_warning: true,
-      debug: usage ? { tokens_estimate: totalEst, usage } : { tokens_estimate: totalEst },
-    });
-  }
-
-  return Response.json({
-    reply,
-    history: file.messages,
-    debug: usage ? { tokens_estimate: totalEst, usage } : { tokens_estimate: totalEst },
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
   });
 }
 

@@ -108,13 +108,19 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
     setInput("");
     setThinking(true);
 
-    // Optimistic append of the user message so the UI feels instant.
+    // Optimistic append of the user message + an empty assistant placeholder
+    // that the streaming loop fills in token-by-token.
     const itemContext = scopedItemPending.current?.context;
     const ts = new Date().toISOString();
     const optimisticUser: ChatMessage = { role: "user", content: message, item_context: itemContext, ts };
-    setHistory((prev) => [...prev, optimisticUser]);
+    const placeholder: ChatMessage = { role: "assistant", content: "", ts };
+    setHistory((prev) => [...prev, optimisticUser, placeholder]);
     // Item context has now been "attached" to a message — don't send again.
     scopedItemPending.current = null;
+
+    function rollback() {
+      setHistory((prev) => prev.filter((m) => m !== optimisticUser && m !== placeholder));
+    }
 
     try {
       const res = await fetch("/api/chat", {
@@ -122,17 +128,63 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date, message, item_context: itemContext }),
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
+
+      // Non-OK responses + non-streaming JSON errors (402 credits exhausted)
+      // come back as JSON, not SSE. Detect via Content-Type.
+      const contentType = res.headers.get("Content-Type") ?? "";
+      if (!res.ok || !contentType.includes("text/event-stream")) {
+        const body = await res.json().catch(() => ({}));
         throw new Error(body.message ?? `POST /api/chat returned ${res.status}`);
       }
-      // The server returns the authoritative history (its persistence is the
-      // source of truth) — replace the optimistic version with that.
-      setHistory(Array.isArray(body.history) ? body.history : []);
+      if (!res.body) throw new Error("Streaming response had no body");
+
+      // Stream loop: parse SSE events, append deltas to the placeholder
+      // message in place, swap to the authoritative server history on done.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamDone = false;
+      while (!streamDone) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const ev of events) {
+          const dataLine = ev.split("\n").find((l) => l.startsWith("data: "));
+          if (!dataLine) continue;
+          let payload: unknown;
+          try {
+            payload = JSON.parse(dataLine.slice(6));
+          } catch {
+            continue;
+          }
+          const obj = payload as Record<string, unknown>;
+          if (obj.type === "delta" && typeof obj.text === "string") {
+            const chunk = obj.text;
+            setHistory((prev) => {
+              // Append to the LAST message (the placeholder). Don't touch
+              // anything else.
+              const next = prev.slice();
+              const last = next[next.length - 1];
+              if (last && last.role === "assistant") {
+                next[next.length - 1] = { ...last, content: last.content + chunk };
+              }
+              return next;
+            });
+          } else if (obj.type === "done") {
+            if (Array.isArray(obj.history)) {
+              setHistory(obj.history as ChatMessage[]);
+            }
+            streamDone = true;
+          } else if (obj.type === "error") {
+            throw new Error(typeof obj.message === "string" ? obj.message : "stream failed");
+          }
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send failed");
-      // Roll back the optimistic user message on failure so retry stays clean.
-      setHistory((prev) => prev.filter((m) => m !== optimisticUser));
+      rollback();
     } finally {
       setThinking(false);
     }
@@ -222,7 +274,16 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
                   </div>
                 </li>
               ))}
-              {thinking && (
+              {/* "Thinking…" only shows BEFORE the first streaming token
+                  arrives. Once the assistant placeholder has content, the
+                  partial response is visible in the message list and the
+                  spinner duplicates the signal. The placeholder is the last
+                  message and has role="assistant" + empty content while
+                  pending. */}
+              {thinking
+                && history[history.length - 1]?.role === "assistant"
+                && history[history.length - 1]?.content === ""
+                && (
                 <li className="flex justify-start">
                   <div className="inline-flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-[13px] text-text-tertiary">
                     <Loader2 size={13} className="animate-spin" aria-hidden />
