@@ -118,22 +118,37 @@ archetype_fit:
     qualified: true
     confidence_floor: 0.7
 
-# ── Agent / assistant configuration (productization v3 placeholder) ─────────
-# The AI feature audit (docs/audits/2026-05-28-ai-feature-audit.md §5b) flagged
-# these as the productization fields needed once the agent moves to a global
-# surface with full context. Currently READ as documentation only; the chat
-# route's prompt is still hard-coded to a single voice. When agent step 9 of
-# the AI migration lands, these fields become live.
+# ── Agent / assistant configuration ─────────────────────────────────────────
+# Per-user agent settings read at chat-request time by
+# dashboard-web/app/api/chat/route.ts.
 #
-# Once live:
-#   - voice       — selects the system-prompt persona ("direct" | "warm" |
-#                    "analytical" | "custom: <prompt>")
-#   - redact      — list of profile fields the agent should NOT send to the
-#                    LLM (useful for sensitive fields like address, phone)
-#   - tools       — per-tool authorization. Each tool ID maps to a policy.
-#                    Policies: "auto" (run without asking) | "confirm" (require
-#                    a ✓/✗ UI before running) | "deny" (the agent can't call
-#                    this tool at all). Default for missing tools is "confirm".
+#   voice   — LIVE. Selects the system-prompt persona for the chat agent.
+#             "direct"      → concrete, candid, pushes back when the user's
+#                              read doesn't match the data (default; Nick's
+#                              prior hard-coded voice).
+#             "warm"        → encouraging, soft-pedals critique with empathy.
+#             "analytical"  → data-first; leads with scores, counts, ranges.
+#             "custom:<text>" → escape hatch — uses <text> verbatim as the
+#                              persona instruction.
+#
+#   redact  — LIVE. List of fields to strip from the CV before sending it
+#             to the LLM. Each entry maps to one or more line-level regex
+#             strips that replace matched substrings with [REDACTED].
+#             Supported entries: email, phone, address, zip, linkedin,
+#             portfolio_url, salary_history. Unknown entries are silently
+#             ignored (forward-compat).
+#
+#   tools   — NOT YET LIVE. Per-tool authorization. Documented now so the
+#             schema is stable for AI migration Step 7 (mutating tools).
+#             Currently ignored; Step 6 read tools run "auto", Step 7
+#             mutating tools will land with confirmation UX once §5d's
+#             write-path map (see docs/audits/2026-05-29-write-path-map.md)
+#             is implemented.
+#             Policies (forward-looking):
+#               "auto"    → run without asking
+#               "confirm" → require a ✓/✗ UI before running
+#               "deny"    → the agent can't call this tool at all
+#             Default for missing tools is "confirm".
 agent:
   voice: direct                         # direct | warm | analytical | custom:<prompt>
   redact: []                            # e.g. [address, phone, salary_history]

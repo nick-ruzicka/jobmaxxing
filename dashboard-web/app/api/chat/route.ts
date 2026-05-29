@@ -38,6 +38,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
+import { load as yamlLoad } from "js-yaml";
 import { getCompFloorUsd, formatCompFloorString } from "@/lib/comp-floor";
 import { getRoles } from "@/lib/data";
 import { defaultGoalFallback } from "../../../../scripts/lib/default-goal.mjs";
@@ -137,6 +138,95 @@ function readUserContextYaml(): string | null {
   }
 }
 
+// ─── Agent configuration (productization, audit §5b) ────────────────────────
+// Per-user agent settings from config/user-context.yaml `agent:` block.
+// Shipped as documented placeholders in PR #50; now wired through.
+
+type AgentVoice = "direct" | "warm" | "analytical" | string;
+
+interface AgentConfig {
+  voice: AgentVoice;
+  redact: string[];
+}
+
+const DEFAULT_AGENT_CONFIG: AgentConfig = {
+  voice: "direct",
+  redact: [],
+};
+
+function loadAgentConfig(): AgentConfig {
+  const raw = readUserContextYaml();
+  if (!raw) return DEFAULT_AGENT_CONFIG;
+  let parsed: unknown;
+  try {
+    parsed = yamlLoad(raw);
+  } catch {
+    return DEFAULT_AGENT_CONFIG;
+  }
+  if (!parsed || typeof parsed !== "object") return DEFAULT_AGENT_CONFIG;
+  const agent = (parsed as Record<string, unknown>).agent;
+  if (!agent || typeof agent !== "object") return DEFAULT_AGENT_CONFIG;
+  const a = agent as Record<string, unknown>;
+  const voice = typeof a.voice === "string" ? a.voice : DEFAULT_AGENT_CONFIG.voice;
+  const redact = Array.isArray(a.redact)
+    ? (a.redact as unknown[]).filter((x): x is string => typeof x === "string")
+    : DEFAULT_AGENT_CONFIG.redact;
+  return { voice, redact };
+}
+
+/** Voice-specific opening instructions. The `custom:<text>` form bypasses
+ *  the curated voices entirely and uses the trailing text verbatim — useful
+ *  for users who want a specific persona that doesn't fit the three presets. */
+function voiceInstructions(voice: AgentVoice): string {
+  if (voice.startsWith("custom:")) {
+    return voice.slice("custom:".length).trim();
+  }
+  switch (voice) {
+    case "warm":
+      return "You are the user's job-search agent, having a conversation about their pipeline. You have full context on their CV, preferences, the current pipeline, recent applications, and today's briefing. Be encouraging and supportive — acknowledge what's working before critiquing what isn't. Soften pushback with empathy. Name companies and score numbers when relevant. Keep responses warm and concrete.";
+    case "analytical":
+      return "You are the user's job-search agent, having a conversation about their pipeline. You have full context on their CV, preferences, the current pipeline, recent applications, and today's briefing. Lead with numbers — scores, counts, comp ranges, conversion rates. Cite exact data over narrative. Quantify trade-offs. Push back with data, not opinion.";
+    case "direct":
+    default:
+      return "You are the user's job-search agent, having a conversation about their pipeline. You have full context on their CV, preferences, the current pipeline, recent applications, and today's briefing. Be concrete, candid, and specific — name companies, score numbers, surface trade-offs. Push back when the user's read of a role doesn't match what the data says. Don't pad answers.";
+  }
+}
+
+// ─── Redaction (productization, audit §5b) ──────────────────────────────────
+// Strip sensitive lines from the CV before sending it to the LLM. Each entry
+// in agent.redact triggers one or more line-level regex strips. Matched
+// substrings are replaced with [REDACTED] in place, so the line structure
+// is preserved (the agent knows fields were redacted, not that lines vanished).
+// Lightweight by design — productization v3 should add per-field config and
+// a richer field-aware redactor.
+
+const REDACTION_PATTERNS: Record<string, RegExp[]> = {
+  email: [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g],
+  phone: [/\+?\d{1,3}[ \-]?\(?\d{3}\)?[ \-]?\d{3,4}[ \-]?\d{4}/g],
+  // US street address — number + street word (Rd / St / Ave / etc.) + likely city/state.
+  address: [/\b\d{1,5}\s+[\w'\.\- ]{2,40}\s+(?:St|Ave|Rd|Blvd|Dr|Ln|Ct|Way|Pkwy)\b\.?/gi],
+  zip: [/\b\d{5}(?:-\d{4})?\b/g],
+  linkedin: [/\b(?:linkedin\.com\/in|linkedin\.com\/pub)\/[A-Za-z0-9\-_]+/gi],
+  portfolio_url: [/\bhttps?:\/\/[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(?:\/[^\s)]*)?/g],
+  // Free-form: when a user wants $-range salary history redacted, this catches
+  // standalone "$XXX,XXX" or "$XXXk" tokens. False-positive risk on JD-mentioned
+  // comp; documented as a known limit.
+  salary_history: [/\$\s?\d{1,3}(?:,\d{3})*(?:k|K|\s?[KM])?/g],
+};
+
+function redactCv(cv: string, redact: string[]): string {
+  if (redact.length === 0) return cv;
+  let out = cv;
+  for (const field of redact) {
+    const patterns = REDACTION_PATTERNS[field];
+    if (!patterns) continue; // unknown field → no-op (forward-compat)
+    for (const re of patterns) {
+      out = out.replace(re, "[REDACTED]");
+    }
+  }
+  return out;
+}
+
 /** Pulls the top N roles by score, returns as compact one-line summaries
  *  for the prompt. Excludes aggregator-sourced roles (they're noisier and
  *  bloat the prompt). Filters to score ≥ 4 (the dashboard's default cutoff).
@@ -187,8 +277,6 @@ function readRecentApplications(maxRows: number): string {
 // Split into a stable SYSTEM block (cached via cache_control: ephemeral) and
 // per-turn MESSAGES. Cache hits within ~5 minutes cut per-turn cost ~10×.
 
-const BASE_INSTRUCTIONS = `You are the user's job-search agent, having a conversation about their pipeline. You have full context on their CV, preferences (user-context.yaml), the current pipeline (top 50 roles by score), recent applications, and today's briefing. Be concrete, candid, and specific — name companies, score numbers, surface trade-offs. Push back when the user's read of a role doesn't match what the data says. Don't pad answers.`;
-
 const RESPONSE_GUIDELINES = `Respond directly in plain prose. No lists unless the user asks for one. Cite the role/company by name when relevant. Keep responses under ~300 words unless the user explicitly asks for more detail. If you cite a specific role, include its URL so the user can click through.`;
 
 function buildSystemBlock(args: {
@@ -198,8 +286,9 @@ function buildSystemBlock(args: {
   topRoles: string;
   recentApps: string;
   briefing: Briefing | null;
+  agent: AgentConfig;
 }): string {
-  const { goals, cv, userContextYaml, topRoles, recentApps, briefing } = args;
+  const { goals, cv, userContextYaml, topRoles, recentApps, briefing, agent } = args;
 
   const briefingSummary = briefing
     ? briefing.items
@@ -207,10 +296,18 @@ function buildSystemBlock(args: {
         .join("\n")
     : "(no briefing generated yet today)";
 
+  // Voice-specific opening — replaces the previous hard-coded BASE_INSTRUCTIONS.
+  // Defaults to "direct" (Nick's voice / the prior wording).
+  const baseInstructions = voiceInstructions(agent.voice);
+
+  // Apply redaction to the CV before inclusion. agent.redact is empty by
+  // default — Nick's prior behavior unchanged.
+  const cvSection = cv != null ? redactCv(cv, agent.redact) : null;
+
   const sections: string[] = [
-    BASE_INSTRUCTIONS,
+    baseInstructions,
     `\n\n## User goals\n\n${goals}`,
-    `\n\n## CV (cv.md)\n\n${cv ?? "(no cv.md file — user hasn't filled it in yet)"}`,
+    `\n\n## CV (cv.md${agent.redact.length > 0 ? `; redacted fields: ${agent.redact.join(", ")}` : ""})\n\n${cvSection ?? "(no cv.md file — user hasn't filled it in yet)"}`,
     `\n\n## User preferences (user-context.yaml)\n\n${userContextYaml ?? "(no user-context.yaml — defaults apply)"}\n`,
     `\n\n## Pipeline snapshot — top 50 roles by score\n\n${topRoles}`,
     `\n\n## Recent applications (most recent first)\n\n${recentApps}`,
@@ -630,6 +727,7 @@ export async function POST(request: Request) {
   const topRoles = readTopRoles(50);
   const recentApps = readRecentApplications(30);
 
+  const agent = loadAgentConfig();
   const systemText = buildSystemBlock({
     goals,
     cv,
@@ -637,6 +735,7 @@ export async function POST(request: Request) {
     topRoles,
     recentApps,
     briefing,
+    agent,
   });
   const messages = buildMessages({
     history: file.messages,
