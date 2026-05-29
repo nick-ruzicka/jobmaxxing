@@ -1,41 +1,18 @@
-import {
-  getRoles,
-  getSignals,
-  getConfig,
-  getLastScanDate,
-  getTodaysBriefing,
-} from "@/lib/data";
-import { computePipelineStats } from "@/lib/stats";
-import { TodayPage } from "./today-client";
+import { redirect } from "next/navigation";
 
+/**
+ * /today is deprecated as a separate destination per the AI feature audit
+ * Step 2 — the briefing now lives as a panel on /pipeline. This route is
+ * kept as a redirect so existing bookmarks, deep links from older briefing
+ * emails, and sidebar nav from past versions keep working without 404ing.
+ *
+ * The today-client.tsx file is preserved in the repo for now in case the
+ * briefing-first surface comes back as a separate route later (e.g. on
+ * mobile where the dense pipeline table doesn't fit). It is not imported
+ * by anything after this redirect.
+ */
 export const dynamic = "force-dynamic";
 
 export default function Page() {
-  // /today is briefing-first, not table-first. We need roles for the stat
-  // strip but do NOT call getStats() — that redundantly re-parses all data
-  // files. Instead derive hasWarmLeads from signals and lastScanDate from the
-  // cheap getLastScanDate() helper.
-  const roles = getRoles({ includeAggregator: true });
-  const signals = getSignals();
-  const config = getConfig();
-  const briefing = getTodaysBriefing();
-
-  const hasWarmLeads = signals.some((s) => s.result === "high");
-  const lastScanDate = getLastScanDate();
-
-  const stats = computePipelineStats(roles, { hasWarmLeads, lastScanDate });
-
-  const highConviction = signals.filter((s) => s.result === "high").length;
-  const companyCount = config.ashby.length + config.greenhouse.length;
-
-  return (
-    <TodayPage
-      briefing={briefing}
-      stats={stats}
-      highConviction={highConviction}
-      companyCount={companyCount}
-      signalCount={signals.length}
-      hasWarmLeads={hasWarmLeads}
-    />
-  );
+  redirect("/pipeline");
 }

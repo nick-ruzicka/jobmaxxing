@@ -2,16 +2,18 @@
 
 import { useState, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { RefreshCw, Radio, ArrowLeft } from "lucide-react";
+import { RefreshCw, Radio, ArrowLeft, MessageCircle } from "lucide-react";
 import Link from "next/link";
-import type { Role, RoleStatus, ScanStats } from "@/lib/types";
+import type { Briefing, BriefingItem, Role, RoleStatus, ScanStats } from "@/lib/types";
 import { computePipelineStats } from "@/lib/stats";
 import { getOpenRolesForCompany } from "@/lib/role-matching";
 import { Shell } from "@/components/Shell";
 import { StatStrip } from "@/components/StatStrip";
 import { PipelineTable } from "@/components/PipelineTable";
+import { MorningBriefing } from "@/components/MorningBriefing";
 import { PageHeader, Button, Toast, type ToastKind } from "@/components/ui";
 import { useScan } from "@/components/ScanContext";
+import { useChat } from "@/components/ChatContext";
 
 // Toast lifecycle, in ms. Fade-out begins LIFETIME_MS - FADE_MS so the
 // 300ms opacity transition completes exactly as the node unmounts.
@@ -26,11 +28,17 @@ interface PipelinePageProps {
   highConviction: number;
   companyCount: number;
   signalCount: number;
+  /** Today's briefing. Null when the generator hasn't run yet; the briefing
+   *  card is hidden in that case. Rendered as a top panel above the table
+   *  per the AI feature audit Step 2. */
+  briefing: Briefing | null;
 }
 
-/** Lives inside <Shell> so it can read the scan controls from context. */
+/** Lives inside <Shell> so it can read the scan controls from context. The
+ *  Ask Agent button opens the global chat panel (no scoped item). */
 function PipelineHeader({ roleCount, lastScanDate }: { roleCount: number; lastScanDate: string }) {
   const { runScan, scanRunning } = useScan();
+  const { openChat } = useChat();
   return (
     <PageHeader
       title="Pipeline"
@@ -44,6 +52,14 @@ function PipelineHeader({ roleCount, lastScanDate }: { roleCount: number; lastSc
               Last scan: {lastScanDate}
             </span>
           )}
+          <Button
+            variant="secondary"
+            onClick={() => openChat(null)}
+            title="Open the agent chat panel (⌘K)"
+          >
+            <MessageCircle size={14} />
+            Ask agent
+          </Button>
           <Button
             variant="secondary"
             onClick={() => runScan("scan")}
@@ -74,12 +90,22 @@ export function PipelinePage({
   highConviction,
   companyCount,
   signalCount,
+  briefing: initialBriefing,
 }: PipelinePageProps) {
   const searchParams = useSearchParams();
   const companyFilter = searchParams.get("company") || "";
   const fromSignals = searchParams.get("from") === "signals";
 
   const [roles, setRoles] = useState(initialRoles);
+
+  // Global chat: open + scope a briefing item from anywhere. Lives in
+  // ChatContext (root layout) so it follows the user across routes.
+  const { openChat } = useChat();
+
+  // Briefing state — kept locally so the Regenerate handler can swap in
+  // a fresh briefing without a hard reload. Initialized from server props.
+  const [briefing, setBriefing] = useState<Briefing | null>(initialBriefing);
+  const [refreshing, setRefreshing] = useState(false);
 
   // When the URL filters to a single company, narrow `roles` through the
   // canonical predicate (lib/role-matching.ts). Without this, a signal
@@ -128,6 +154,45 @@ export function PipelinePage({
     window.setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, TOAST_LIFETIME_MS);
+  }
+
+  // Regenerate today's briefing — rate-limited server-side to 1 / 5 min via
+  // data/briefings/last-regen.json. Ported from today-client.tsx when the
+  // briefing moved to /pipeline per AI feature audit Step 2.
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/briefing/regenerate", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 429) {
+        pushToast("error", body.message ?? "Hold on — regen is rate-limited (1 / 5 min).");
+        return;
+      }
+      if (res.status === 402 && body.error === "credits_exhausted") {
+        pushToast("error", body.message ?? "Anthropic credits exhausted. Top up to regenerate.");
+        return;
+      }
+      if (!res.ok) {
+        pushToast("error", body.message ?? "Couldn't regenerate — check the server logs.");
+        return;
+      }
+      setBriefing(body.briefing as Briefing);
+      pushToast(
+        "success",
+        `Regenerated · ${body.briefing.items.length} item${body.briefing.items.length === 1 ? "" : "s"}`,
+      );
+    } catch (err) {
+      pushToast("error", err instanceof Error ? err.message : "Regen failed");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  // Open the global chat panel scoped to a specific briefing item. Wired into
+  // MorningBriefing's onItemAsk prop.
+  function openChatForItem(item: BriefingItem) {
+    openChat(item);
   }
 
   async function handleStatusChange(url: string, status: RoleStatus) {
@@ -200,6 +265,20 @@ export function PipelinePage({
               Clear filter
             </Link>
           </div>
+        )}
+        {/* Briefing panel — rendered when a briefing exists for today. Shows
+            above the table per the AI feature audit Step 2 (briefing-in-context
+            rather than briefing-as-destination). Hidden when companyFilter is
+            set, so the user landing on /pipeline?company=X focuses on the
+            filtered table rather than the unrelated daily briefing. */}
+        {briefing && !companyFilter && (
+          <MorningBriefing
+            items={briefing.items}
+            lastGenerated={new Date(briefing.generated_at)}
+            onRefresh={handleRefresh}
+            refreshing={refreshing}
+            onItemAsk={openChatForItem}
+          />
         )}
         <StatStrip stats={stats} />
         <PipelineTable
