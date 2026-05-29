@@ -18,8 +18,11 @@
  *   - An in-process listener on the child's `close` event updates the
  *     job record's `status` from `running` to `completed` / `failed`.
  *     This listener stays alive as long as the Next.js server process does;
- *     server-restart-during-scan is a known limitation (the child finishes
- *     but its record stays at status=running until something else heals it).
+ *     server-restart-during-scan is healed lazily on the next read via
+ *     pid-check in readJobRecord (the record's status flips to
+ *     "interrupted"). We deliberately don't mark these "completed" — the
+ *     child may have died mid-flight without writing its final `done`
+ *     event, and silently calling that a success would lie to the user.
  *
  * Job record schema (data/scans/<job_id>.json):
  *
@@ -27,16 +30,21 @@
  *     job_id: string,
  *     kind: "scan-jobs" | "scan-signals",
  *     chained: string[],            // additional scripts run after the main one
- *     status: "running" | "completed" | "failed",
+ *     status: "running" | "completed" | "failed" | "interrupted",
  *     started_at: ISO,
  *     ended_at?: ISO,
  *     pid?: number,
  *     log_path: string,             // data/scans/<job_id>.log
- *     // The last `done` event from the script — fills in once child closes.
+ *     // The last `done` event from the script — fills in once child closes
+ *     // OR (on self-heal) is extracted from the log file by tail-scan.
  *     done?: { ok: bool, summary: string, duration_ms: number, meta?: object },
  *     // Error context when status === "failed".
  *     exit_code?: number,
  *     stderr_tail?: string,
+ *     // Self-heal marker (set when readJobRecord flips a stale "running"
+ *     // record whose pid is no longer alive — typically a Next.js restart
+ *     // mid-scan). Only present when status === "interrupted".
+ *     healed_at?: string,
  *   }
  */
 
@@ -53,11 +61,13 @@ function projectRoot(): string {
 
 export type ScanKind = "scan-jobs" | "scan-signals";
 
+export type JobStatus = "running" | "completed" | "failed" | "interrupted";
+
 export interface JobRecord {
   job_id: string;
   kind: ScanKind;
   chained: string[];
-  status: "running" | "completed" | "failed";
+  status: JobStatus;
   started_at: string;
   ended_at?: string;
   pid?: number;
@@ -70,6 +80,9 @@ export interface JobRecord {
   };
   exit_code?: number;
   stderr_tail?: string;
+  /** ISO timestamp set when readJobRecord flips a stale "running" record
+   *  whose pid is dead. Only present when status === "interrupted". */
+  healed_at?: string;
 }
 
 function jobRecordPath(job_id: string): string {
@@ -85,8 +98,72 @@ function ensureScansDir(): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
-/** Read a job record by id, returning null if missing or unparseable. */
-export function readJobRecord(job_id: string): JobRecord | null {
+/** Probe whether a pid is still alive on this host. Uses `process.kill(pid, 0)`
+ *  which doesn't actually send a kill signal — it just checks the kernel's
+ *  process table:
+ *    - returns normally → pid exists (still ours or someone else's)
+ *    - ESRCH           → pid doesn't exist (the process we recorded is gone)
+ *    - EPERM           → pid exists but we don't have permission to signal it
+ *                         (still alive from our POV)
+ *
+ *  Pid-reuse is a theoretical false-positive (the kernel could have allocated
+ *  the same pid to an unrelated process after ours exited), but in practice
+ *  the wraparound on macOS/Linux is at PID_MAX (32768 / 4194304) and scans
+ *  run on the order of minutes — collision odds are negligible at the rate
+ *  one user's machine cycles pids. Documenting as a known limit; not worth
+ *  defending against here. */
+export function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EPERM") return true;
+    return false;
+  }
+}
+
+/** Walk the log file backwards looking for the last JSONL `done` event the
+ *  script emitted. Used both by kickoffScanJob's close handler AND by the
+ *  self-heal in readJobRecord — the script may have written its final
+ *  done event before the listener died, in which case we can recover the
+ *  structured summary even on an interrupted record. */
+function findLastDoneEventInLog(log_path: string): JobRecord["done"] | undefined {
+  if (!existsSync(log_path)) return undefined;
+  try {
+    const lines = readFileSync(log_path, "utf-8").split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line.startsWith("{")) continue;
+      try {
+        const ev = JSON.parse(line) as Record<string, unknown>;
+        if (ev.type === "done") {
+          return {
+            ok: ev.ok === true,
+            summary: typeof ev.summary === "string" ? ev.summary : "(no summary)",
+            duration_ms: typeof ev.duration_ms === "number" ? ev.duration_ms : undefined,
+            meta: (ev.meta as Record<string, unknown>) ?? undefined,
+          };
+        }
+      } catch {
+        // Skip non-JSON lines (human-readable rerouted output).
+      }
+    }
+  } catch {
+    // Log file missing or unreadable.
+  }
+  return undefined;
+}
+
+/** Read a record from disk without running self-heal. Used internally by
+ *  the in-process close handler in kickoffScanJob — that path already KNOWS
+ *  the child just exited (we're inside the on("close") callback) and is
+ *  about to write a terminal status. Routing it through self-heal would
+ *  race: the self-heal sees status=running + pid=dead and writes
+ *  status=interrupted + healed_at; the close handler then spreads that
+ *  record and overwrites status with "completed"/"failed" but healed_at
+ *  sticks around, lying about the resolution path. Bypass self-heal here. */
+function readJobRecordRaw(job_id: string): JobRecord | null {
   const path = jobRecordPath(job_id);
   if (!existsSync(path)) return null;
   try {
@@ -94,6 +171,36 @@ export function readJobRecord(job_id: string): JobRecord | null {
   } catch {
     return null;
   }
+}
+
+/** Read a job record by id, returning null if missing or unparseable. Lazily
+ *  self-heals stale "running" records: if the recorded pid is no longer
+ *  alive (typically because Next.js restarted and killed the in-process
+ *  close listener), the status flips to "interrupted" and we attempt to
+ *  recover the final `done` event from the log file.
+ *
+ *  We deliberately don't flip to "completed" — the child may have died
+ *  mid-flight before writing its done event. "interrupted" is the honest
+ *  state: we don't know if it finished. The caller (UI / agent) can read
+ *  the recovered `done` if present to make a better-than-nothing summary. */
+export function readJobRecord(job_id: string): JobRecord | null {
+  const record = readJobRecordRaw(job_id);
+  if (!record) return null;
+  if (record.status === "running" && typeof record.pid === "number") {
+    if (!isPidAlive(record.pid)) {
+      const recovered = findLastDoneEventInLog(record.log_path);
+      const healed: JobRecord = {
+        ...record,
+        status: "interrupted",
+        ended_at: record.ended_at ?? new Date().toISOString(),
+        healed_at: new Date().toISOString(),
+        ...(record.done ? {} : recovered ? { done: recovered } : {}),
+      };
+      writeJobRecord(healed);
+      return healed;
+    }
+  }
+  return record;
 }
 
 /** Write a job record atomically-enough. Same write-then-it's-there pattern
@@ -181,34 +288,9 @@ export function kickoffScanJob(opts: KickoffOptions): JobRecord {
     }
   };
 
-  // Parse JSONL out of the log periodically to keep the in-flight `done`
-  // event. For v1 we only need the final done — we extract it on close.
-  const findLastDoneEvent = (): JobRecord["done"] | undefined => {
-    try {
-      const lines = readFileSync(log_path, "utf-8").split("\n");
-      // Walk backwards to find the last `done` JSONL event.
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i].trim();
-        if (!line.startsWith("{")) continue;
-        try {
-          const ev = JSON.parse(line) as Record<string, unknown>;
-          if (ev.type === "done") {
-            return {
-              ok: ev.ok === true,
-              summary: typeof ev.summary === "string" ? ev.summary : "(no summary)",
-              duration_ms: typeof ev.duration_ms === "number" ? ev.duration_ms : undefined,
-              meta: (ev.meta as Record<string, unknown>) ?? undefined,
-            };
-          }
-        } catch {
-          // Skip non-JSON lines (human-readable rerouted output).
-        }
-      }
-    } catch {
-      // Log file missing — caller will fall back to "(no summary)".
-    }
-    return undefined;
-  };
+  // findLastDoneEventInLog is module-scoped (shared with readJobRecord's
+  // self-heal path) — bind log_path here for the close handler's calls.
+  const findLastDoneEvent = () => findLastDoneEventInLog(log_path);
 
   // Walk the chain. Each script in opts.chained is spawned only after the
   // previous one closes with exit code 0. Mid-chain failures stop the
@@ -218,7 +300,7 @@ export function kickoffScanJob(opts: KickoffOptions): JobRecord {
   const runNextOrFinalize = (currentExitCode: number) => {
     if (currentExitCode !== 0) {
       const record: JobRecord = {
-        ...readJobRecord(job_id)!,
+        ...readJobRecordRaw(job_id)!,
         status: "failed",
         ended_at: new Date().toISOString(),
         exit_code: currentExitCode,
@@ -236,7 +318,7 @@ export function kickoffScanJob(opts: KickoffOptions): JobRecord {
     if (chainIdx >= queuedChained.length) {
       // All scripts (primary + chain) finished OK.
       const record: JobRecord = {
-        ...readJobRecord(job_id)!,
+        ...readJobRecordRaw(job_id)!,
         status: "completed",
         ended_at: new Date().toISOString(),
         done: findLastDoneEvent(),
@@ -267,7 +349,7 @@ export function kickoffScanJob(opts: KickoffOptions): JobRecord {
   primary.on("close", (code) => runNextOrFinalize(code ?? 1));
   primary.on("error", (err) => {
     const record: JobRecord = {
-      ...readJobRecord(job_id)!,
+      ...readJobRecordRaw(job_id)!,
       status: "failed",
       ended_at: new Date().toISOString(),
       exit_code: 1,
