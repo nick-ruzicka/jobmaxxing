@@ -1,4 +1,10 @@
-import { getRoles, getSignals, getConfig, getLastScanDate } from "@/lib/data";
+import {
+  getRoles,
+  getSignals,
+  getConfig,
+  getLastScanDate,
+  getTodaysBriefing,
+} from "@/lib/data";
 import { PipelinePage } from "./pipeline-client";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +16,9 @@ export default function Page() {
   const roles = getRoles({ includeAggregator: true });
   const signals = getSignals();
   const config = getConfig();
+  // Today's briefing — rendered as a top panel above the table per the AI
+  // feature audit Step 2. Null when the generator hasn't run yet today.
+  const briefing = getTodaysBriefing();
 
   const hasWarmLeads = signals.some((s) => s.result === "high");
   const lastScanDate = getLastScanDate();
@@ -23,6 +32,7 @@ export default function Page() {
       highConviction={highConviction}
       companyCount={companyCount}
       signalCount={signals.length}
+      briefing={briefing}
     />
   );
 }
