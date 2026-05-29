@@ -11,7 +11,55 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      # Checkout up-front so the post-action VERSION-sync step has a working
+      # git tree. release-please-action itself uses the GitHub API and does
+      # not need a checkout, but the follow-up step does.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: googleapis/release-please-action@v5
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # release-please updates package.json (release-type: node) but can't
+      # update bare-semver VERSION without a marker comment, and VERSION
+      # must stay bare semver because test-all.mjs validates with a strict
+      # /^\d+\.\d+\.\d+$/ regex. Workaround: after release-please opens or
+      # updates a release PR, sync VERSION = package.json's version on that
+      # PR branch as a follow-up commit. No-op when there's no open PR.
+      - name: Sync VERSION on the release PR branch
+        if: ${{ steps.release.outputs.prs_created == 'true' || steps.release.outputs.prs != '' && steps.release.outputs.prs != '[]' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # release-please outputs.prs is a JSON array of created/updated PRs
+          # for this run. Grab the first (we run as a single package).
+          pr_number=$(echo '${{ steps.release.outputs.prs }}' | jq -r '.[0].number // empty')
+          if [ -z "$pr_number" ]; then
+            echo "no release PR — skipping VERSION sync"
+            exit 0
+          fi
+
+          pr_branch=$(gh pr view "$pr_number" --json headRefName --jq .headRefName)
+          echo "Syncing VERSION on PR #$pr_number (branch: $pr_branch)"
+
+          git fetch origin "$pr_branch"
+          git checkout "$pr_branch"
+
+          pkg_version=$(jq -r .version package.json)
+          cur_version=$(cat VERSION 2>/dev/null || echo "")
+
+          if [ "$cur_version" = "$pkg_version" ]; then
+            echo "VERSION already == package.json ($pkg_version) — no sync needed"
+            exit 0
+          fi
+
+          echo "$pkg_version" > VERSION
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore: sync VERSION to $pkg_version (auto)"
+          git push origin "$pr_branch"
