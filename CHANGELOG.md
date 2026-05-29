@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.9.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.8.3...v1.9.0) (2026-05-29)
+
+
+### Features
+
+* **scoring:** per-archetype qualification gate in user-context.yaml (v2) ([c847bb3](https://github.com/nick-ruzicka/nick-career-ops/commit/c847bb387c5791c6c1be6320aabdeb0f948b041c))
+* **scoring:** per-archetype qualification gate in user-context.yaml (v2) ([2cc6de9](https://github.com/nick-ruzicka/nick-career-ops/commit/2cc6de9f3782738302e964b4b42579af5bf5cc8f))
+
+
+### Bug Fixes
+
+* **ci:** auto-sync VERSION with package.json on release PRs ([d6e0fae](https://github.com/nick-ruzicka/nick-career-ops/commit/d6e0fae5ecad8e3ddc5f2dfaeab3b96173b1a503))
+* **ci:** auto-sync VERSION with package.json on release PRs ([d8991e8](https://github.com/nick-ruzicka/nick-career-ops/commit/d8991e870e606f4b9804dbfb3e53841d51da6989))
+* **ci:** skip CodeQL upload (private repo, no Code Scanning) ([352a74a](https://github.com/nick-ruzicka/nick-career-ops/commit/352a74a78db454a0590b4a5609d1092e97fb8506))
+* **ci:** skip CodeQL upload (private repo, no Code Scanning) ([53a71c1](https://github.com/nick-ruzicka/nick-career-ops/commit/53a71c1a46cf8bf9f0b2833b21e905679a860d57))
+
 ## [1.8.3](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.8.2...v1.8.3) (2026-05-29)
 
 
