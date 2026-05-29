@@ -48,3 +48,11 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: '/language:${{ matrix.language }}'
+          # Code Scanning requires GitHub Advanced Security on private repos,
+          # which isn't enabled here. The analysis still runs locally (and
+          # surfaces findings in the workflow log) — we just skip the
+          # upload-to-Code-Scanning step that would otherwise fail with
+          # "Code scanning is not enabled for this repository."
+          # If GHAS is enabled later (or the repo goes public), flip
+          # upload back to true (the default) to get the Security tab UI.
+          upload: false
