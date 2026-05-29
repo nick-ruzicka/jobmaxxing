@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.14.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.13.0...v1.14.0) (2026-05-29)
+
+
+### Features
+
+* **chat:** wire agent.voice + agent.redact from user-context.yaml ([4b9deeb](https://github.com/nick-ruzicka/nick-career-ops/commit/4b9deebcd3309e77dc2c7f7dd6f1714405126ad5))
+* **chat:** wire agent.voice + agent.redact from user-context.yaml ([db83859](https://github.com/nick-ruzicka/nick-career-ops/commit/db83859937f1706701e58bf0f570c162df2a85c7))
+
 ## [1.13.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.12.0...v1.13.0) (2026-05-29)
 
 
