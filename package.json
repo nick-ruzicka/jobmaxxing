@@ -1,9 +1,8 @@
 {
   "name": "career-ops",
-  "version": "1.0.0",
+  "version": "1.8.1",
   "description": "AI-powered job search pipeline built on Claude Code",
   "scripts": {
-    "test": "node --test 'scripts/**/*.test.mjs'",
     "doctor": "node doctor.mjs",
     "verify": "node verify-pipeline.mjs",
     "normalize": "node normalize-statuses.mjs",
@@ -15,24 +14,9 @@
     "update": "node update-system.mjs apply",
     "rollback": "node update-system.mjs rollback",
     "liveness": "node check-liveness.mjs",
-    "scan-jobs": "node scripts/scan-jobs.mjs",
-    "scan-jobs:morning": "node scripts/scan-jobs.mjs",
-    "scan-jobs:evening": "node scripts/scan-jobs.mjs",
-    "scan-signals": "node scripts/scan-signals.mjs",
-    "enrich": "node scripts/enrich-roles.mjs",
-    "scan-and-enrich": "node scripts/scan-jobs.mjs && node scripts/enrich-roles.mjs",
-    "dashboard": "cd dashboard-web && npm run dev",
-    "test:extract": "node --test scripts/lib/extract-comp.test.mjs",
-    "test:strip-html": "node --test scripts/lib/strip-html.test.mjs",
-    "test": "node --test scripts/lib/*.test.mjs",
-    "backfill-comp": "node scripts/enrich-roles.mjs --backfill-comp",
-    "briefing": "node scripts/generate-briefing.mjs",
-    "briefing:dry": "node scripts/generate-briefing.mjs --dry-run",
-    "analytics:rollup": "node scripts/generate-analytics-rollup.mjs",
-    "analytics": "node scripts/analytics-cli.mjs",
-    "analytics:summary": "node scripts/analytics-cli.mjs summary",
-    "sync-score-feedback": "node scripts/sync-score-feedback.mjs",
-    "patterns": "node analyze-patterns.mjs"
+    "scan": "node scan.mjs",
+    "patterns": "node analyze-patterns.mjs",
+    "gemini:eval": "node gemini-eval.mjs"
   },
   "keywords": [
     "ai",
@@ -49,6 +33,9 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^17.0.0",
+    "js-yaml": "^4.1.1",
     "playwright": "^1.58.1"
   }
 }

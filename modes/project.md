@@ -1,22 +1,25 @@
 # Mode: project — Portfolio Project Evaluation
 
-Scoring across 6 dimensions (1-5):
+**URL:** {project-url}
+**Legitimacy:** {High Confidence | Proceed with Caution | Suspicious}
+
+Scoring matrix with 6 dimensions (1–5):
 
 | Dimension | Weight | 5 = ... | 1 = ... |
-|-----------|--------|---------|---------|
-| Signal for target roles | 25% | Directly demonstrates JD skill | Unrelated |
-| Uniqueness | 20% | Nobody has done this | Everyone has it |
-| Demo-ability | 20% | Live demo in 2 min | Code only, not visual |
-| Metrics potential | 15% | Clear metrics (latency, cost, accuracy) | No possible metrics |
+|-----------|------|---------|---------|
+| Signal for target roles | 25% | Directly demonstrates JD skill | Not related |
+| Uniqueness | 20% | Nobody has done this | Very common |
+| Demo ability | 20% | Live demo in 2 min | Code only, not visual |
+| Metrics potential | 15% | Clear metrics (latency, cost, accuracy) | No metrics possible |
 | Time to MVP | 10% | 1 week | 3+ months |
-| STAR story potential | 10% | Rich story with trade-offs | Just implementation |
+| STAR story potential | 10% | Rich story with trade-offs | Implementation only |
 
 ## "Interview Pack" Requirements
 
 For each approved project:
 1. **One-pager**: product + architecture + metrics + evaluation plan
-2. **Demo**: live URL or recorded 2-min walkthrough
-3. **Postmortem**: what worked, what didn't, mitigations
+2. **Demo**: live URL or 2 min recorded walkthrough
+3. **Postmortem**: what worked, what didn’t, mitigations
 
 ## 80/20 Plan
 

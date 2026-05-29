@@ -24,6 +24,9 @@ interface Filters {
   status: string;
   locations: Set<string>;
   minScore: number;
+  /** Minimum comp floor in USD (0 = Any). A role passes if its comp midpoint
+   *  meets this, or if its comp doesn't parse (unknowns stay visible). */
+  minComp: number;
   requireBuild: boolean;
   requireAI: boolean;
   hasComp: boolean;
@@ -93,6 +96,15 @@ const SCORE_TIERS = [
   { min: 8, label: "8+" },
 ];
 
+/** Comp-floor presets. $200K is the configured comp floor (user-context.yaml);
+ *  the surrounding tiers bracket it. Judged against the comp range's midpoint. */
+const COMP_TIERS = [
+  { min: 0, label: "Any" },
+  { min: 150000, label: "$150K+" },
+  { min: 200000, label: "$200K+" },
+  { min: 250000, label: "$250K+" },
+];
+
 /** Primary location clusters shown as inline pills. */
 const PRIMARY_LOCATIONS = ["nyc", "remote", "sf_bay", "la"];
 
@@ -117,6 +129,7 @@ export function FilterBar({ roles, filters, onChange, onReset, resultCount }: Fi
     (filters.status !== "all" ? 1 : 0) +
     (filters.locations.size > 0 ? 1 : 0) +
     (filters.minScore > 0 ? 1 : 0) +
+    (filters.minComp > 0 ? 1 : 0) +
     (filters.requireBuild ? 1 : 0) +
     (filters.requireAI ? 1 : 0) +
     (filters.hasComp ? 1 : 0) +
@@ -187,6 +200,29 @@ export function FilterBar({ roles, filters, onChange, onReset, resultCount }: Fi
                 onClick={() => update({ minScore: tier.min })}
                 aria-pressed={active}
                 className={`rounded-sm px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  active ? "bg-accent-dim text-accent" : "text-text-tertiary hover:text-text-secondary"
+                }`}
+              >
+                {tier.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          className="flex items-center gap-0.5 rounded-md border border-border-subtle bg-surface-2 p-0.5"
+          title="Minimum compensation (judged by the comp range's midpoint)"
+        >
+          {COMP_TIERS.map((tier) => {
+            const active = filters.minComp === tier.min;
+            return (
+              <button
+                key={tier.min}
+                type="button"
+                data-action={`pipeline:filter_comp_${tier.min}`}
+                onClick={() => update({ minComp: tier.min })}
+                aria-pressed={active}
+                className={`rounded-sm px-3 py-1.5 text-[12px] font-medium tabular-nums transition-colors ${
                   active ? "bg-accent-dim text-accent" : "text-text-tertiary hover:text-text-secondary"
                 }`}
               >

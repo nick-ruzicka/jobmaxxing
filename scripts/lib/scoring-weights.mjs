@@ -6,10 +6,15 @@
 // IMPORTANT: the classifier weights and scoring-layer weights are DELIBERATELY
 // different magnitudes — the classifier saturates toward 100 (fitness = score /
 // SATURATION_POINT), while the scoring layer adds a smaller fit-score uplift
-// (capped by ARCHETYPE_REWARD_CAP). Do NOT "reconcile" them to the same numbers
-// without an explicit scoring-math decision (cleanup item E6). This module is a
-// structural extraction only — values are unchanged from their previous inline
-// literals.
+// (capped by ARCHETYPE_REWARD_CAP). The two SHOULD differ in absolute scale.
+//
+// E6 (cleanup item: "should these be reconciled?") was REVIEWED and CLOSED
+// 2026-05-22 as NO-ACTION: the proportions are already consistent (tier_1:tier_2
+// = 2:1 in both; title high:medium = 2:1 in both; stablecoin:tier_2 6.0 vs 5.83)
+// and the absolute scales differ by design. Changing these ratios is a fresh
+// scoring-math decision, not a cleanup — see
+// docs/scoring/e6-magnitude-divergence-decision-2026-05-22.md. Values here are
+// unchanged from their original inline literals.
 
 // Institutional Web3 company boost. stablecoin_tier = strong (Paxos, Circle,
 // BitGo, Anchorage, Tether); tier_1 = institutional-but-not-stablecoin; tier_2
