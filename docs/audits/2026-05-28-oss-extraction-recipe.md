@@ -90,12 +90,18 @@ MORNING_REPORT*.md          — Nick's morning reports if any
 ```bash
 SRC=/tmp/career-ops-extract
 rm -rf "$SRC"
+
+# Option A — clone from origin (recommended; slower but simpler):
 git clone --no-local --branch main \
-  file:///Users/nicholasruzicka/projects/job-search/nick-career-ops "$SRC"
+  https://github.com/nick-ruzicka/nick-career-ops.git "$SRC"
+
+# Option B — clone from your local fork (faster). Substitute the path to
+# your local nick-career-ops worktree:
+#   git clone --no-local --branch main \
+#     "file://${HOME}/path/to/nick-career-ops" "$SRC"
+
 cd "$SRC"
 ```
-
-(Or `https://github.com/nick-ruzicka/nick-career-ops.git` if you're extracting from origin instead of local — same result, slower.)
 
 ### 2.3 — Run filter-repo with `--invert-paths` (keep everything EXCEPT the PII)
 
