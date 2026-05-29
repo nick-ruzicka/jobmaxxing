@@ -431,6 +431,11 @@ function runQueryRoles(input: Record<string, unknown>): string {
   const statusesFilter = Array.isArray(input.statuses)
     ? new Set((input.statuses as unknown[]).filter((s): s is string => typeof s === "string"))
     : null;
+  const locationSubstrings = Array.isArray(input.location_substrings)
+    ? (input.location_substrings as unknown[])
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.toLowerCase())
+    : null;
   const minScore = typeof input.min_score === "number" ? input.min_score : null;
   const maxScore = typeof input.max_score === "number" ? input.max_score : null;
   const rawLimit = typeof input.limit === "number" ? input.limit : 20;
@@ -446,6 +451,10 @@ function runQueryRoles(input: Record<string, unknown>): string {
   const filtered = roles.filter((r) => {
     if (companyFilter && !r.company.toLowerCase().includes(companyFilter)) return false;
     if (statusesFilter && !statusesFilter.has(r.status)) return false;
+    if (locationSubstrings && locationSubstrings.length > 0) {
+      const loc = (r.location ?? "").toLowerCase();
+      if (!locationSubstrings.some((sub) => loc.includes(sub))) return false;
+    }
     if (minScore != null && r.score < minScore) return false;
     if (maxScore != null && r.score > maxScore) return false;
     return true;
