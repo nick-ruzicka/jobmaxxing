@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.11.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.10.2...v1.11.0) (2026-05-29)
+
+
+### Features
+
+* **ui:** AI feature audit Steps 1+2 — chat to root layout, briefing into pipeline ([d1d34ea](https://github.com/nick-ruzicka/nick-career-ops/commit/d1d34eadaf1a59f3a7fc577feada1b0add87f2dc))
+* **ui:** AI feature audit Steps 1+2 — chat to root, briefing into pipeline ([ed0344a](https://github.com/nick-ruzicka/nick-career-ops/commit/ed0344a69837f59c86818f0edbe4020eb202f8e6))
+
 ## [1.10.2](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.10.1...v1.10.2) (2026-05-29)
 
 
