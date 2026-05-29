@@ -138,17 +138,28 @@ archetype_fit:
 #             portfolio_url, salary_history. Unknown entries are silently
 #             ignored (forward-compat).
 #
-#   tools   — NOT YET LIVE. Per-tool authorization. Documented now so the
-#             schema is stable for AI migration Step 7 (mutating tools).
-#             Currently ignored; Step 6 read tools run "auto", Step 7
-#             mutating tools will land with confirmation UX once §5d's
-#             write-path map (see docs/audits/2026-05-29-write-path-map.md)
-#             is implemented.
-#             Policies (forward-looking):
-#               "auto"    → run without asking
-#               "confirm" → require a ✓/✗ UI before running
-#               "deny"    → the agent can't call this tool at all
-#             Default for missing tools is "confirm".
+#   tools   — LIVE (Step 9 close, shipped in Step 8 PR c). Per-tool
+#             authorization. Read at chat-request time by loadAgentConfig
+#             in dashboard-web/app/api/chat/route.ts and applied per round
+#             by runAgentLoop's effectiveToolPolicy().
+#             Policies:
+#               "auto"    → run without asking. Mutating tools still go
+#                           through the same executeMutatingTool path
+#                           (atomic writes + confirmed_bulk at the HTTP
+#                           layer); the chat UI just skips the confirm
+#                           card. Use for tools you trust enough to fire-
+#                           and-forget — common for regenerate_briefing
+#                           in a daily-driver workflow.
+#               "confirm" → show the confirmation card with preview + ✓/✗.
+#                           Default for mutating tools when unset.
+#               "deny"    → the agent can't call this tool at all; it
+#                           receives a synthetic refusal tool_result and
+#                           apologizes / proposes an alternative. Useful
+#                           for a productization where, say, the deployed
+#                           instance shouldn't ever auto-mark roles.
+#             Defaults for missing keys:
+#               read tools     → "auto"
+#               mutating tools → "confirm"
 agent:
   voice: direct                         # direct | warm | analytical | custom:<prompt>
   redact: []                            # e.g. [address, phone, salary_history]
@@ -156,12 +167,14 @@ agent:
     # Read-only tools — generally safe to auto-execute
     query_roles: auto
     read_prep_doc: auto
-    get_company_summary: auto
-    recall_past_chat: auto
-    # Mutating tools — confirm by default
+    # Mutating tools (Step 7) — confirm by default. Flip to "auto" once you
+    # trust the agent to make these edits without your gating click.
     update_application_status: confirm
-    add_note: confirm
-    update_user_override: confirm
-    # Long-running / expensive tools
-    trigger_scan: confirm
+    update_score_override: confirm
+    update_user_context: confirm
+    # Triggered actions (Step 8) — confirm by default. regenerate_briefing
+    # is the most common candidate to flip to "auto" — it's the morning-
+    # routine action with a clear 30s progress widget, no data risk.
     regenerate_briefing: confirm
+    trigger_scan: confirm
+    trigger_signal_scan: confirm

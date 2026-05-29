@@ -42,6 +42,7 @@ import {
   type AgentMessage,
   deletePendingFile,
   executeMutatingTool,
+  loadAgentConfig,
   openClaudeStream,
   readChatFile,
   readPendingFile,
@@ -217,6 +218,10 @@ export async function POST(request: Request) {
             initialToolRounds: pending.tool_rounds,
             initialUsage: pending.usage,
             totalEst: pending.total_est,
+            // Re-load agent config on resume so a yaml edit between the
+            // confirmation card appearing and the user clicking takes effect
+            // on the next round (auto-policy edits in particular).
+            agent: loadAgentConfig(),
           },
           send,
         );

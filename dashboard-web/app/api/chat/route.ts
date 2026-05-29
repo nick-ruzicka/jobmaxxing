@@ -212,18 +212,28 @@ function readUserContextYaml(): string | null {
 // Shipped as documented placeholders in PR #50; now wired through.
 
 type AgentVoice = "direct" | "warm" | "analytical" | string;
+export type ToolPolicy = "auto" | "confirm" | "deny";
 
-interface AgentConfig {
+export interface AgentConfig {
   voice: AgentVoice;
   redact: string[];
+  /** Per-tool execution policy. Documented in user-context.example.yaml as
+   *  the `agent.tools:` block. Missing entries fall back to:
+   *    - `auto`    for read tools (query_roles, read_prep_doc)
+   *    - `confirm` for mutating tools (everything in MUTATING_TOOLS)
+   *  Unknown policy values are treated as `confirm` (safe default). Step 9
+   *  close — the schema was shipped as documented placeholders in PR #50 +
+   *  PR #69; this PR honors it. */
+  tools: Record<string, ToolPolicy>;
 }
 
 const DEFAULT_AGENT_CONFIG: AgentConfig = {
   voice: "direct",
   redact: [],
+  tools: {},
 };
 
-function loadAgentConfig(): AgentConfig {
+export function loadAgentConfig(): AgentConfig {
   const raw = readUserContextYaml();
   if (!raw) return DEFAULT_AGENT_CONFIG;
   let parsed: unknown;
@@ -240,7 +250,27 @@ function loadAgentConfig(): AgentConfig {
   const redact = Array.isArray(a.redact)
     ? (a.redact as unknown[]).filter((x): x is string => typeof x === "string")
     : DEFAULT_AGENT_CONFIG.redact;
-  return { voice, redact };
+  const tools: Record<string, ToolPolicy> = {};
+  if (a.tools && typeof a.tools === "object") {
+    for (const [key, value] of Object.entries(a.tools as Record<string, unknown>)) {
+      if (value === "auto" || value === "confirm" || value === "deny") {
+        tools[key] = value;
+      }
+      // Unknown values silently dropped — caller's effectiveToolPolicy falls
+      // back to the default for the tool's kind.
+    }
+  }
+  return { voice, redact, tools };
+}
+
+/** Resolve a tool's effective policy. Looks up the explicit policy from
+ *  user-context.yaml's `agent.tools` block; falls back to `confirm` for
+ *  mutating tools and `auto` for read tools. Exported so respond-to-tool's
+ *  resume code path uses the same logic. */
+export function effectiveToolPolicy(name: string, agent: AgentConfig): ToolPolicy {
+  const explicit = agent.tools[name];
+  if (explicit) return explicit;
+  return MUTATING_TOOLS.has(name) ? "confirm" : "auto";
 }
 
 /** Voice-specific opening instructions. The `custom:<text>` form bypasses
@@ -1358,10 +1388,23 @@ export async function runAgentLoop(
     initialToolRounds: number;
     initialUsage: ClaudeUsage | undefined;
     totalEst: number;
+    /** Agent config — provides the `agent.tools` policy. When omitted, the
+     *  loop falls back to per-tool-kind defaults (auto for reads, confirm
+     *  for mutating). respond-to-tool passes this through from the
+     *  re-loaded user-context.yaml on resume so a yaml edit between turns
+     *  takes effect on the next round. */
+    agent?: AgentConfig;
   },
   send: (payload: unknown) => void,
 ): Promise<void> {
   const { date, file, systemText, totalEst } = args;
+  // Effective policy resolver, closed over the call's agent config so a
+  // future round doesn't have to re-resolve. Defaults to the per-tool-kind
+  // fallback when no config was supplied.
+  const policyFor = (name: string): ToolPolicy => {
+    if (args.agent) return effectiveToolPolicy(name, args.agent);
+    return MUTATING_TOOLS.has(name) ? "confirm" : "auto";
+  };
   let assistantTextAcrossRounds = args.initialAssistantText;
   let usage: ClaudeUsage | undefined = args.initialUsage;
   let toolRounds = args.initialToolRounds;
@@ -1395,18 +1438,24 @@ export async function runAgentLoop(
     }
     toolRounds++;
 
-    // Confirmation gate. v1 rule: if ANY tool in this round needs
-    // confirmation, the round MUST contain only that single tool. Multi-tool
-    // rounds mixing auto + mutating tools fail loudly so a confused agent
-    // can't sneak a mutation in alongside reads. Adjust when PR c lands the
-    // multi-tool confirmation UI.
-    const confirmingTools = roundTools.filter((t) => requiresConfirmation(t.name));
+    // Resolve each tool's effective policy (auto / confirm / deny). The
+    // confirmation gate only triggers for `confirm`; `auto` mutating tools
+    // execute inline alongside reads; `deny` returns a synthetic refusal
+    // tool_result that the agent reads as the user saying no.
+    const toolsWithPolicy = roundTools.map((t) => ({ ...t, policy: policyFor(t.name) }));
+    const confirmingTools = toolsWithPolicy.filter((t) => t.policy === "confirm");
+
     if (confirmingTools.length > 0) {
-      if (roundTools.length > 1) {
+      // v1 single-mutation-per-round rule still applies when confirmation
+      // is needed. Mixing one confirm-required tool with auto-policy reads
+      // would mean the read result depends on whether the user accepts the
+      // mutation — surprising behavior, so we reject.
+      if (toolsWithPolicy.length > 1) {
         const errMsg =
-          "[server constraint: mutating tools (update_application_status, …) " +
-          "must be called alone in a round, not alongside other tools. " +
-          "Re-issue with just the mutating tool, gathering any read data in a separate prior round.]";
+          "[server constraint: a tool requiring confirmation (e.g. " +
+          `${confirmingTools[0].name}) must be called alone in a round, ` +
+          "not alongside other tools. Re-issue with just the confirming " +
+          "tool, gathering any read data in a separate prior round.]";
         const assistantBlocks: ContentBlock[] = [];
         if (roundText) assistantBlocks.push({ type: "text", text: roundText });
         for (const t of roundTools) {
@@ -1427,7 +1476,7 @@ export async function runAgentLoop(
         continue;
       }
 
-      // Single mutating tool — pause for confirmation.
+      // Single confirm tool — pause for confirmation.
       const t = roundTools[0];
       const preview = buildConfirmationPreview(t.name, t.input);
 
@@ -1464,8 +1513,12 @@ export async function runAgentLoop(
       return;
     }
 
-    // Auto-execute round. Build assistant turn (text + tool_use) and the
-    // synthetic user turn (tool_result blocks), open the next stream.
+    // Execute round. Each tool dispatches by policy + kind:
+    //   - deny    → synthetic refusal tool_result (agent reads "user said no")
+    //   - auto + read tool      → runTool (sync, returns text)
+    //   - auto + mutating tool  → executeMutatingTool (async; for
+    //                              regenerate_briefing's sync block we
+    //                              forward progress events to the client)
     const assistantBlocks: ContentBlock[] = [];
     if (roundText) assistantBlocks.push({ type: "text", text: roundText });
     for (const t of roundTools) {
@@ -1473,11 +1526,24 @@ export async function runAgentLoop(
     }
     convo.push({ role: "assistant", content: assistantBlocks });
 
-    const toolResultBlocks: ContentBlock[] = roundTools.map((t) => ({
-      type: "tool_result",
-      tool_use_id: t.id,
-      content: runTool(t),
-    }));
+    const toolResultBlocks: ContentBlock[] = await Promise.all(
+      toolsWithPolicy.map(async (t) => {
+        let content: string;
+        if (t.policy === "deny") {
+          content = `[tool denied by user-context policy: agent.tools.${t.name} = "deny"]`;
+        } else if (MUTATING_TOOLS.has(t.name)) {
+          // auto policy on a mutating tool. Forward progress events to the
+          // chat stream so the panel's widget renders live (matches the
+          // confirmation-flow shape — same `tool_progress` event type).
+          content = await executeMutatingTool({ id: t.id, name: t.name, input: t.input }, (event) => {
+            send({ type: "tool_progress", id: t.id, event });
+          });
+        } else {
+          content = runTool(t);
+        }
+        return { type: "tool_result", tool_use_id: t.id, content };
+      }),
+    );
     convo.push({ role: "user", content: toolResultBlocks });
 
     currentUpstream = await openClaudeStream({
@@ -1647,6 +1713,7 @@ export async function POST(request: Request) {
             initialToolRounds: 0,
             initialUsage: undefined,
             totalEst,
+            agent,
           },
           send,
         );

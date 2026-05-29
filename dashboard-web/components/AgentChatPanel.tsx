@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { X, Send, Loader2, ChevronRight, AlertTriangle, Check } from "lucide-react";
+import { X, Send, Loader2, ChevronRight, AlertTriangle, Check, Zap } from "lucide-react";
 import type { BriefingItem } from "@/lib/types";
 
 interface ChatMessage {
@@ -39,12 +39,38 @@ interface PendingTool {
 /** Callbacks the SSE consumer dispatches as it reads the chat stream.
  *  Factored out so handleSend (fresh turn) and handleRespondToTool (resume)
  *  can share the same parse loop. */
+/** Snapshot of an in-flight triggered-action tool. Built from the JSONL
+ *  events the script's `--progress-json` flag emits, forwarded through the
+ *  chat SSE as `tool_progress`. The widget renders the latest state; we
+ *  don't keep a history of events. */
+interface RunningTool {
+  tool_call_id: string;
+  /** Optional — we may not know the tool name until tool_progress arrives.
+   *  Filled in opportunistically from the event's `kind` field. */
+  name?: string;
+  /** Current phase name from the most recent phase event, or undefined when
+   *  the only event so far is start. */
+  phase?: string;
+  /** Most recent per-item progress index (e.g. 42 in "42 of 763"). */
+  step?: number;
+  /** Total when known, else undefined — renderer shows an indeterminate bar. */
+  total?: number;
+  /** Latest label from a tick or phase event. */
+  label?: string;
+  /** start_at ts so we can show elapsed time. */
+  started_at: number;
+}
+
 interface StreamCallbacks {
   onDelta: (text: string) => void;
   onToolRequest: (req: PendingTool) => void;
   onToolResolved: (action: "confirm" | "cancel") => void;
   onPaused: () => void;
   onDone: (history: ChatMessage[]) => void;
+  /** Each script progress event. The widget updates RunningTool snapshot
+   *  from this. The inner `event` is whatever the script emitted (start /
+   *  phase / progress / done). */
+  onToolProgress: (id: string, event: Record<string, unknown>) => void;
 }
 
 /** Parse the chat SSE stream and dispatch events to the supplied callbacks.
@@ -84,6 +110,10 @@ async function consumeChatStream(res: Response, cbs: StreamCallbacks): Promise<v
       } else if (obj.type === "tool_resolved") {
         const action = obj.action === "confirm" ? "confirm" : "cancel";
         cbs.onToolResolved(action);
+      } else if (obj.type === "tool_progress") {
+        const id = String(obj.id ?? "");
+        const event = (obj.event as Record<string, unknown>) ?? {};
+        cbs.onToolProgress(id, event);
       } else if (obj.type === "paused") {
         cbs.onPaused();
         // paused signals the server ended the stream intentionally at a
@@ -126,6 +156,42 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
   // Disables both confirm/cancel buttons + the composer while we're round-
   // tripping the POST /api/chat/respond-to-tool stream.
   const [respondingTo, setRespondingTo] = useState<"confirm" | "cancel" | null>(null);
+  // In-flight triggered-action (regenerate_briefing's sync block, etc.). The
+  // progress widget renders this; on tool_resolved it clears (the agent's
+  // follow-up text takes over). Lives in the same slot the confirmation
+  // card occupies — at most one of pendingTool / runningTool is non-null.
+  const [runningTool, setRunningTool] = useState<RunningTool | null>(null);
+
+  /** Update RunningTool snapshot from a single script progress event. The
+   *  shape of `event` mirrors scripts/lib/progress.mjs:
+   *    { type: "start" | "phase" | "progress" | "done" | "warn", … } */
+  function applyProgressEvent(id: string, event: Record<string, unknown>) {
+    setRunningTool((prev) => {
+      const next: RunningTool =
+        prev && prev.tool_call_id === id
+          ? { ...prev }
+          : { tool_call_id: id, started_at: Date.now() };
+      if (typeof event.kind === "string" && !next.name) next.name = event.kind;
+      if (event.type === "phase" && typeof event.name === "string") {
+        next.phase = String(event.name) + (event.status === "started" ? "" : ` ✓`);
+        // Phase events clear the per-item step counters from a previous phase.
+        next.step = undefined;
+        next.total = undefined;
+        next.label = undefined;
+      } else if (event.type === "progress") {
+        if (typeof event.index === "number") next.step = event.index;
+        if (typeof event.total === "number") next.total = event.total;
+        if (typeof event.label === "string") next.label = event.label;
+      } else if (event.type === "done") {
+        // The done event is informational — the agent's follow-up text will
+        // summarize. We keep the widget visible until tool_resolved fires,
+        // so just update the phase label.
+        next.phase = "done";
+        if (typeof event.summary === "string") next.label = event.summary;
+      }
+      return next;
+    });
+  }
   // True until we've successfully attached this scoped item to a message —
   // after that, the agent has it in conversation context and we don't keep
   // re-sending it.
@@ -214,9 +280,11 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
 
     // A new user message supersedes any unresolved confirmation. The server
     // discards pending state on POST /api/chat — mirror that locally so the
-    // confirmation card disappears.
+    // confirmation card disappears. Also clear any leftover runningTool —
+    // a fresh turn shouldn't show a stale progress widget.
     setPendingTool(null);
     setCancelReason("");
+    setRunningTool(null);
     setError(null);
     setInput("");
     setThinking(true);
@@ -261,7 +329,11 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
           // stays in history with whatever partial text streamed before the
           // pause; the card UI takes over below.
         },
-        onDone: (newHistory) => setHistory(newHistory),
+        onToolProgress: applyProgressEvent,
+        onDone: (newHistory) => {
+          setHistory(newHistory);
+          setRunningTool(null);
+        },
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send failed");
@@ -308,19 +380,22 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
         onToolRequest: (req) => setPendingTool(req),
         onToolResolved: () => {
           // First event off the resume stream — server confirms it applied
-          // the decision. Dismiss the card; the agent's follow-up text will
-          // arrive via deltas next.
+          // the decision. Dismiss the card AND any in-flight progress
+          // widget; the agent's follow-up text takes over.
           setPendingTool(null);
           setCancelReason("");
+          setRunningTool(null);
         },
         onPaused: () => {
           // The agent's follow-up itself hit another confirmation gate.
           // pendingTool was already updated via onToolRequest; we just stop.
         },
+        onToolProgress: applyProgressEvent,
         onDone: (newHistory) => {
           setHistory(newHistory);
           setPendingTool(null);
           setCancelReason("");
+          setRunningTool(null);
         },
       });
     } catch (err) {
@@ -436,6 +511,62 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
           <div ref={listEndRef} aria-hidden />
         </div>
 
+        {/* Progress widget — shown while a triggered-action tool is running
+            (regenerate_briefing's sync block, or trigger_scan's kickoff
+            moment before tool_resolved fires). Mutually exclusive with the
+            confirmation card; pendingTool is always null while runningTool
+            is non-null. */}
+        {runningTool && !pendingTool && (
+          <div
+            role="region"
+            aria-label="Agent action in progress"
+            className="border-t border-amber-border bg-amber-dim px-4 py-3"
+          >
+            <div className="flex items-start gap-2">
+              <Zap size={14} className="mt-0.5 shrink-0 animate-pulse text-amber" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <div className="text-[12px] font-semibold text-text-primary">
+                  Running
+                  {runningTool.name && (
+                    <span className="ml-1.5 font-mono text-[11px] text-text-tertiary">
+                      {runningTool.name}
+                    </span>
+                  )}
+                </div>
+                {runningTool.phase && (
+                  <div className="mt-1 text-[12px] text-text-secondary">
+                    Phase: <span className="font-medium">{runningTool.phase}</span>
+                  </div>
+                )}
+                {runningTool.label && (
+                  <div className="mt-0.5 truncate text-[12px] text-text-tertiary" title={runningTool.label}>
+                    {runningTool.step !== undefined && runningTool.total !== undefined
+                      ? `${runningTool.step} / ${runningTool.total} — `
+                      : ""}
+                    {runningTool.label}
+                  </div>
+                )}
+                {/* Progress bar — determinate when step/total known, else
+                    an indeterminate striped pulse via animate-pulse. */}
+                {runningTool.step !== undefined && runningTool.total ? (
+                  <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-surface-1">
+                    <div
+                      className="h-full bg-amber transition-all duration-200"
+                      style={{
+                        width: `${Math.min(100, Math.round((runningTool.step / runningTool.total) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-surface-1">
+                    <div className="h-full w-1/3 animate-pulse bg-amber" />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Confirmation card — shown when the agent's last tool call is a
             mutation awaiting user approval. Two-phase pattern from the
             write-path map: agent proposes → user reviews + decides → server
@@ -522,15 +653,17 @@ export function AgentChatPanel({ open, onClose, date, scopedItem }: AgentChatPan
               placeholder={
                 pendingTool
                   ? "Resolve the pending action above to send a new message…"
-                  : "Ask about a role, the pipeline, or today's items…"
+                  : runningTool
+                    ? "Action in progress — wait for it to finish…"
+                    : "Ask about a role, the pipeline, or today's items…"
               }
-              disabled={thinking || respondingTo !== null || pendingTool !== null}
+              disabled={thinking || respondingTo !== null || pendingTool !== null || runningTool !== null}
               className="min-h-[48px] flex-1 resize-none rounded-md border border-border-subtle bg-surface-1 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-60"
             />
             <button
               type="button"
               onClick={handleSend}
-              disabled={thinking || !input.trim() || respondingTo !== null || pendingTool !== null}
+              disabled={thinking || !input.trim() || respondingTo !== null || pendingTool !== null || runningTool !== null}
               className="inline-flex h-[48px] items-center gap-1 rounded-md border border-accent-border bg-accent-dim px-3 text-[13px] font-medium text-accent transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
               title="Send (Enter)"
             >
