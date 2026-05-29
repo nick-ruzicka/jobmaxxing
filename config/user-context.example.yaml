@@ -1,0 +1,152 @@
+# user-context.example.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Copy this file to config/user-context.yaml and fill in YOUR personal scoring
+# biases. This is the per-user calibration file consumed by
+# scripts/lib/scoring-layer.mjs at scoring time. All values are point deltas
+# applied on top of the 0-100 fit-score scale (fit_score is 0-10 from the
+# enricher; the scoring layer multiplies by 10 internally).
+#
+# Companion files:
+#   config/profile.example.yml      — your identity / target roles / narrative
+#   config/archetypes.yaml          — the universal archetype catalog (don't
+#                                      modify per-user; modify user-context
+#                                      instead)
+#
+# What goes WHERE (productization boundary):
+#   - "I'm a senior backend engineer with 5 years"      → here (qualifications)
+#   - "I won't relocate to SF"                          → here (location_preferences)
+#   - "Don't show me gambling industry roles"           → here (hard_nos)
+#   - "Forward Deployed Engineer is a role I qualify for" → here (archetype_fit)
+#   - "What does an FDE role look like?"                → archetypes.yaml (catalog)
+#   - "What's my name?"                                 → config/profile.yml
+
+# ── Location preferences ────────────────────────────────────────────────────
+# Point deltas applied based on role.location_workplace + city. Mapped from
+# the structured location classifier in scripts/lib/location.mjs.
+# Negative values penalize; positive values reward.
+location_preferences:
+  fully_remote: +5
+  hybrid_nyc: +10
+  hybrid_nyc_area: +8                  # Brooklyn, Jersey City, Long Island City, Hoboken
+  hybrid_sf: -40
+  hybrid_la: -40
+  hybrid_chicago: -30
+  hybrid_other_us: -25
+  hybrid_international: -50
+  onsite_nyc: 0                         # OK if comp is right
+  onsite_other_us: -60
+  onsite_international: -75
+
+# ── Compensation gates ──────────────────────────────────────────────────────
+# floor_usd is the absolute minimum total comp (base + bonus) you'll consider.
+# Roles whose mid-point is below the floor get hit with below_floor_penalty.
+# Roles with no comp data listed get a small no_comp_listed ding (configurable
+# because "no comp listed" can mean "junior public posting" OR "high-paying
+# senior role that doesn't publish comp" depending on the company).
+compensation:
+  floor_usd: 200000
+  target_usd: 240000
+  below_floor_penalty: -50
+  no_comp_listed: -5
+
+# ── Hard nos ────────────────────────────────────────────────────────────────
+# Anything matching here returns score=0 + disqualified=true. Two categories:
+#   industries        — substring match against the role's industry tags
+#   company_signals   — pattern match against company news in the JD text
+hard_nos:
+  industries:
+    - consumer-only
+    - gambling
+    - weapons
+    - predatory-lending
+    - mlm
+    - vape
+    - tobacco
+  company_signals:
+    - layoffs-announced-30d
+    - ceo-fired-30d
+    - sec-investigation
+    - lawsuit-pending
+
+# ── Soft preferences (small uplifts) ────────────────────────────────────────
+# Pattern-match against company descriptions. Detected from JD text mentions
+# (e.g., "a16z-backed", "Y Combinator alumnus").
+soft_preferences:
+  a16z_portfolio: +5
+  paradigm_portfolio: +3
+  yc_alum: +3
+  ex_founder_team: +3
+  diverse_leadership: +2
+
+# ── Anti-signals (small dings) ──────────────────────────────────────────────
+# Pattern-match against company news / funding history.
+anti_signals:
+  acqui_hire_in_last_18_months: -10
+  five_plus_rounds_in_18_months: -10
+
+# ── Per-archetype qualification gate (v2 productization, shipped v1.9.0) ────
+# Optional. If absent, no gate is applied (backward-compat default).
+# When present, the scoring layer:
+#   - if qualified=false  → zeroes the archetype-lens contribution
+#                            (the user should not see this archetype's roles
+#                            uplifted at all)
+#   - if confidence_floor → trims the lens contribution to 0 when the
+#                            classifier's confidence on the role is below
+#                            the floor for this user
+#
+# Use confidence_floor for "I could do this but it's not my primary" cases.
+# Use qualified=false for "I am not a fit for this archetype, period" cases.
+#
+# Each archetype id MUST match an id in config/archetypes.yaml.
+# See docs/audits/2026-05-28-fde-sourcing-audit.md for the design rationale.
+archetype_fit:
+  # Primary targets — low confidence_floor (you want to see borderline matches).
+  fde:
+    qualified: true
+    confidence_floor: 0.5
+  gtm-engineering:
+    qualified: true
+    confidence_floor: 0.4
+  ai-operations:
+    qualified: true
+    confidence_floor: 0.5
+  # Fallback archetypes — high confidence_floor (only count strong matches).
+  web3-bd:
+    qualified: true
+    confidence_floor: 0.7
+  web3-bizops:
+    qualified: true
+    confidence_floor: 0.7
+
+# ── Agent / assistant configuration (productization v3 placeholder) ─────────
+# The AI feature audit (docs/audits/2026-05-28-ai-feature-audit.md §5b) flagged
+# these as the productization fields needed once the agent moves to a global
+# surface with full context. Currently READ as documentation only; the chat
+# route's prompt is still hard-coded to a single voice. When agent step 9 of
+# the AI migration lands, these fields become live.
+#
+# Once live:
+#   - voice       — selects the system-prompt persona ("direct" | "warm" |
+#                    "analytical" | "custom: <prompt>")
+#   - redact      — list of profile fields the agent should NOT send to the
+#                    LLM (useful for sensitive fields like address, phone)
+#   - tools       — per-tool authorization. Each tool ID maps to a policy.
+#                    Policies: "auto" (run without asking) | "confirm" (require
+#                    a ✓/✗ UI before running) | "deny" (the agent can't call
+#                    this tool at all). Default for missing tools is "confirm".
+agent:
+  voice: direct                         # direct | warm | analytical | custom:<prompt>
+  redact: []                            # e.g. [address, phone, salary_history]
+  tools:
+    # Read-only tools — generally safe to auto-execute
+    query_roles: auto
+    read_prep_doc: auto
+    get_company_summary: auto
+    recall_past_chat: auto
+    # Mutating tools — confirm by default
+    update_application_status: confirm
+    add_note: confirm
+    update_user_override: confirm
+    # Long-running / expensive tools
+    trigger_scan: confirm
+    regenerate_briefing: confirm
