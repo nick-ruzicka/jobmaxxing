@@ -107,78 +107,103 @@ export async function POST(request: Request) {
 
   const file = readChatFile(date);
 
-  // Build the tool_result the agent will see on resume.
-  let toolResultContent: string;
-  if (action === "confirm") {
-    toolResultContent = await executeMutatingTool({
-      id: pending.pending_tool.id,
-      name: pending.pending_tool.name,
-      input: pending.pending_tool.input,
-    });
-  } else {
-    const reason = body.reason?.trim() || "no reason given";
-    toolResultContent = `[user declined this mutation; reason: ${reason}]`;
-  }
-
-  // Append the synthetic user turn (tool_result block) to the persisted
-  // convo so the upstream call sees the resolved tool call.
-  const convo: AgentMessage[] = pending.convo.slice();
-  convo.push({
-    role: "user",
-    content: [
-      {
-        type: "tool_result",
-        tool_use_id: pending.pending_tool.id,
-        content: toolResultContent,
-      },
-    ],
-  });
-
-  // Open the resume stream. Failures here are returned as JSON (not SSE) so
-  // the client gets a clean error before the stream begins — matches /api/chat.
-  let upstream: Response;
-  try {
-    upstream = await openClaudeStream({
-      systemText: pending.system_text,
-      messages: convo,
-      tools: AGENT_TOOLS,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "unknown";
-    if (msg.includes("CREDITS_EXHAUSTED")) {
-      return Response.json(
-        {
-          error: "credits_exhausted",
-          message:
-            "Anthropic API credits are exhausted. Top up to continue: https://console.anthropic.com/settings/billing",
-          topUpUrl: "https://console.anthropic.com/settings/billing",
-        },
-        { status: 402 },
-      );
-    }
-    return Response.json({ error: "claude_failed", message: msg }, { status: 500 });
-  }
-
-  // Pending state has done its job — clear it before streaming. If the
-  // resume itself hits a NEW confirmation gate, runAgentLoop will write a
-  // fresh pending file with the updated state.
-  deletePendingFile(date);
-
+  // Stream EVERYTHING from here on — including tool execution itself. We
+  // open the SSE response immediately so tools that stream progress
+  // (regenerate_briefing's ~30s sync-block) can reach the client live.
+  // Errors that used to be JSON 402 / 500 now arrive as SSE error events.
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       function send(payload: unknown) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       }
-      // Tell the client up front how the pending call was resolved. The
-      // agent's own follow-up text will summarize too, but this event is
-      // structured so the UI can dismiss the confirmation card cleanly.
+
+      // ── Phase 1: execute the pending tool (or build a decline result) ──
+      let toolResultContent: string;
+      if (action === "confirm") {
+        try {
+          toolResultContent = await executeMutatingTool(
+            {
+              id: pending.pending_tool.id,
+              name: pending.pending_tool.name,
+              input: pending.pending_tool.input,
+            },
+            // Forward script progress events to the chat client as
+            // tool_progress SSE events. The progress widget in
+            // AgentChatPanel renders these live; tools that don't stream
+            // (status/override/user-context/scan kickoffs) never call this.
+            (event) => {
+              send({ type: "tool_progress", id: pending.pending_tool.id, event });
+            },
+          );
+        } catch (err) {
+          // executeMutatingTool catches its own errors and returns text,
+          // but a programming error (bad import, etc.) could still throw.
+          // Surface as a tool_result with the failure baked in so the agent
+          // can apologize cleanly, then continue the loop.
+          toolResultContent = `[mutating tool error: ${err instanceof Error ? err.message : "unknown"}]`;
+        }
+      } else {
+        const reason = body.reason?.trim() || "no reason given";
+        toolResultContent = `[user declined this mutation; reason: ${reason}]`;
+      }
+
+      // Tell the client the pending call resolved. Comes after the tool
+      // execution so the order in the stream is:
+      //   tool_progress* → tool_resolved → delta* → done
       send({
         type: "tool_resolved",
         id: pending.pending_tool.id,
         action,
         result_preview: toolResultContent.slice(0, 500),
       });
+
+      // Append the synthetic user turn (tool_result block) to the persisted
+      // convo so the upstream call sees the resolved tool call.
+      const convo: AgentMessage[] = pending.convo.slice();
+      convo.push({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: pending.pending_tool.id,
+            content: toolResultContent,
+          },
+        ],
+      });
+
+      // ── Phase 2: open the resume stream from Claude ──
+      // Errors here used to be JSON 402/500; now SSE error events because
+      // we've already committed to a streaming response.
+      let upstream: Response;
+      try {
+        upstream = await openClaudeStream({
+          systemText: pending.system_text,
+          messages: convo,
+          tools: AGENT_TOOLS,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "unknown";
+        if (msg.includes("CREDITS_EXHAUSTED")) {
+          send({
+            type: "error",
+            error: "credits_exhausted",
+            message:
+              "Anthropic API credits are exhausted. Top up to continue: https://console.anthropic.com/settings/billing",
+            topUpUrl: "https://console.anthropic.com/settings/billing",
+          });
+        } else {
+          send({ type: "error", error: "claude_failed", message: msg });
+        }
+        controller.close();
+        return;
+      }
+
+      // Pending state has done its job — clear it before streaming. If the
+      // resume itself hits a NEW confirmation gate, runAgentLoop will write
+      // a fresh pending file with the updated state.
+      deletePendingFile(date);
+
       try {
         await runAgentLoop(
           {

@@ -37,6 +37,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
+import { checkCooldown, formatLastRunAgo } from "@/lib/rate-limit";
 import { join } from "path";
 import { load as yamlLoad } from "js-yaml";
 import { getCompFloorUsd, formatCompFloorString } from "@/lib/comp-floor";
@@ -646,6 +647,83 @@ export const AGENT_TOOLS = [
       required: ["entries"],
     },
   },
+  // ── Triggered-action tools (AI feature audit Step 8) ────────────────────
+  // Long-running scripts: briefing regeneration (sync-block, ~30s) and the
+  // two scan kinds (job-kickoff, 2-5 min typical, results in /today). All
+  // three go through MUTATING_TOOLS so the confirmation card surfaces the
+  // ETA + last-run-at before the user commits. See:
+  //   docs/audits/2026-05-29-triggered-actions-scope.md
+  {
+    name: "regenerate_briefing",
+    description:
+      "Re-run scripts/generate-briefing.mjs to refresh today's briefing on " +
+      "/today. ALWAYS pauses for user confirmation in the chat UI. Use when " +
+      "the user says 'regenerate today's briefing' or 'refresh the morning " +
+      "items'. Synchronous (~30s blocking) — the chat panel shows a progress " +
+      "widget while it runs; user can't send another message until it " +
+      "completes. Rate-limited 1 per 5 minutes server-side; the preview shows " +
+      "current cooldown state.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["daily", "pipeline-health"],
+          description:
+            "Briefing flavor. Defaults to 'daily' (the /today briefing). " +
+            "'pipeline-health' regenerates the weekly pipeline-health digest.",
+        },
+        reason: {
+          type: "string",
+          description: "Short why shown in the confirmation preview.",
+        },
+      },
+    },
+  },
+  {
+    name: "trigger_scan",
+    description:
+      "Kick off a fresh role scan in the background. Runs " +
+      "scripts/scan-jobs.mjs followed by scripts/enrich-roles.mjs so the " +
+      "user gets fit-scored roles, not raw URLs. ALWAYS pauses for user " +
+      "confirmation. Returns IMMEDIATELY with a job_id once the user " +
+      "confirms — the scan runs in the background and results appear on " +
+      "/today when it completes (typical: 2-5 min, worst case: 30+ min on a " +
+      "fresh enrichment backlog). The chat stays interactive; user can ask " +
+      "you other things while it runs. Rate-limited 1 per 15 minutes; the " +
+      "preview shows current cooldown state.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        reason: {
+          type: "string",
+          description: "Short why shown in the confirmation preview.",
+        },
+      },
+    },
+  },
+  {
+    name: "trigger_signal_scan",
+    description:
+      "Kick off a signal scan in the background. Runs " +
+      "scripts/scan-signals.mjs to find companies that will need a GTM " +
+      "Engineer in the next 30-60 days BEFORE they post (funding signals + " +
+      "absence check + outreach enrichment). ALWAYS pauses for user " +
+      "confirmation. Returns IMMEDIATELY with a job_id; high-conviction " +
+      "targets get appended to data/pipeline.md when it completes. Typical " +
+      "runtime 2-5 min; this is the weekly cron job (Mondays), so the user " +
+      "asking for it mid-week is asking for an early run. Rate-limited 1 " +
+      "per 15 minutes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        reason: {
+          type: "string",
+          description: "Short why shown in the confirmation preview.",
+        },
+      },
+    },
+  },
 ];
 
 // ── Confirmation gate (AI feature audit Step 7 PR b) ────────────────────────
@@ -659,6 +737,12 @@ const MUTATING_TOOLS = new Set<string>([
   "update_application_status",
   "update_score_override",
   "update_user_context",
+  // Step 8 triggered actions go through the same confirmation gate —
+  // the cost is wall time + Claude/Exa quota, not data integrity, so the
+  // user should approve before it runs.
+  "regenerate_briefing",
+  "trigger_scan",
+  "trigger_signal_scan",
 ]);
 
 export function requiresConfirmation(name: string): boolean {
@@ -715,6 +799,50 @@ export function buildConfirmationPreview(
     const why = reason ? `\n\nReason: ${reason}` : "";
     return `${head}\n${lines.join("\n")}${more}${why}`;
   }
+  if (name === "regenerate_briefing") {
+    const kind = typeof input.kind === "string" ? input.kind : "daily";
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const cooldownKind: "briefing-daily" | "briefing-pipeline-health" =
+      kind === "pipeline-health" ? "briefing-pipeline-health" : "briefing-daily";
+    const lastAgo = formatLastRunAgo(cooldownKind);
+    const cooldown = checkCooldown(cooldownKind);
+    const head = `Regenerate ${kind} briefing`;
+    const lastLine = lastAgo ? `Last run: ${lastAgo}` : "Last run: never";
+    const cooldownLine = cooldown
+      ? `\nCOOLDOWN ACTIVE — try again in ${Math.ceil(cooldown.retry_after_ms / 1000)}s`
+      : "";
+    const eta = "\nETA: ~30s (blocks the chat panel; progress widget shown)";
+    const why = reason ? `\n\nReason: ${reason}` : "";
+    return `${head}\n${lastLine}${cooldownLine}${eta}${why}`;
+  }
+  if (name === "trigger_scan") {
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const lastAgo = formatLastRunAgo("scan-jobs");
+    const cooldown = checkCooldown("scan-jobs");
+    const head = `Run a fresh role scan (scan-jobs.mjs → enrich-roles.mjs)`;
+    const lastLine = lastAgo ? `Last scan: ${lastAgo}` : "Last scan: never";
+    const cooldownLine = cooldown
+      ? `\nCOOLDOWN ACTIVE — try again in ${Math.ceil(cooldown.retry_after_ms / 60_000)}m`
+      : "";
+    const eta = "\nETA: 2-5 min typical (30+ min on a backlog). Runs in background — chat stays interactive.";
+    const cost = "\nCost: dozens of Claude calls for enrichment + Exa queries.";
+    const why = reason ? `\n\nReason: ${reason}` : "";
+    return `${head}\n${lastLine}${cooldownLine}${eta}${cost}${why}`;
+  }
+  if (name === "trigger_signal_scan") {
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const lastAgo = formatLastRunAgo("scan-signals");
+    const cooldown = checkCooldown("scan-signals");
+    const head = `Run a signal scan (scan-signals.mjs)`;
+    const lastLine = lastAgo ? `Last signal scan: ${lastAgo}` : "Last signal scan: never";
+    const cooldownLine = cooldown
+      ? `\nCOOLDOWN ACTIVE — try again in ${Math.ceil(cooldown.retry_after_ms / 60_000)}m`
+      : "";
+    const eta = "\nETA: 2-5 min. Runs in background — high-conviction targets get appended to data/pipeline.md.";
+    const cost = "\nCost: Exa queries for funding discovery + outreach enrichment.";
+    const why = reason ? `\n\nReason: ${reason}` : "";
+    return `${head}\n${lastLine}${cooldownLine}${eta}${cost}${why}`;
+  }
   return `${name}\n${JSON.stringify(input, null, 2)}`;
 }
 
@@ -748,7 +876,16 @@ function runTool(call: ToolCall): string {
  *
  *  Returns short structured-prose text rather than raw JSON so the agent's
  *  follow-up message can summarize what happened without re-parsing. */
-export async function executeMutatingTool(call: ToolCall): Promise<string> {
+export async function executeMutatingTool(
+  call: ToolCall,
+  /** Optional progress callback for tools that stream events while running
+   *  (currently: regenerate_briefing's SSE mode). Each call fires once per
+   *  script progress event; respond-to-tool wraps its `send` so the chat
+   *  client receives tool_progress SSE events the progress widget renders.
+   *  Non-streaming tools (status/override/user-context/scan kickoffs) ignore
+   *  this. */
+  onProgress?: (event: Record<string, unknown>) => void,
+): Promise<string> {
   try {
     if (call.name === "update_application_status") {
       const entries = Array.isArray(call.input.entries) ? call.input.entries : [];
@@ -818,6 +955,102 @@ export async function executeMutatingTool(call: ToolCall): Promise<string> {
       }
       const applied = Array.isArray(json.applied) ? json.applied : [];
       return `[update_user_context ok: applied ${applied.length} path${applied.length === 1 ? "" : "s"}]`;
+    }
+    if (call.name === "regenerate_briefing") {
+      // Sync-block model — the agent loop holds while the script runs (~30s
+      // typical, 90s ceiling). The route streams JSONL events as SSE
+      // tool_progress; we consume them, forward to onProgress for the
+      // chat widget, and return the final summary as tool_result text.
+      const kindParam =
+        typeof call.input.kind === "string" && call.input.kind === "pipeline-health"
+          ? "pipeline-health"
+          : "daily";
+      const { POST: regeneratePost } = await import("../briefing/regenerate/route");
+      const req = new Request(
+        `http://internal/api/briefing/regenerate?kind=${kindParam}&progress=sse`,
+        { method: "POST", headers: { "content-type": "application/json" } },
+      );
+      const res = await regeneratePost(req);
+      if (!res.body) {
+        return "[regenerate_briefing failed: route returned no body]";
+      }
+      const contentType = res.headers.get("Content-Type") ?? "";
+      // 429 / 402 / 500 come back as JSON, not SSE — handle those first.
+      if (!contentType.includes("text/event-stream")) {
+        const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        const message = typeof json.message === "string" ? json.message : "unknown";
+        return `[regenerate_briefing failed (HTTP ${res.status}): ${message}]`;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let lastFinished: Record<string, unknown> | null = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const ev of events) {
+          const dataLine = ev.split("\n").find((l) => l.startsWith("data: "));
+          if (!dataLine) continue;
+          let payload: unknown;
+          try {
+            payload = JSON.parse(dataLine.slice(6));
+          } catch {
+            continue;
+          }
+          const obj = payload as Record<string, unknown>;
+          if (obj.type === "tool_progress") {
+            onProgress?.(obj);
+          } else if (obj.type === "tool_finished") {
+            lastFinished = obj;
+          }
+        }
+      }
+      if (!lastFinished) {
+        return "[regenerate_briefing failed: stream ended without tool_finished event]";
+      }
+      if (lastFinished.ok !== true) {
+        const summary = typeof lastFinished.summary === "string" ? lastFinished.summary : "unknown";
+        return `[regenerate_briefing failed: ${summary}]`;
+      }
+      const summary =
+        typeof lastFinished.summary === "string"
+          ? lastFinished.summary
+          : "Regenerated briefing.";
+      const briefing = lastFinished.briefing as { items?: unknown[] } | undefined;
+      const itemCount = Array.isArray(briefing?.items) ? briefing.items.length : 0;
+      return `[regenerate_briefing ok: ${summary} (${itemCount} item${itemCount === 1 ? "" : "s"} on /today)]`;
+    }
+    if (call.name === "trigger_scan" || call.name === "trigger_signal_scan") {
+      // Minimal job-kickoff model — POST returns 202 with job_id, scan
+      // continues in background. Tool result tells the agent the job is
+      // running so it can acknowledge and stay interactive. The user can
+      // ask about progress later via /today (or a future check_scan_status
+      // tool in v1.1).
+      const routePath = call.name === "trigger_scan" ? "../run-scan/route" : "../run-signal-scan/route";
+      const mod = (await import(routePath)) as { POST: (req: Request) => Promise<Response> };
+      const req = new Request("http://internal/api/run-scan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      });
+      const res = await mod.POST(req);
+      const json = (await res.json()) as Record<string, unknown>;
+      if (res.status === 429) {
+        const retry = typeof json.retryAfterSeconds === "number" ? json.retryAfterSeconds : 0;
+        return `[${call.name} cooldown active: ${json.message ?? `try again in ${retry}s`}]`;
+      }
+      if (!res.ok || !json.job_id) {
+        return `[${call.name} failed (HTTP ${res.status}): ${JSON.stringify(json)}]`;
+      }
+      const chained = Array.isArray(json.chained) ? json.chained.join(" → ") : "";
+      const chainNote = chained ? ` Will chain: ${chained}.` : "";
+      return (
+        `[${call.name} started · job_id=${json.job_id} · status=${json.status}.${chainNote} ` +
+        `Results will appear in /today when it completes (typical 2-5 min). ` +
+        `Tell the user the scan is running and let them keep chatting — don't poll.]`
+      );
     }
     return `[mutating tool error: unknown tool "${call.name}"]`;
   } catch (err) {
