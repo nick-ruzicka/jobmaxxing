@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.12.0...v1.13.0) (2026-05-29)
+
+
+### Features
+
+* **chat:** agent tool use — query_roles + read_prep_doc (AI audit Step 6) ([653e499](https://github.com/nick-ruzicka/nick-career-ops/commit/653e499ab755807edafdf17769668303a5ad5d2a))
+* **chat:** agent tool use — query_roles + read_prep_doc (AI audit Step 6) ([fb553cc](https://github.com/nick-ruzicka/nick-career-ops/commit/fb553cc14cd71081706fd46003f8a15e39ce1251))
+
 ## [1.12.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.11.0...v1.12.0) (2026-05-29)
 
 
