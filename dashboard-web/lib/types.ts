@@ -126,6 +126,46 @@ export type BriefingItemType =
   | "label_opportunity"
   | "command_suggestion";
 
+/**
+ * Per-item context payload populated by the briefing generator and consumed
+ * by the chat panel + the inline-detail render. Per the AI feature audit
+ * (docs/audits/2026-05-28-ai-feature-audit.md §4): this used to be a free-form
+ * `Record<string, unknown>`, which is the root cause of the deep-link bug
+ * class. Now typed explicitly for the fields the generator actually emits.
+ *
+ * The trailing index signature is preserved so the generator can attach new
+ * fields ahead of consumers without breaking the type (forward-compat).
+ *
+ * Generator contract per scripts/generate-briefing.mjs prompt:
+ *   - "apply"/"missed"/"recalibrate" items: { url, company, role, fit_score, comp_range, stack, verdict_excerpt }
+ *   - "follow_up" items:                    { company, role, days_stale, status, draft_message }
+ *   - "verify_location" items:              { url, company, role, location_string }
+ */
+export interface BriefingItemContext {
+  /** Canonical role URL — the apply / JD link. Use for "Open JD". */
+  url?: string;
+  /** Company name as it appears in the briefing copy (e.g. "Anthropic"). */
+  company?: string;
+  /**
+   * Normalized slug derived from company. Used for deep-linking into
+   * /pipeline?company=<slug>&from=briefing and /companies/<slug>. May be
+   * absent on older briefings; consumers derive locally as fallback.
+   */
+  company_slug?: string;
+  /** Role title as shown in the briefing. */
+  role?: string;
+  fit_score?: number;
+  comp_range?: string;
+  stack?: string[];
+  verdict_excerpt?: string;
+  draft_message?: string;
+  days_stale?: number;
+  status?: string;
+  location_string?: string;
+  /** Forward-compat: generator may attach new fields ahead of consumers. */
+  [key: string]: unknown;
+}
+
 export interface BriefingItem {
   type: BriefingItemType;
   title: string;
@@ -133,10 +173,10 @@ export interface BriefingItem {
   /** Inline call-to-action — when both fields are set, an arrow link renders. */
   action_label?: string;
   action_href?: string;
-  /** Free-form context payload the chat panel uses to scope a conversation
-   *  scoped to this item. Populated by the generator (e.g. role URL + JD body
-   *  excerpt for "apply" / "recalibrate" items). */
-  context?: Record<string, unknown>;
+  /** Item-specific context payload (see BriefingItemContext above for the
+   *  generator contract). The chat panel uses this to scope a conversation
+   *  to the item; the inline-detail render uses it for fields + deep links. */
+  context?: BriefingItemContext;
 }
 
 export interface Briefing {

@@ -300,7 +300,7 @@ For each item, return:
 - subtitle: one tight sentence with the "why" (≤140 chars)
 - action_label: short verb phrase ("View role", "Open draft", "Re-evaluate", "Set location")
 - action_href: the role URL (action items pointing at /pipeline, /interviews, etc. for non-URL items are fine)
-- context: object with item-specific payload — for "apply"/"missed"/"recalibrate" include { url, company, role, fit_score, comp_range, stack, verdict_excerpt }; for "follow_up" include { company, role, days_stale, status, draft_message }; for "verify_location" include { url, company, role, location_string }
+- context: object with item-specific payload — for "apply"/"missed"/"recalibrate" include { url, company, company_slug, role, fit_score, comp_range, stack, verdict_excerpt }; for "follow_up" include { company, company_slug, role, days_stale, status, draft_message }; for "verify_location" include { url, company, company_slug, role, location_string }. company_slug is the company name lowercased with non-alphanumerics removed (e.g. "Anthropic" → "anthropic", "OpenAI" → "openai", "Mistral AI" → "mistralai"). Used by the UI for deep-linking into /pipeline?company=<slug>&from=briefing.
 
 Return ONLY valid JSON in this exact shape, no markdown, no commentary:
 { "items": [ ... ] }`;
