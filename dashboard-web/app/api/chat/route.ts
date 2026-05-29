@@ -242,6 +242,156 @@ function buildMessages(args: {
   return turns;
 }
 
+// ─── Agent tools (AI feature audit Step 6) ──────────────────────────────────
+// Two read-only tools that the agent can call when the question requires data
+// outside the cached system snapshot. Both return plain text to keep the
+// tool_result wire shape simple; structured returns are a v3 productization
+// concern. Mutating tools (Step 7) land separately after the write-path map
+// audit (5.5) is written.
+
+/** Tool definitions in Anthropic's expected schema shape. */
+const AGENT_TOOLS = [
+  {
+    name: "query_roles",
+    description:
+      "Search the user's role pipeline by company, status, or score range. " +
+      "Returns up to `limit` roles matching the filters, formatted as compact " +
+      "one-line summaries. Use this when the user asks about specific roles " +
+      "outside the top-50 already in the cached pipeline snapshot, or when " +
+      "they ask aggregate questions ('how many Applied roles do I have').",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        company: {
+          type: "string",
+          description: "Case-insensitive substring match against role company.",
+        },
+        statuses: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: [
+              "Discovered",
+              "Evaluated",
+              "Applied",
+              "Interview",
+              "Offer",
+              "Rejected",
+              "Skipped",
+            ],
+          },
+          description: "Filter to one or more statuses (OR semantics).",
+        },
+        min_score: { type: "number", description: "Minimum score (0-10). Inclusive." },
+        max_score: { type: "number", description: "Maximum score (0-10). Inclusive." },
+        limit: {
+          type: "integer",
+          description: "Cap the number of results. Defaults to 20; max 50.",
+        },
+      },
+    },
+  },
+  {
+    name: "read_prep_doc",
+    description:
+      "Read an interview prep document by slug (filename without .md extension). " +
+      "Returns the full markdown content. Slugs follow the pattern " +
+      "'<company>-<role>' — e.g. 'hebbia-gtm-engineer', 'anthropic-applied-ai'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        slug: {
+          type: "string",
+          description: "The prep doc slug — filename in interview-prep/ without .md.",
+        },
+      },
+      required: ["slug"],
+    },
+  },
+];
+
+interface ToolCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+/** Run a tool by name. Returns text to feed back into the conversation as a
+ *  tool_result. Errors are caught and returned as text so the agent can adapt
+ *  rather than the whole turn failing. */
+function runTool(call: ToolCall): string {
+  try {
+    if (call.name === "query_roles") return runQueryRoles(call.input);
+    if (call.name === "read_prep_doc") return runReadPrepDoc(call.input);
+    return `[tool error: unknown tool "${call.name}"]`;
+  } catch (err) {
+    return `[tool error: ${err instanceof Error ? err.message : "unknown"}]`;
+  }
+}
+
+function runQueryRoles(input: Record<string, unknown>): string {
+  const companyFilter = typeof input.company === "string" ? input.company.toLowerCase() : null;
+  const statusesFilter = Array.isArray(input.statuses)
+    ? new Set((input.statuses as unknown[]).filter((s): s is string => typeof s === "string"))
+    : null;
+  const minScore = typeof input.min_score === "number" ? input.min_score : null;
+  const maxScore = typeof input.max_score === "number" ? input.max_score : null;
+  const rawLimit = typeof input.limit === "number" ? input.limit : 20;
+  const limit = Math.max(1, Math.min(50, Math.floor(rawLimit)));
+
+  let roles: Role[];
+  try {
+    roles = getRoles({ includeAggregator: false });
+  } catch {
+    return "[tool: role data unavailable]";
+  }
+
+  const filtered = roles.filter((r) => {
+    if (companyFilter && !r.company.toLowerCase().includes(companyFilter)) return false;
+    if (statusesFilter && !statusesFilter.has(r.status)) return false;
+    if (minScore != null && r.score < minScore) return false;
+    if (maxScore != null && r.score > maxScore) return false;
+    return true;
+  });
+
+  const sorted = filtered.sort((a, b) => b.score - a.score).slice(0, limit);
+  if (sorted.length === 0) {
+    return `[query_roles: 0 results out of ${filtered.length} matching out of ${roles.length} total]`;
+  }
+  const header = `[query_roles: ${sorted.length} results out of ${filtered.length} matching out of ${roles.length} total]\n`;
+  const lines = sorted.map((r) => {
+    const score = r.score.toFixed(1);
+    const comp = r.enrichment?.comp_range ? ` ${r.enrichment.comp_range}` : "";
+    const loc = r.location ? ` ${r.location}` : "";
+    return `[${score}] ${r.company} — ${r.title} (${r.status}${loc}${comp}) ${r.url}`;
+  });
+  return header + lines.join("\n");
+}
+
+function runReadPrepDoc(input: Record<string, unknown>): string {
+  const slug = typeof input.slug === "string" ? input.slug : null;
+  if (!slug) return "[read_prep_doc error: missing or invalid slug]";
+  // Defensive path sanitization — reject anything containing path separators
+  // or upward-traversal so a malicious tool input can't read arbitrary files.
+  if (/[\\/]/.test(slug) || slug.includes("..") || slug.startsWith(".")) {
+    return `[read_prep_doc error: invalid slug "${slug}"]`;
+  }
+  const path = join(projectRoot(), "interview-prep", `${slug}.md`);
+  if (!existsSync(path)) {
+    return `[read_prep_doc: no doc at interview-prep/${slug}.md]`;
+  }
+  try {
+    const content = readFileSync(path, "utf-8");
+    // Cap at 16 KB to keep one tool_result from dominating the context.
+    if (content.length > 16000) {
+      return content.slice(0, 16000) + `\n\n[...truncated; doc is ${content.length} chars total]`;
+    }
+    return content;
+  } catch (err) {
+    return `[read_prep_doc error: ${err instanceof Error ? err.message : "read failed"}]`;
+  }
+}
+
 /** Lazy .env loader — Next.js only auto-loads .env files inside dashboard-web/,
  *  but ours lives at the worktree root (one level up) and is symlinked from
  *  the canonical repo. Read it on first miss and cache process.env. */
@@ -280,13 +430,29 @@ interface ClaudeUsage {
   cache_read_input_tokens?: number;
 }
 
+// Messages content can be either a plain string (simple text turn) or an
+// array of structured content blocks (mixed text + tool_use + tool_result).
+// Anthropic API accepts both; the agent loop uses arrays once tool calls
+// enter the conversation.
+type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; tool_use_id: string; content: string };
+
+interface AgentMessage {
+  role: "user" | "assistant";
+  content: string | ContentBlock[];
+}
+
 /** Open a streaming Claude call and return the fetch Response. Caller is
  *  responsible for reading the SSE stream and translating events. Throws
  *  on transport errors or non-200 status (with credit-exhausted detection
- *  preserved from the previous non-streaming implementation). */
+ *  preserved from the previous non-streaming implementation). When tools
+ *  are provided, the agent loop in the POST handler runs multi-round. */
 async function openClaudeStream(args: {
   systemText: string;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: AgentMessage[];
+  tools?: typeof AGENT_TOOLS;
 }): Promise<Response> {
   loadWorktreeEnv();
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -294,6 +460,20 @@ async function openClaudeStream(args: {
   // Structured system block with cache_control: ephemeral on the (single)
   // text block. Anthropic's prompt cache hits this prefix for ~5 minutes,
   // making subsequent turns within a session ~10× cheaper at scale.
+  const body: Record<string, unknown> = {
+    model: "claude-opus-4-7",
+    max_tokens: 1024,
+    stream: true,
+    system: [
+      {
+        type: "text",
+        text: args.systemText,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: args.messages,
+  };
+  if (args.tools && args.tools.length > 0) body.tools = args.tools;
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -301,19 +481,7 @@ async function openClaudeStream(args: {
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      model: "claude-opus-4-7",
-      max_tokens: 1024,
-      stream: true,
-      system: [
-        {
-          type: "text",
-          text: args.systemText,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: args.messages,
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -328,23 +496,34 @@ async function openClaudeStream(args: {
   return res;
 }
 
-/** Parse Anthropic's SSE stream into normalized events. Anthropic emits
- *  message_start / content_block_delta (the text chunks) / message_delta
- *  (final usage) / message_stop — we squash to two event types the client
- *  cares about: { type: "delta", text } for incremental tokens and
- *  { type: "usage", usage } for the final token count. */
-async function* parseAnthropicSSE(
-  res: Response,
-): AsyncGenerator<{ type: "delta"; text: string } | { type: "usage"; usage: ClaudeUsage }> {
+type SSEEvent =
+  | { type: "delta"; text: string }
+  | { type: "tool_call"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "stop_reason"; reason: string }
+  | { type: "usage"; usage: ClaudeUsage };
+
+/** Parse Anthropic's SSE stream into normalized events. Handles both text
+ *  blocks (yielding deltas as they arrive) and tool_use blocks (accumulating
+ *  the input JSON until content_block_stop, then yielding a complete
+ *  tool_call event). Yields stop_reason from message_delta so the agent loop
+ *  knows whether to continue with tool execution. */
+async function* parseAnthropicSSE(res: Response): AsyncGenerator<SSEEvent> {
   if (!res.body) throw new Error("Anthropic stream missing body");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+
+  // Track in-progress content blocks by index. For tool_use blocks we buffer
+  // the partial input_json deltas until content_block_stop fires.
+  type InProgress =
+    | { type: "text" }
+    | { type: "tool_use"; id: string; name: string; jsonBuffer: string };
+  const blocks = new Map<number, InProgress>();
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    // SSE events are separated by \n\n.
     const events = buffer.split("\n\n");
     buffer = events.pop() ?? "";
     for (const ev of events) {
@@ -357,19 +536,54 @@ async function* parseAnthropicSSE(
         continue;
       }
       const obj = data as Record<string, unknown>;
-      if (obj.type === "content_block_delta") {
-        const delta = obj.delta as { type?: string; text?: string } | undefined;
-        if (delta?.type === "text_delta" && typeof delta.text === "string") {
-          yield { type: "delta", text: delta.text };
-        }
-      } else if (obj.type === "message_start") {
+
+      if (obj.type === "message_start") {
         const msg = obj.message as { usage?: ClaudeUsage } | undefined;
         if (msg?.usage) yield { type: "usage", usage: msg.usage };
+      } else if (obj.type === "content_block_start") {
+        const idx = obj.index as number;
+        const block = obj.content_block as Record<string, unknown> | undefined;
+        if (block?.type === "tool_use") {
+          blocks.set(idx, {
+            type: "tool_use",
+            id: String(block.id ?? ""),
+            name: String(block.name ?? ""),
+            jsonBuffer: "",
+          });
+        } else {
+          blocks.set(idx, { type: "text" });
+        }
+      } else if (obj.type === "content_block_delta") {
+        const idx = obj.index as number;
+        const block = blocks.get(idx);
+        const delta = obj.delta as { type?: string; text?: string; partial_json?: string } | undefined;
+        if (delta?.type === "text_delta" && typeof delta.text === "string") {
+          yield { type: "delta", text: delta.text };
+        } else if (
+          delta?.type === "input_json_delta" &&
+          typeof delta.partial_json === "string" &&
+          block?.type === "tool_use"
+        ) {
+          block.jsonBuffer += delta.partial_json;
+        }
+      } else if (obj.type === "content_block_stop") {
+        const idx = obj.index as number;
+        const block = blocks.get(idx);
+        if (block?.type === "tool_use") {
+          let input: Record<string, unknown> = {};
+          try {
+            input = block.jsonBuffer ? JSON.parse(block.jsonBuffer) : {};
+          } catch {
+            input = { _raw_json: block.jsonBuffer };
+          }
+          yield { type: "tool_call", id: block.id, name: block.name, input };
+        }
+        blocks.delete(idx);
       } else if (obj.type === "message_delta") {
-        // message_delta carries the final output_tokens count when streaming.
-        // We don't yield here because the message_start usage already had
-        // input + cache counts; the dashboard's debug surface doesn't need
-        // a separate output-token update mid-stream.
+        const delta = obj.delta as { stop_reason?: string } | undefined;
+        if (delta?.stop_reason) {
+          yield { type: "stop_reason", reason: delta.stop_reason };
+        }
       }
     }
   }
@@ -450,9 +664,12 @@ export async function POST(request: Request) {
   const userTs = new Date().toISOString();
   file.messages.push({ role: "user", content: message, item_context: itemContext, ts: userTs });
 
-  let upstream: Response;
+  // Probe the upstream once before opening the response — credit-exhausted
+  // errors come back synchronously from openClaudeStream and we want to
+  // return JSON 402, not start an SSE response that immediately errors.
+  let firstUpstream: Response;
   try {
-    upstream = await openClaudeStream({ systemText, messages });
+    firstUpstream = await openClaudeStream({ systemText, messages, tools: AGENT_TOOLS });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
     if (msg.includes("CREDITS_EXHAUSTED")) {
@@ -469,31 +686,98 @@ export async function POST(request: Request) {
     return Response.json({ error: "claude_failed", message: msg }, { status: 500 });
   }
 
-  // Forward Anthropic's SSE as our own normalized event stream. Three event
-  // types the client handles:
-  //   { type: "delta", text }    — append to the in-progress assistant message
-  //   { type: "done", history, debug } — final state; client replaces local history
-  //   { type: "error", message } — bubbles up; client shows toast + rolls back
+  // Agent loop. Each round:
+  //   1. Stream the upstream Claude response; forward text deltas to client.
+  //   2. Collect any tool_use blocks + the final stop_reason.
+  //   3. If stop_reason == "tool_use", run the tools, append the assistant
+  //      turn (text + tool_use blocks) and a user turn (tool_result blocks)
+  //      to the conversation, open a new upstream stream, repeat.
+  //   4. Otherwise, persist and finish.
+  // Capped at MAX_TOOL_ROUNDS so a confused agent can't burn tokens forever.
+  const MAX_TOOL_ROUNDS = 3;
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       function send(payload: unknown) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       }
-      let assistantText = "";
+
+      // assistantTextAcrossRounds is the user-visible text concatenated over
+      // all rounds — this is what gets persisted into the chat file. Tool
+      // runs are deliberately NOT persisted; their outputs were fed back to
+      // the model in this turn and don't need to replay on hydration.
+      let assistantTextAcrossRounds = "";
       let usage: ClaudeUsage | undefined;
+      // toolRunsThisTurn is a server-log-only count of how many tool rounds
+      // fired this turn; surfaced in the debug payload.
+      let toolRounds = 0;
+      const convo: AgentMessage[] = messages.slice();
+      let currentUpstream: Response | null = firstUpstream;
+
       try {
-        for await (const ev of parseAnthropicSSE(upstream)) {
-          if (ev.type === "delta") {
-            assistantText += ev.text;
-            send({ type: "delta", text: ev.text });
-          } else if (ev.type === "usage") {
-            usage = ev.usage;
+        for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+          if (!currentUpstream) break;
+          let roundText = "";
+          const roundTools: ToolCall[] = [];
+          let roundStop: string | null = null;
+
+          for await (const ev of parseAnthropicSSE(currentUpstream)) {
+            if (ev.type === "delta") {
+              roundText += ev.text;
+              send({ type: "delta", text: ev.text });
+            } else if (ev.type === "tool_call") {
+              roundTools.push({ id: ev.id, name: ev.name, input: ev.input });
+            } else if (ev.type === "stop_reason") {
+              roundStop = ev.reason;
+            } else if (ev.type === "usage" && !usage) {
+              usage = ev.usage;
+            }
           }
+          assistantTextAcrossRounds += roundText;
+
+          // Natural stop or no tools requested → exit the loop.
+          if (roundStop !== "tool_use" || roundTools.length === 0) {
+            currentUpstream = null;
+            break;
+          }
+          toolRounds++;
+
+          // Build the assistant turn (text + tool_use blocks) and the
+          // synthetic user turn (tool_result blocks).
+          const assistantBlocks: ContentBlock[] = [];
+          if (roundText) assistantBlocks.push({ type: "text", text: roundText });
+          for (const t of roundTools) {
+            assistantBlocks.push({ type: "tool_use", id: t.id, name: t.name, input: t.input });
+          }
+          convo.push({ role: "assistant", content: assistantBlocks });
+
+          const toolResultBlocks: ContentBlock[] = roundTools.map((t) => ({
+            type: "tool_result",
+            tool_use_id: t.id,
+            content: runTool(t),
+          }));
+          convo.push({ role: "user", content: toolResultBlocks });
+
+          // Next round — re-open the stream with the extended convo.
+          currentUpstream = await openClaudeStream({
+            systemText,
+            messages: convo,
+            tools: AGENT_TOOLS,
+          });
         }
+
+        // Round cap notice (rare path; surfaces as plain text so the user
+        // at least sees something honest if the loop ran out of budget).
+        if (currentUpstream != null) {
+          const notice =
+            "\n\n[Note: stopped after 3 tool rounds. Ask again with a narrower question if you wanted more digging.]";
+          assistantTextAcrossRounds += notice;
+          send({ type: "delta", text: notice });
+        }
+
         // Persist + send final history.
         const assistantTs = new Date().toISOString();
-        file.messages.push({ role: "assistant", content: assistantText, ts: assistantTs });
+        file.messages.push({ role: "assistant", content: assistantTextAcrossRounds, ts: assistantTs });
         try {
           writeChatFile(file);
         } catch (persistErr) {
@@ -502,7 +786,11 @@ export async function POST(request: Request) {
             type: "done",
             history: file.messages,
             persistence_warning: true,
-            debug: usage ? { tokens_estimate: totalEst, usage } : { tokens_estimate: totalEst },
+            debug: {
+              tokens_estimate: totalEst,
+              usage,
+              tool_rounds: toolRounds,
+            },
           });
           controller.close();
           return;
@@ -510,7 +798,11 @@ export async function POST(request: Request) {
         send({
           type: "done",
           history: file.messages,
-          debug: usage ? { tokens_estimate: totalEst, usage } : { tokens_estimate: totalEst },
+          debug: {
+            tokens_estimate: totalEst,
+            usage,
+            tool_rounds: toolRounds,
+          },
         });
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "stream failed";
