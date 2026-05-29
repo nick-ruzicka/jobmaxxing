@@ -46,7 +46,7 @@ const ALIASES = {
   'oferta': 'offer',
   'rechazado': 'rejected', 'rechazada': 'rejected',
   'descartado': 'discarded', 'descartada': 'discarded', 'cerrada': 'discarded', 'cancelada': 'discarded',
-  'no aplicar': 'skip', 'no_aplicar': 'skip', 'monitor': 'skip', 'geo blocker': 'skip',
+  'no aplicar': 'skip', 'no_aplicar': 'skip', 'monitor': 'skip', 'geo blocker': 'skip', 'skipped': 'skip',
 };
 
 let errors = 0;
@@ -138,10 +138,20 @@ for (const e of entries) {
 if (brokenReports === 0) ok('All report links valid');
 
 // --- Check 4: Score format ---
+// Accepted: "X.X/5" or "X.XX/5" (numeric eval), "N/A" (not applicable),
+//           "DUP" (duplicate row), "—/5" (em-dash; applied-without-evaluation
+//           state — a valid step in the pipeline when batch-applying to roles
+//           you haven't yet scored). The em-dash literal matches data/applications.md
+//           rows that the user added without running an evaluation pass.
 let badScores = 0;
 for (const e of entries) {
   const s = e.score.replace(/\*\*/g, '').trim();
-  if (!/^\d+\.?\d*\/5$/.test(s) && s !== 'N/A' && s !== 'DUP') {
+  if (
+    !/^\d+\.?\d*\/5$/.test(s) &&
+    s !== 'N/A' &&
+    s !== 'DUP' &&
+    s !== '—/5'
+  ) {
     error(`#${e.num}: Invalid score format: "${e.score}"`);
     badScores++;
   }
