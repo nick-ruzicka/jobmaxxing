@@ -1,6 +1,5 @@
 import { Badge, type BadgeColor } from "@/components/ui";
 import type { ScoreProvenance } from "@/lib/types";
-import { parseClampReason } from "@/lib/clamp-reason";
 
 function tierColor(score: number): BadgeColor {
   if (score >= 8) return "emerald";
@@ -44,22 +43,18 @@ export function ScorePill({
     : clampReason
       ? `floor-clamped to 0, killed by ${clampReason}`
       : undefined;
-  const clamp = clampReason ? parseClampReason(clampReason) : null;
 
   return (
-    <span className="relative inline-flex items-center gap-1.5" title={title}>
-      <span className="relative inline-flex items-center">
-        <Badge color={tierColor(score)}>{score}</Badge>
-        {p && (
-          <span
-            aria-hidden
-            className={`pointer-events-none absolute right-[2px] top-[2px] h-[5px] w-[5px] rounded-full ${
-              scoreCapped ? `border bg-transparent ${p.ring}` : p.dot
-            }`}
-          />
-        )}
-      </span>
-      {clamp && <Badge color="amber">killed: {clamp.factor}</Badge>}
+    <span className="relative inline-flex items-center" title={title}>
+      <Badge color={tierColor(score)}>{score}</Badge>
+      {p && (
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute right-[2px] top-[2px] h-[5px] w-[5px] rounded-full ${
+            scoreCapped ? `border bg-transparent ${p.ring}` : p.dot
+          }`}
+        />
+      )}
     </span>
   );
 }

@@ -14,6 +14,7 @@ import type {
 import { clusterForLocation, flattenLocation, parseLocationString } from "./location-clusters";
 import type { StructuredLocation } from "./location-clusters";
 import { normalizeCompany, companyKey } from "../../scripts/lib/normalize-company.mjs";
+import { resolveOverride, applyScoreOverrides } from "../../scripts/lib/score-overrides.mjs";
 import { companyCandidateKeys, countOpenRolesForCompany } from "./role-matching";
 
 // Re-export for dashboard consumers (`import { companyKey } from "@/lib/data"`).
@@ -174,7 +175,6 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
   // removed in favor of the centralized version so alias-mapped names
   // (OpenAI Inc / OpenAI, X / xAI, Norminal.So / Nominal, …) collapse to the
   // same override slot, matching scan-jobs.mjs + sync-score-feedback.mjs.
-  const clampScore = (n: number) => Math.max(1, Math.min(10, Math.round(n)));
 
   // Parse latest scan report for scores and metadata
   const reportsDir = join(ROOT, "reports");
@@ -348,30 +348,16 @@ export function getRoles(opts: { includeAggregator?: boolean } = {}): Role[] {
     score = Math.round(score);
 
     // Manual eval override (data/score-overrides.json) — the final word: wins over the
-    // priority chain and the caps. Precedence: block > boost > penalize. boost/penalize
-    // entries carry a /5 eval score, which we honor directly (×2 → /10) — more precise than
-    // scan-jobs.mjs' coarse +2 / min(4) (see Phase 11 TODO: reconcile the two scoring paths).
+    // priority chain and the caps. Precedence block > boost > penalize, eval×2 for scored
+    // overrides. Shared with scan-jobs.mjs via scripts/lib/score-overrides.mjs (E7-C).
     let scoreOverrideReason: string | undefined;
     const ck = companyKey(company);
-    if (ck) {
-      if ((overrides.block || []).includes(ck)) {
-        score = 1;
-        scoreProvenance = "override";
-        scoreOverrideReason = "Blocked — eval ≤ 1.5/5";
-        scoreCapped = false;
-      } else if (overrides.boost?.[ck]) {
-        const o = overrides.boost[ck];
-        score = typeof o.score === "number" ? clampScore(o.score * 2) : clampScore(score + 2);
-        scoreProvenance = "override";
-        scoreOverrideReason = o.reason;
-        scoreCapped = false;
-      } else if (overrides.penalize?.[ck]) {
-        const o = overrides.penalize[ck];
-        score = typeof o.score === "number" ? clampScore(o.score * 2) : Math.min(score, 4);
-        scoreProvenance = "override";
-        scoreOverrideReason = o.reason;
-        scoreCapped = false;
-      }
+    const resolvedOverride = resolveOverride(overrides, ck);
+    if (resolvedOverride) {
+      score = applyScoreOverrides(score, resolvedOverride);
+      scoreProvenance = "override";
+      scoreOverrideReason = resolvedOverride.reason;
+      scoreCapped = false;
     }
 
     // Staleness detection: flag roles first seen more than 30 days ago
