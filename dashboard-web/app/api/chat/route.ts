@@ -36,7 +36,7 @@
  * GET /api/chat?date=YYYY-MM-DD — returns { history } for hydration on page load.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { load as yamlLoad } from "js-yaml";
 import { getCompFloorUsd, formatCompFloorString } from "@/lib/comp-floor";
@@ -64,11 +64,11 @@ function projectRoot(): string {
   return join(process.cwd(), "..");
 }
 
-function chatFilePath(date: string): string {
+export function chatFilePath(date: string): string {
   return join(projectRoot(), "data", "chats", `${date}.json`);
 }
 
-function readChatFile(date: string): ChatFile {
+export function readChatFile(date: string): ChatFile {
   const path = chatFilePath(date);
   if (!existsSync(path)) return { date, messages: [] };
   try {
@@ -78,10 +78,78 @@ function readChatFile(date: string): ChatFile {
   }
 }
 
-function writeChatFile(file: ChatFile): void {
+export function writeChatFile(file: ChatFile): void {
   const dir = join(projectRoot(), "data", "chats");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(chatFilePath(file.date), JSON.stringify(file, null, 2) + "\n");
+}
+
+// ── Pending-tool persistence (PR b) ─────────────────────────────────────────
+// When the agent loop hits a confirmation-required tool, we freeze the
+// conversation state to disk and end the SSE stream. POST /api/chat/respond-
+// to-tool then thaws the state, applies the user's decision, and continues
+// the loop. State lives alongside the regular chat history file so refreshing
+// the page can re-render the confirmation card from GET /api/chat.
+//
+// Single-pending-call-per-date is enforced — sending a new user message while
+// pending state exists silently discards it (treated as cancel). PR c's
+// confirmation UI is the right place to expose this; the API just gates.
+
+export interface PendingState {
+  date: string;
+  /** System prompt at the time of pause — preserved so the resume uses
+   *  identical cache key and the loop continues with the same context. */
+  system_text: string;
+  /** Full conversation up to and INCLUDING the assistant turn that issued
+   *  the tool_use. The resume appends a tool_result-bearing user turn. */
+  convo: AgentMessage[];
+  pending_tool: {
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+    preview: string;
+  };
+  /** Assistant text streamed so far across all rounds. Resume continues
+   *  appending; final value is what gets persisted to chat history. */
+  text_so_far: string;
+  tool_rounds: number;
+  usage: ClaudeUsage | undefined;
+  total_est: number;
+  /** Round index to resume on (i.e. the round AFTER the paused one). */
+  next_round: number;
+}
+
+export function pendingFilePath(date: string): string {
+  return join(projectRoot(), "data", "chats", `${date}.pending.json`);
+}
+
+export function readPendingFile(date: string): PendingState | null {
+  const path = pendingFilePath(date);
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as PendingState;
+  } catch {
+    return null;
+  }
+}
+
+export function writePendingFile(state: PendingState): void {
+  const dir = join(projectRoot(), "data", "chats");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(pendingFilePath(state.date), JSON.stringify(state, null, 2) + "\n");
+}
+
+export function deletePendingFile(date: string): void {
+  const path = pendingFilePath(date);
+  if (existsSync(path)) {
+    try {
+      unlinkSync(path);
+    } catch (err) {
+      // Best-effort delete — stale pending state is recoverable on next
+      // POST (we discard it then), so warn but don't fail the response.
+      console.warn("[chat] pending file delete failed:", err);
+    }
+  }
 }
 
 function readBriefingForDate(date: string): Briefing | null {
@@ -347,7 +415,7 @@ function buildMessages(args: {
 // audit (5.5) is written.
 
 /** Tool definitions in Anthropic's expected schema shape. */
-const AGENT_TOOLS = [
+export const AGENT_TOOLS = [
   {
     name: "query_roles",
     description:
@@ -405,17 +473,120 @@ const AGENT_TOOLS = [
       required: ["slug"],
     },
   },
+  // ── Mutating tools ──────────────────────────────────────────────────────
+  // These ALWAYS pause the agent loop for user confirmation in the chat UI
+  // (the server detects the name is in MUTATING_TOOLS and emits tool_request
+  // instead of executing). The agent does NOT need to ask for confirmation in
+  // text — the UI handles it. Description tells the agent to gather all rows
+  // first and call ONCE with a single bulk entries[] — looping is wrong both
+  // because of the per-call confirmation cost AND because the underlying
+  // endpoint mutates atomically.
+  {
+    name: "update_application_status",
+    description:
+      "Mark one or more roles in the user's applications tracker with a new " +
+      "status. ALWAYS pauses for user confirmation in the chat UI before " +
+      "executing — you do NOT need to ask permission in text. Use this when " +
+      "the user says things like 'mark Hebbia as Applied' or 'disqualify " +
+      "all hybrid SF/Philly roles'. For bulk actions, gather the role list " +
+      "with query_roles first (use location_substrings for location filters), " +
+      "then call THIS tool ONCE with all entries in a single bulk array — do " +
+      "NOT loop calling it per role. Existing rows are matched on company + " +
+      "title; unmatched URLs are upserted as new rows (except Discovered).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        entries: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              url: { type: "string", description: "Canonical role URL." },
+              status: {
+                type: "string",
+                enum: [
+                  "Discovered",
+                  "Evaluated",
+                  "Applied",
+                  "Interview",
+                  "Offer",
+                  "Rejected",
+                  "Skipped",
+                ],
+                description: "New status to apply.",
+              },
+              company: {
+                type: "string",
+                description: "Company name — used to match the row in applications.md.",
+              },
+              title: {
+                type: "string",
+                description: "Role title — used to match the row in applications.md.",
+              },
+            },
+            required: ["url", "status"],
+          },
+          description: "One or more roles to update in a single atomic write.",
+        },
+        reason: {
+          type: "string",
+          description:
+            "Short why for the user's audit trail (e.g. 'hybrid role in SF/Philly'). Shown in the confirmation preview.",
+        },
+      },
+      required: ["entries"],
+    },
+  },
 ];
 
-interface ToolCall {
+// ── Confirmation gate (AI feature audit Step 7 PR b) ────────────────────────
+// Tools whose name is in MUTATING_TOOLS get the two-phase treatment: the
+// agent loop pauses, emits a `tool_request` SSE event with a preview, and
+// waits for the user to confirm via POST /api/chat/respond-to-tool. The
+// underlying endpoints (e.g. /api/update-status) still require confirmed_bulk
+// at the HTTP layer as defense-in-depth.
+
+const MUTATING_TOOLS = new Set<string>(["update_application_status"]);
+
+export function requiresConfirmation(name: string): boolean {
+  return MUTATING_TOOLS.has(name);
+}
+
+/** Build a human-readable preview shown in the confirmation card. Per-tool
+ *  formatting — falls back to a JSON dump for unknown tools so the user can
+ *  at least eyeball the input. */
+export function buildConfirmationPreview(
+  name: string,
+  input: Record<string, unknown>,
+): string {
+  if (name === "update_application_status") {
+    const entries = Array.isArray(input.entries) ? (input.entries as Array<Record<string, unknown>>) : [];
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const lines = entries.slice(0, 10).map((e) => {
+      const company = typeof e.company === "string" && e.company ? e.company : "?";
+      const title = typeof e.title === "string" && e.title ? e.title : "?";
+      const status = typeof e.status === "string" ? e.status : "?";
+      return `• [${status}] ${company} — ${title}`;
+    });
+    const head = `Update ${entries.length} role${entries.length === 1 ? "" : "s"}:`;
+    const more = entries.length > 10 ? `\n… and ${entries.length - 10} more` : "";
+    const why = reason ? `\n\nReason: ${reason}` : "";
+    return `${head}\n${lines.join("\n")}${more}${why}`;
+  }
+  return `${name}\n${JSON.stringify(input, null, 2)}`;
+}
+
+export interface ToolCall {
   id: string;
   name: string;
   input: Record<string, unknown>;
 }
 
-/** Run a tool by name. Returns text to feed back into the conversation as a
- *  tool_result. Errors are caught and returned as text so the agent can adapt
- *  rather than the whole turn failing. */
+/** Run a read-only tool by name. Returns text to feed back into the
+ *  conversation as a tool_result. Errors are caught and returned as text so
+ *  the agent can adapt rather than the whole turn failing. Mutating tools
+ *  (MUTATING_TOOLS) are NOT routed here — they go through executeMutatingTool
+ *  after the user confirms in the chat UI. */
 function runTool(call: ToolCall): string {
   try {
     if (call.name === "query_roles") return runQueryRoles(call.input);
@@ -423,6 +594,52 @@ function runTool(call: ToolCall): string {
     return `[tool error: unknown tool "${call.name}"]`;
   } catch (err) {
     return `[tool error: ${err instanceof Error ? err.message : "unknown"}]`;
+  }
+}
+
+/** Execute a mutating tool AFTER the user confirmed in the chat UI. Returns
+ *  the tool_result text to feed back to the agent. Always sets confirmed_bulk
+ *  on the downstream endpoint — the user's confirmation in the UI counts as
+ *  the bulk consent for any number of entries. The endpoint's own
+ *  needs_bulk_confirmation gate is preserved as defense-in-depth for callers
+ *  that bypass the chat (the dashboard's manual-edit UI, scripts, etc).
+ *
+ *  Returns short structured-prose text rather than raw JSON so the agent's
+ *  follow-up message can summarize what happened without re-parsing. */
+export async function executeMutatingTool(call: ToolCall): Promise<string> {
+  try {
+    if (call.name === "update_application_status") {
+      const entries = Array.isArray(call.input.entries) ? call.input.entries : [];
+      if (entries.length === 0) {
+        return "[update_application_status: refused — no entries provided]";
+      }
+      // Lazy import avoids a circular import at module-load time (the route
+      // file declaring this function would otherwise depend on a sibling
+      // route's bundle being ready).
+      const { POST: updateStatusPost } = await import("../update-status/route");
+      const req = new Request("http://internal/api/update-status", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ entries, confirmed_bulk: true }),
+      });
+      const res = await updateStatusPost(req);
+      const json = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        return `[update_application_status failed (HTTP ${res.status}): ${JSON.stringify(json)}]`;
+      }
+      const updated = typeof json.updated === "number" ? json.updated : 0;
+      const applied = Array.isArray(json.applied) ? json.applied : [];
+      const lines = applied.slice(0, 10).map((a: unknown) => {
+        const r = a as Record<string, unknown>;
+        const matched = r.matched ? "matched" : r.upserted ? "upserted" : "no-match";
+        return `• [${r.status}] ${r.url} (${matched})`;
+      });
+      const more = applied.length > 10 ? `\n… and ${applied.length - 10} more` : "";
+      return `[update_application_status ok: updated ${updated} of ${applied.length}]\n${lines.join("\n")}${more}`;
+    }
+    return `[mutating tool error: unknown tool "${call.name}"]`;
+  } catch (err) {
+    return `[mutating tool error: ${err instanceof Error ? err.message : "unknown"}]`;
   }
 }
 
@@ -540,12 +757,12 @@ interface ClaudeUsage {
 // array of structured content blocks (mixed text + tool_use + tool_result).
 // Anthropic API accepts both; the agent loop uses arrays once tool calls
 // enter the conversation.
-type ContentBlock =
+export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
   | { type: "tool_result"; tool_use_id: string; content: string };
 
-interface AgentMessage {
+export interface AgentMessage {
   role: "user" | "assistant";
   content: string | ContentBlock[];
 }
@@ -555,7 +772,7 @@ interface AgentMessage {
  *  on transport errors or non-200 status (with credit-exhausted detection
  *  preserved from the previous non-streaming implementation). When tools
  *  are provided, the agent loop in the POST handler runs multi-round. */
-async function openClaudeStream(args: {
+export async function openClaudeStream(args: {
   systemText: string;
   messages: AgentMessage[];
   tools?: typeof AGENT_TOOLS;
@@ -695,6 +912,197 @@ async function* parseAnthropicSSE(res: Response): AsyncGenerator<SSEEvent> {
   }
 }
 
+// ── Shared agent loop (PR b) ────────────────────────────────────────────────
+// Drives one or more rounds of Claude streaming + tool execution. Used by
+// both POST /api/chat (fresh turn) and POST /api/chat/respond-to-tool (resume
+// after user confirmed/cancelled a mutating tool). Caller passes:
+//   - the open upstream stream to read from first
+//   - the conversation state matching that upstream
+//   - cumulative counters (text-so-far, tool_rounds, usage) — for resume,
+//     these carry over from the pre-pause turn
+// The loop:
+//   1. Reads each upstream's SSE deltas, streaming text to the client.
+//   2. Collects tool_use blocks + stop_reason per round.
+//   3. On stop_reason "tool_use":
+//        - If ANY tool requires confirmation, freezes state and emits
+//          tool_request — returns without writing to chat history.
+//        - Otherwise, executes the tools, appends turns, opens next stream.
+//   4. On natural stop or round cap, persists assistant text + sends done.
+
+export const MAX_TOOL_ROUNDS = 3;
+
+export async function runAgentLoop(
+  args: {
+    date: string;
+    file: ChatFile;
+    systemText: string;
+    convo: AgentMessage[];
+    initialUpstream: Response;
+    startRound: number;
+    initialAssistantText: string;
+    initialToolRounds: number;
+    initialUsage: ClaudeUsage | undefined;
+    totalEst: number;
+  },
+  send: (payload: unknown) => void,
+): Promise<void> {
+  const { date, file, systemText, totalEst } = args;
+  let assistantTextAcrossRounds = args.initialAssistantText;
+  let usage: ClaudeUsage | undefined = args.initialUsage;
+  let toolRounds = args.initialToolRounds;
+  const convo = args.convo;
+  let currentUpstream: Response | null = args.initialUpstream;
+
+  for (let round = args.startRound; round < MAX_TOOL_ROUNDS; round++) {
+    if (!currentUpstream) break;
+    let roundText = "";
+    const roundTools: ToolCall[] = [];
+    let roundStop: string | null = null;
+
+    for await (const ev of parseAnthropicSSE(currentUpstream)) {
+      if (ev.type === "delta") {
+        roundText += ev.text;
+        send({ type: "delta", text: ev.text });
+      } else if (ev.type === "tool_call") {
+        roundTools.push({ id: ev.id, name: ev.name, input: ev.input });
+      } else if (ev.type === "stop_reason") {
+        roundStop = ev.reason;
+      } else if (ev.type === "usage" && !usage) {
+        usage = ev.usage;
+      }
+    }
+    assistantTextAcrossRounds += roundText;
+
+    // Natural stop or no tools requested → exit the loop and persist.
+    if (roundStop !== "tool_use" || roundTools.length === 0) {
+      currentUpstream = null;
+      break;
+    }
+    toolRounds++;
+
+    // Confirmation gate. v1 rule: if ANY tool in this round needs
+    // confirmation, the round MUST contain only that single tool. Multi-tool
+    // rounds mixing auto + mutating tools fail loudly so a confused agent
+    // can't sneak a mutation in alongside reads. Adjust when PR c lands the
+    // multi-tool confirmation UI.
+    const confirmingTools = roundTools.filter((t) => requiresConfirmation(t.name));
+    if (confirmingTools.length > 0) {
+      if (roundTools.length > 1) {
+        const errMsg =
+          "[server constraint: mutating tools (update_application_status, …) " +
+          "must be called alone in a round, not alongside other tools. " +
+          "Re-issue with just the mutating tool, gathering any read data in a separate prior round.]";
+        const assistantBlocks: ContentBlock[] = [];
+        if (roundText) assistantBlocks.push({ type: "text", text: roundText });
+        for (const t of roundTools) {
+          assistantBlocks.push({ type: "tool_use", id: t.id, name: t.name, input: t.input });
+        }
+        convo.push({ role: "assistant", content: assistantBlocks });
+        const toolResultBlocks: ContentBlock[] = roundTools.map((t) => ({
+          type: "tool_result",
+          tool_use_id: t.id,
+          content: errMsg,
+        }));
+        convo.push({ role: "user", content: toolResultBlocks });
+        currentUpstream = await openClaudeStream({
+          systemText,
+          messages: convo,
+          tools: AGENT_TOOLS,
+        });
+        continue;
+      }
+
+      // Single mutating tool — pause for confirmation.
+      const t = roundTools[0];
+      const preview = buildConfirmationPreview(t.name, t.input);
+
+      const assistantBlocks: ContentBlock[] = [];
+      if (roundText) assistantBlocks.push({ type: "text", text: roundText });
+      assistantBlocks.push({ type: "tool_use", id: t.id, name: t.name, input: t.input });
+      convo.push({ role: "assistant", content: assistantBlocks });
+
+      writePendingFile({
+        date,
+        system_text: systemText,
+        convo,
+        pending_tool: { id: t.id, name: t.name, input: t.input, preview },
+        text_so_far: assistantTextAcrossRounds,
+        tool_rounds: toolRounds,
+        usage,
+        total_est: totalEst,
+        next_round: round + 1,
+      });
+
+      send({
+        type: "tool_request",
+        id: t.id,
+        name: t.name,
+        input: t.input,
+        preview,
+      });
+      // paused: signals client the stream is closing intentionally (vs. an
+      // unexpected disconnect). Final history is NOT persisted yet.
+      send({
+        type: "paused",
+        debug: { tokens_estimate: totalEst, usage, tool_rounds: toolRounds },
+      });
+      return;
+    }
+
+    // Auto-execute round. Build assistant turn (text + tool_use) and the
+    // synthetic user turn (tool_result blocks), open the next stream.
+    const assistantBlocks: ContentBlock[] = [];
+    if (roundText) assistantBlocks.push({ type: "text", text: roundText });
+    for (const t of roundTools) {
+      assistantBlocks.push({ type: "tool_use", id: t.id, name: t.name, input: t.input });
+    }
+    convo.push({ role: "assistant", content: assistantBlocks });
+
+    const toolResultBlocks: ContentBlock[] = roundTools.map((t) => ({
+      type: "tool_result",
+      tool_use_id: t.id,
+      content: runTool(t),
+    }));
+    convo.push({ role: "user", content: toolResultBlocks });
+
+    currentUpstream = await openClaudeStream({
+      systemText,
+      messages: convo,
+      tools: AGENT_TOOLS,
+    });
+  }
+
+  // Hit the round cap with the loop still wanting tools — surface a notice
+  // so the user sees something honest rather than dead silence.
+  if (currentUpstream != null) {
+    const notice =
+      "\n\n[Note: stopped after 3 tool rounds. Ask again with a narrower question if you wanted more digging.]";
+    assistantTextAcrossRounds += notice;
+    send({ type: "delta", text: notice });
+  }
+
+  // Persist + send final history.
+  const assistantTs = new Date().toISOString();
+  file.messages.push({ role: "assistant", content: assistantTextAcrossRounds, ts: assistantTs });
+  try {
+    writeChatFile(file);
+  } catch (persistErr) {
+    console.error("[chat] persistence failed:", persistErr);
+    send({
+      type: "done",
+      history: file.messages,
+      persistence_warning: true,
+      debug: { tokens_estimate: totalEst, usage, tool_rounds: toolRounds },
+    });
+    return;
+  }
+  send({
+    type: "done",
+    history: file.messages,
+    debug: { tokens_estimate: totalEst, usage, tool_rounds: toolRounds },
+  });
+}
+
 // Rough char→token estimate. Anthropic's tokenizer averages ~4 chars per
 // token for English; this is good enough for the soft-cap warning. We don't
 // truncate based on this — Anthropic API will error if the prompt is too
@@ -726,6 +1134,13 @@ export async function POST(request: Request) {
   }
 
   const file = readChatFile(date);
+  // A fresh user message supersedes any prior unresolved confirmation. The
+  // previous turn's pending tool_use never executed; its assistant text was
+  // not persisted (held only in pending state). Silently discard it; the
+  // user can re-issue if they meant to confirm. PR c's UI will catch this
+  // case before POSTing.
+  deletePendingFile(date);
+
   const briefing = readBriefingForDate(date);
   const goals = readUserGoals();
   // Load the full-context block — CV, preferences, pipeline snapshot,
@@ -794,124 +1209,32 @@ export async function POST(request: Request) {
     return Response.json({ error: "claude_failed", message: msg }, { status: 500 });
   }
 
-  // Agent loop. Each round:
-  //   1. Stream the upstream Claude response; forward text deltas to client.
-  //   2. Collect any tool_use blocks + the final stop_reason.
-  //   3. If stop_reason == "tool_use", run the tools, append the assistant
-  //      turn (text + tool_use blocks) and a user turn (tool_result blocks)
-  //      to the conversation, open a new upstream stream, repeat.
-  //   4. Otherwise, persist and finish.
-  // Capped at MAX_TOOL_ROUNDS so a confused agent can't burn tokens forever.
-  const MAX_TOOL_ROUNDS = 3;
+  // Drive the multi-round agent loop via the shared helper. The helper
+  // owns: streaming text to the client, collecting tool_use blocks,
+  // pausing for confirmation on mutating tools, persisting on natural
+  // stop. Same code path used by /api/chat/respond-to-tool on resume.
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       function send(payload: unknown) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       }
-
-      // assistantTextAcrossRounds is the user-visible text concatenated over
-      // all rounds — this is what gets persisted into the chat file. Tool
-      // runs are deliberately NOT persisted; their outputs were fed back to
-      // the model in this turn and don't need to replay on hydration.
-      let assistantTextAcrossRounds = "";
-      let usage: ClaudeUsage | undefined;
-      // toolRunsThisTurn is a server-log-only count of how many tool rounds
-      // fired this turn; surfaced in the debug payload.
-      let toolRounds = 0;
-      const convo: AgentMessage[] = messages.slice();
-      let currentUpstream: Response | null = firstUpstream;
-
       try {
-        for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-          if (!currentUpstream) break;
-          let roundText = "";
-          const roundTools: ToolCall[] = [];
-          let roundStop: string | null = null;
-
-          for await (const ev of parseAnthropicSSE(currentUpstream)) {
-            if (ev.type === "delta") {
-              roundText += ev.text;
-              send({ type: "delta", text: ev.text });
-            } else if (ev.type === "tool_call") {
-              roundTools.push({ id: ev.id, name: ev.name, input: ev.input });
-            } else if (ev.type === "stop_reason") {
-              roundStop = ev.reason;
-            } else if (ev.type === "usage" && !usage) {
-              usage = ev.usage;
-            }
-          }
-          assistantTextAcrossRounds += roundText;
-
-          // Natural stop or no tools requested → exit the loop.
-          if (roundStop !== "tool_use" || roundTools.length === 0) {
-            currentUpstream = null;
-            break;
-          }
-          toolRounds++;
-
-          // Build the assistant turn (text + tool_use blocks) and the
-          // synthetic user turn (tool_result blocks).
-          const assistantBlocks: ContentBlock[] = [];
-          if (roundText) assistantBlocks.push({ type: "text", text: roundText });
-          for (const t of roundTools) {
-            assistantBlocks.push({ type: "tool_use", id: t.id, name: t.name, input: t.input });
-          }
-          convo.push({ role: "assistant", content: assistantBlocks });
-
-          const toolResultBlocks: ContentBlock[] = roundTools.map((t) => ({
-            type: "tool_result",
-            tool_use_id: t.id,
-            content: runTool(t),
-          }));
-          convo.push({ role: "user", content: toolResultBlocks });
-
-          // Next round — re-open the stream with the extended convo.
-          currentUpstream = await openClaudeStream({
+        await runAgentLoop(
+          {
+            date,
+            file,
             systemText,
-            messages: convo,
-            tools: AGENT_TOOLS,
-          });
-        }
-
-        // Round cap notice (rare path; surfaces as plain text so the user
-        // at least sees something honest if the loop ran out of budget).
-        if (currentUpstream != null) {
-          const notice =
-            "\n\n[Note: stopped after 3 tool rounds. Ask again with a narrower question if you wanted more digging.]";
-          assistantTextAcrossRounds += notice;
-          send({ type: "delta", text: notice });
-        }
-
-        // Persist + send final history.
-        const assistantTs = new Date().toISOString();
-        file.messages.push({ role: "assistant", content: assistantTextAcrossRounds, ts: assistantTs });
-        try {
-          writeChatFile(file);
-        } catch (persistErr) {
-          console.error("[chat] persistence failed:", persistErr);
-          send({
-            type: "done",
-            history: file.messages,
-            persistence_warning: true,
-            debug: {
-              tokens_estimate: totalEst,
-              usage,
-              tool_rounds: toolRounds,
-            },
-          });
-          controller.close();
-          return;
-        }
-        send({
-          type: "done",
-          history: file.messages,
-          debug: {
-            tokens_estimate: totalEst,
-            usage,
-            tool_rounds: toolRounds,
+            convo: messages.slice() as AgentMessage[],
+            initialUpstream: firstUpstream,
+            startRound: 0,
+            initialAssistantText: "",
+            initialToolRounds: 0,
+            initialUsage: undefined,
+            totalEst,
           },
-        });
+          send,
+        );
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "stream failed";
         send({ type: "error", message: errMsg });
@@ -937,5 +1260,18 @@ export async function GET(request: Request) {
     return Response.json({ error: "invalid_date" }, { status: 400 });
   }
   const file = readChatFile(date);
-  return Response.json({ history: file.messages });
+  // Surface unresolved confirmation state — the chat panel uses this on
+  // hydration to re-render the confirmation card after a page refresh. We
+  // deliberately don't ship `convo` or `system_text` (large + sensitive).
+  const pending = readPendingFile(date);
+  const pendingPayload = pending
+    ? {
+        tool_call_id: pending.pending_tool.id,
+        name: pending.pending_tool.name,
+        input: pending.pending_tool.input,
+        preview: pending.pending_tool.preview,
+        text_so_far: pending.text_so_far,
+      }
+    : null;
+  return Response.json({ history: file.messages, pending: pendingPayload });
 }
