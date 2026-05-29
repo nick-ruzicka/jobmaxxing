@@ -26,6 +26,7 @@ import { upgradeAtsResult } from "./lib/ats-url-upgrade.mjs";
 import { upgradeBuiltinResult } from "./lib/builtin-jsonld-upgrade.mjs";
 import { cleanTitle } from "./lib/title-cleanup.mjs";
 import { companyKey } from "./lib/normalize-company.mjs";
+import { resolveOverride, applyScoreOverrides } from "./lib/score-overrides.mjs";
 import {
   AGGREGATOR_HOSTS,
   EXCLUDE_DOMAINS,
@@ -656,17 +657,13 @@ function autoScore(role, company, location, trackedSlugs) {
     score = Math.min(score, 7); // Cap at 7 for unknown companies
   }
 
-  // Feedback overrides from previous evaluations
+  // Feedback overrides from previous evaluations — shared precise math
+  // (eval×2 for scored overrides, precedence block>boost>penalize). Was a coarse
+  // sequential block→1 / min(4) / +2 path here; now unified with the dashboard via
+  // scripts/lib/score-overrides.mjs (E7-C).
   const coKey = (company || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (coKey && SCORE_OVERRIDES.block.includes(coKey)) {
-    return 1; // Hard block — eval was <= 1.5/5
-  }
-  if (coKey && SCORE_OVERRIDES.penalize[coKey]) {
-    score = Math.min(score, 4); // Eval was <= 2.5/5 or rejected
-  }
-  if (coKey && SCORE_OVERRIDES.boost[coKey]) {
-    score += 2; // Eval was >= 4.0/5 — company is a known good fit
-  }
+  const resolvedOverride = resolveOverride(SCORE_OVERRIDES, coKey);
+  if (resolvedOverride) score = applyScoreOverrides(score, resolvedOverride);
 
   return Math.max(1, Math.min(10, score));
 }
