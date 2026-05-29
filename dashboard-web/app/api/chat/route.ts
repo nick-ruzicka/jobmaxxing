@@ -692,7 +692,8 @@ export const AGENT_TOOLS = [
       "items'. Synchronous (~30s blocking) — the chat panel shows a progress " +
       "widget while it runs; user can't send another message until it " +
       "completes. Rate-limited 1 per 5 minutes server-side; the preview shows " +
-      "current cooldown state.",
+      "current cooldown state. If the preview shows COOLDOWN ACTIVE and the " +
+      "user wants to override, set force: true and re-issue.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -702,6 +703,13 @@ export const AGENT_TOOLS = [
           description:
             "Briefing flavor. Defaults to 'daily' (the /today briefing). " +
             "'pipeline-health' regenerates the weekly pipeline-health digest.",
+        },
+        force: {
+          type: "boolean",
+          description:
+            "When true, bypass the 5-minute cooldown. Use ONLY when the " +
+            "confirmation card showed COOLDOWN ACTIVE and the user explicitly " +
+            "asked to override anyway. Default false.",
         },
         reason: {
           type: "string",
@@ -721,10 +729,20 @@ export const AGENT_TOOLS = [
       "/today when it completes (typical: 2-5 min, worst case: 30+ min on a " +
       "fresh enrichment backlog). The chat stays interactive; user can ask " +
       "you other things while it runs. Rate-limited 1 per 15 minutes; the " +
-      "preview shows current cooldown state.",
+      "preview shows current cooldown state. If the preview shows COOLDOWN " +
+      "ACTIVE and the user wants to override, set force: true and re-issue. " +
+      "Note: force does NOT bypass the in-flight lock — only one scan-jobs " +
+      "run can be in flight at a time regardless.",
     input_schema: {
       type: "object" as const,
       properties: {
+        force: {
+          type: "boolean",
+          description:
+            "When true, bypass the 15-minute cooldown. Use ONLY when the " +
+            "confirmation card showed COOLDOWN ACTIVE and the user explicitly " +
+            "asked to override. Default false.",
+        },
         reason: {
           type: "string",
           description: "Short why shown in the confirmation preview.",
@@ -743,10 +761,17 @@ export const AGENT_TOOLS = [
       "targets get appended to data/pipeline.md when it completes. Typical " +
       "runtime 2-5 min; this is the weekly cron job (Mondays), so the user " +
       "asking for it mid-week is asking for an early run. Rate-limited 1 " +
-      "per 15 minutes.",
+      "per 15 minutes. force: true bypasses cooldown (not in-flight lock).",
     input_schema: {
       type: "object" as const,
       properties: {
+        force: {
+          type: "boolean",
+          description:
+            "When true, bypass the 15-minute cooldown. Use ONLY when the " +
+            "confirmation card showed COOLDOWN ACTIVE and the user explicitly " +
+            "asked to override. Default false.",
+        },
         reason: {
           type: "string",
           description: "Short why shown in the confirmation preview.",
@@ -832,28 +857,26 @@ export function buildConfirmationPreview(
   if (name === "regenerate_briefing") {
     const kind = typeof input.kind === "string" ? input.kind : "daily";
     const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const force = input.force === true;
     const cooldownKind: "briefing-daily" | "briefing-pipeline-health" =
       kind === "pipeline-health" ? "briefing-pipeline-health" : "briefing-daily";
     const lastAgo = formatLastRunAgo(cooldownKind);
     const cooldown = checkCooldown(cooldownKind);
     const head = `Regenerate ${kind} briefing`;
     const lastLine = lastAgo ? `Last run: ${lastAgo}` : "Last run: never";
-    const cooldownLine = cooldown
-      ? `\nCOOLDOWN ACTIVE — try again in ${Math.ceil(cooldown.retry_after_ms / 1000)}s`
-      : "";
+    const cooldownLine = renderCooldownLine(cooldown, force, "s");
     const eta = "\nETA: ~30s (blocks the chat panel; progress widget shown)";
     const why = reason ? `\n\nReason: ${reason}` : "";
     return `${head}\n${lastLine}${cooldownLine}${eta}${why}`;
   }
   if (name === "trigger_scan") {
     const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const force = input.force === true;
     const lastAgo = formatLastRunAgo("scan-jobs");
     const cooldown = checkCooldown("scan-jobs");
     const head = `Run a fresh role scan (scan-jobs.mjs → enrich-roles.mjs)`;
     const lastLine = lastAgo ? `Last scan: ${lastAgo}` : "Last scan: never";
-    const cooldownLine = cooldown
-      ? `\nCOOLDOWN ACTIVE — try again in ${Math.ceil(cooldown.retry_after_ms / 60_000)}m`
-      : "";
+    const cooldownLine = renderCooldownLine(cooldown, force, "m");
     const eta = "\nETA: 2-5 min typical (30+ min on a backlog). Runs in background — chat stays interactive.";
     const cost = "\nCost: dozens of Claude calls for enrichment + Exa queries.";
     const why = reason ? `\n\nReason: ${reason}` : "";
@@ -861,19 +884,46 @@ export function buildConfirmationPreview(
   }
   if (name === "trigger_signal_scan") {
     const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const force = input.force === true;
     const lastAgo = formatLastRunAgo("scan-signals");
     const cooldown = checkCooldown("scan-signals");
     const head = `Run a signal scan (scan-signals.mjs)`;
     const lastLine = lastAgo ? `Last signal scan: ${lastAgo}` : "Last signal scan: never";
-    const cooldownLine = cooldown
-      ? `\nCOOLDOWN ACTIVE — try again in ${Math.ceil(cooldown.retry_after_ms / 60_000)}m`
-      : "";
+    const cooldownLine = renderCooldownLine(cooldown, force, "m");
     const eta = "\nETA: 2-5 min. Runs in background — high-conviction targets get appended to data/pipeline.md.";
     const cost = "\nCost: Exa queries for funding discovery + outreach enrichment.";
     const why = reason ? `\n\nReason: ${reason}` : "";
     return `${head}\n${lastLine}${cooldownLine}${eta}${cost}${why}`;
   }
   return `${name}\n${JSON.stringify(input, null, 2)}`;
+}
+
+/** Render the cooldown line for a triggered-action preview. Three states:
+ *    - No cooldown active → empty string (no line).
+ *    - Cooldown active + force=true → "FORCED OVERRIDE — bypassing cooldown"
+ *      so the user can see they ARE about to skip the gate.
+ *    - Cooldown active + force=false → "COOLDOWN ACTIVE — try again in Xu"
+ *      plus a "Re-confirm with force: true to override" hint so the agent
+ *      knows there's an escape hatch.
+ *  `unit` is the display granularity: "s" for briefing (~minutes window
+ *  feels long enough to count seconds), "m" for scans (15-min window). */
+function renderCooldownLine(
+  cooldown: ReturnType<typeof checkCooldown>,
+  force: boolean,
+  unit: "s" | "m",
+): string {
+  if (!cooldown) return "";
+  if (force) {
+    return "\n⚠ FORCED OVERRIDE — bypassing cooldown";
+  }
+  const value =
+    unit === "s"
+      ? Math.ceil(cooldown.retry_after_ms / 1000)
+      : Math.ceil(cooldown.retry_after_ms / 60_000);
+  return (
+    `\nCOOLDOWN ACTIVE — try again in ${value}${unit}\n` +
+    `(Re-confirm with force: true in the tool input to override.)`
+  );
 }
 
 export interface ToolCall {
@@ -995,10 +1045,15 @@ export async function executeMutatingTool(
         typeof call.input.kind === "string" && call.input.kind === "pipeline-health"
           ? "pipeline-health"
           : "daily";
+      const force = call.input.force === true;
       const { POST: regeneratePost } = await import("../briefing/regenerate/route");
       const req = new Request(
         `http://internal/api/briefing/regenerate?kind=${kindParam}&progress=sse`,
-        { method: "POST", headers: { "content-type": "application/json" } },
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ force }),
+        },
       );
       const res = await regeneratePost(req);
       if (!res.body) {
@@ -1009,6 +1064,10 @@ export async function executeMutatingTool(
       if (!contentType.includes("text/event-stream")) {
         const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
         const message = typeof json.message === "string" ? json.message : "unknown";
+        if (res.status === 429) {
+          return `[regenerate_briefing cooldown active: ${message}]. ` +
+            `(Re-issue the tool call with force: true if the user wants to override.)`;
+        }
         return `[regenerate_briefing failed (HTTP ${res.status}): ${message}]`;
       }
       const reader = res.body.getReader();
@@ -1059,17 +1118,24 @@ export async function executeMutatingTool(
       // running so it can acknowledge and stay interactive. The user can
       // ask about progress later via /today (or a future check_scan_status
       // tool in v1.1).
+      const force = call.input.force === true;
       const routePath = call.name === "trigger_scan" ? "../run-scan/route" : "../run-signal-scan/route";
       const mod = (await import(routePath)) as { POST: (req: Request) => Promise<Response> };
       const req = new Request("http://internal/api/run-scan", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        body: JSON.stringify({ force }),
       });
       const res = await mod.POST(req);
       const json = (await res.json()) as Record<string, unknown>;
       if (res.status === 429) {
         const retry = typeof json.retryAfterSeconds === "number" ? json.retryAfterSeconds : 0;
-        return `[${call.name} cooldown active: ${json.message ?? `try again in ${retry}s`}]`;
+        return `[${call.name} cooldown active: ${json.message ?? `try again in ${retry}s`}]. ` +
+          `(Re-issue the tool call with force: true if the user wants to override.)`;
+      }
+      if (res.status === 409) {
+        return `[${call.name} blocked: ${json.message ?? "another scan of this kind is already running"}]. ` +
+          `(In-flight lock; force does NOT bypass. Wait for the existing job to finish.)`;
       }
       if (!res.ok || !json.job_id) {
         return `[${call.name} failed (HTTP ${res.status}): ${JSON.stringify(json)}]`;

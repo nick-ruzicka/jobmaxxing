@@ -49,7 +49,15 @@
  */
 
 import { spawn } from "child_process";
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  openSync,
+  closeSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+} from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { recordRun, type CooldownKind } from "@/lib/rate-limit";
@@ -171,6 +179,46 @@ function readJobRecordRaw(job_id: string): JobRecord | null {
   } catch {
     return null;
   }
+}
+
+/** List all currently-running jobs of a given kind, after self-healing any
+ *  stale records along the way. Used by route POST handlers as the in-flight
+ *  concurrency lock: a new kickoff is refused if this returns non-empty.
+ *
+ *  Implementation walks data/scans/*.json, filtering out the rate-limit
+ *  sidecars (last-*.json). Each candidate is read via readJobRecord so the
+ *  self-heal pid-check runs — that means records whose owning Next.js
+ *  process died flip to "interrupted" here and don't block a fresh
+ *  kickoff. Net result: only TRUE in-flight jobs (live pid, recorded
+ *  status=running) come back.
+ *
+ *  Cost: linear in directory size. Realistic upper bound on a daily-driver
+ *  install is a few hundred records before the user gardens them; even at
+ *  10k records this is sub-100ms on local disk. If we ever index, this is
+ *  where the indexing call lands. */
+export function getActiveJobsByKind(kind: ScanKind): JobRecord[] {
+  const dir = join(projectRoot(), "data", "scans");
+  if (!existsSync(dir)) return [];
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const active: JobRecord[] = [];
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    // Exclude the rate-limit sidecars (data/scans/last-scan-jobs.json etc.)
+    // — they share the directory but aren't job records.
+    if (entry.startsWith("last-")) continue;
+    const job_id = entry.slice(0, -".json".length);
+    const record = readJobRecord(job_id);
+    if (!record) continue;
+    if (record.kind !== kind) continue;
+    if (record.status !== "running") continue;
+    active.push(record);
+  }
+  return active;
 }
 
 /** Read a job record by id, returning null if missing or unparseable. Lazily

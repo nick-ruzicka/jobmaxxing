@@ -9,11 +9,15 @@
  *
  * See docs/audits/2026-05-29-triggered-actions-scope.md (Decision 1).
  *
- * Rate-limited to 1 scan per 15 minutes via the shared dashboard-web/lib/
- * rate-limit helper (scan-signals kind).
+ * Body (optional): { force?: boolean }  — see run-scan/route.ts for the
+ * shape; force=true bypasses cooldown but NOT the in-flight lock.
+ *
+ * Rate-limited to 1 scan per 15 minutes (scan-signals kind). Cooldown only
+ * sets on successful completion (intentional: retry on failure is fine).
  *
  * Returns:
- *   202 { job_id, status, started_at, log_path }
+ *   202 { job_id, status, started_at, log_path, forced }
+ *   409 { error: "concurrent_job_active", existing_job_id }
  *   429 { error: "rate_limited", retryAfterSeconds }
  *   500 { error }
  *
@@ -26,15 +30,41 @@ import {
   formatLastRunAgo,
   readLastRunPublic,
 } from "@/lib/rate-limit";
-import { kickoffScanJob, readJobRecord } from "@/lib/scan-jobs";
+import { getActiveJobsByKind, kickoffScanJob, readJobRecord } from "@/lib/scan-jobs";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
-  const cooldown = checkCooldown("scan-signals");
-  if (cooldown) {
-    const { body, headers, status } = cooldownResponseJson(cooldown);
-    return Response.json(body, { status, headers });
+export async function POST(request: Request) {
+  let body: { force?: boolean } = {};
+  try {
+    const text = await request.text();
+    if (text.trim().length > 0) body = JSON.parse(text);
+  } catch {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
+  const force = body.force === true;
+
+  if (!force) {
+    const cooldown = checkCooldown("scan-signals");
+    if (cooldown) {
+      const { body: errBody, headers, status } = cooldownResponseJson(cooldown);
+      return Response.json(errBody, { status, headers });
+    }
+  }
+
+  const active = getActiveJobsByKind("scan-signals");
+  if (active.length > 0) {
+    return Response.json(
+      {
+        error: "concurrent_job_active",
+        message:
+          `A scan-signals scan is already running (job_id=${active[0].job_id}, ` +
+          `started ${active[0].started_at}). Wait for it to finish before kicking off another.`,
+        existing_job_id: active[0].job_id,
+        existing_started_at: active[0].started_at,
+      },
+      { status: 409 },
+    );
   }
 
   let record;
@@ -56,6 +86,7 @@ export async function POST() {
       chained: record.chained,
       last_run_ago: formatLastRunAgo("scan-signals"),
       last_run: readLastRunPublic("scan-signals"),
+      forced: force,
     },
     { status: 202 },
   );

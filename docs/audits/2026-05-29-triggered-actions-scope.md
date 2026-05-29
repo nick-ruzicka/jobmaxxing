@@ -109,9 +109,11 @@ Default output (no flag) stays the existing human-readable text — preserves te
 
 | Tool | Proposed cooldown | Override path |
 |---|---|---|
-| `regenerate_briefing` | 5 min (existing) | None — the cooldown is short enough |
+| `regenerate_briefing` | 5 min (existing) | `force: true` in tool input (added in audit closeout follow-up; the user can override the briefing cooldown too) |
 | `trigger_scan` | 15 min | `force: true` in tool input; preview shows the cooldown so user sees what they're skipping |
 | `trigger_signal_scan` | 15 min | Same |
+
+**Cooldown semantics — only sets on completed runs.** `recordRun` is called only when the job finishes with `status: "completed"`. Failed and interrupted runs do NOT bump the cooldown, so retrying after a failure doesn't make the user wait. Documented here explicitly so the behavior is intentional, not accidental — the implication is that quota loss on a failed scan isn't throttled by the cooldown (the in-flight lock prevents simultaneous burns instead).
 
 The cooldown timestamp lives in `data/briefings/last-regen-<kind>.json` (briefing) and proposed new `data/scans/last-scan-<kind>.json` for scans. Lift the read/write into `dashboard-web/lib/rate-limit.ts` so all three endpoints share the implementation.
 

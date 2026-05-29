@@ -235,6 +235,92 @@ describe("readJobRecord self-heal", () => {
     expect(lib.readJobRecord("nonexistent-id")).toBeNull();
   });
 
+  it("getActiveJobsByKind returns running records of the requested kind only", () => {
+    // Three records: a running scan-jobs (live pid), a running scan-signals
+    // (live pid), and a completed scan-jobs. Expect getActiveJobsByKind to
+    // return ONLY the running scan-jobs entry.
+    const livePid = process.pid;
+    writeRecord({
+      job_id: "active-scan-jobs-001",
+      kind: "scan-jobs",
+      chained: [],
+      status: "running",
+      started_at: new Date().toISOString(),
+      pid: livePid,
+      log_path: join(scansDir, "active-scan-jobs-001.log"),
+    });
+    writeRecord({
+      job_id: "active-scan-signals-001",
+      kind: "scan-signals",
+      chained: [],
+      status: "running",
+      started_at: new Date().toISOString(),
+      pid: livePid,
+      log_path: join(scansDir, "active-scan-signals-001.log"),
+    });
+    writeRecord({
+      job_id: "completed-scan-jobs-001",
+      kind: "scan-jobs",
+      chained: [],
+      status: "completed",
+      started_at: new Date(Date.now() - 60_000).toISOString(),
+      ended_at: new Date().toISOString(),
+      log_path: join(scansDir, "completed-scan-jobs-001.log"),
+    });
+
+    const activeJobs = lib.getActiveJobsByKind("scan-jobs");
+    const activeIds = activeJobs.map((r) => r.job_id);
+    expect(activeIds).toContain("active-scan-jobs-001");
+    expect(activeIds).not.toContain("active-scan-signals-001");
+    expect(activeIds).not.toContain("completed-scan-jobs-001");
+
+    const activeSignals = lib.getActiveJobsByKind("scan-signals");
+    const signalIds = activeSignals.map((r) => r.job_id);
+    expect(signalIds).toContain("active-scan-signals-001");
+    expect(signalIds).not.toContain("active-scan-jobs-001");
+  });
+
+  it("getActiveJobsByKind self-heals stale records so they don't block forever", () => {
+    // A record stuck at status=running with a dead pid should NOT be returned
+    // as active — getActiveJobsByKind reads through readJobRecord, which
+    // self-heals stale entries to "interrupted" on the read path.
+    writeRecord({
+      job_id: "stale-scan-jobs-001",
+      kind: "scan-jobs",
+      chained: [],
+      status: "running",
+      started_at: new Date(Date.now() - 600_000).toISOString(),
+      pid: deadPid(), // dead before this test runs
+      log_path: join(scansDir, "stale-scan-jobs-001.log"),
+    });
+
+    const active = lib.getActiveJobsByKind("scan-jobs");
+    const ids = active.map((r) => r.job_id);
+    expect(ids).not.toContain("stale-scan-jobs-001");
+
+    // And the record on disk should have been flipped to "interrupted".
+    const reread = lib.readJobRecord("stale-scan-jobs-001");
+    expect(reread!.status).toBe("interrupted");
+  });
+
+  it("getActiveJobsByKind skips the rate-limit sidecar files", () => {
+    // last-scan-jobs.json lives in data/scans/ as a sibling of job records.
+    // It's not a JobRecord shape and must be excluded from the scan, not
+    // crash or be miscounted.
+    writeFileSync(
+      join(scansDir, "last-scan-jobs.json"),
+      JSON.stringify({ kind: "scan-jobs", at: new Date().toISOString() }) + "\n",
+    );
+    writeFileSync(
+      join(scansDir, "last-scan-signals.json"),
+      JSON.stringify({ kind: "scan-signals", at: new Date().toISOString() }) + "\n",
+    );
+
+    // Should not throw. The sidecars are silently skipped.
+    expect(() => lib.getActiveJobsByKind("scan-jobs")).not.toThrow();
+    expect(() => lib.getActiveJobsByKind("scan-signals")).not.toThrow();
+  });
+
   it("regression: a status='failed' record with a healed_at field from a previous read returns failed without re-self-healing", () => {
     // Reproduces the bug found during Flow B integration testing: the kickoff
     // close handler used to call readJobRecord (with self-heal) to spread

@@ -74,11 +74,29 @@ export async function POST(request: Request) {
     kind === "pipeline-health" ? "briefing-pipeline-health" : "briefing-daily";
   const streamMode = url.searchParams.get("progress") === "sse";
 
-  // ── 1) Rate limit ────────────────────────────────────────────────────────
-  const cooldown = checkCooldown(cooldownKind);
-  if (cooldown) {
-    const { body, headers, status } = cooldownResponseJson(cooldown);
-    return Response.json(body, { status, headers });
+  // Body is optional — POST with no body keeps the legacy shape working
+  // (dashboard's Regenerate button never sent a body before this change).
+  // { force?: boolean } skips the 5-min cooldown; matches the chat-UI
+  // "Re-confirm with force: true to override" path from the confirmation
+  // card. There's no in-flight lock here because briefing runs sync inside
+  // the route handler — two concurrent requests are already bounded by the
+  // cooldown after either one completes (~30s window for the race).
+  let body: { force?: boolean } = {};
+  try {
+    const text = await request.text();
+    if (text.trim().length > 0) body = JSON.parse(text);
+  } catch {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
+  const force = body.force === true;
+
+  // ── 1) Rate limit (skippable with force=true) ───────────────────────────
+  if (!force) {
+    const cooldown = checkCooldown(cooldownKind);
+    if (cooldown) {
+      const { body: errBody, headers, status } = cooldownResponseJson(cooldown);
+      return Response.json(errBody, { status, headers });
+    }
   }
 
   const root = projectRoot();
