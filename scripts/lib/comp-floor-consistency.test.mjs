@@ -94,15 +94,26 @@ test("comp-floor consistency — autoapply test_apply_cli.py fixture equals FLOO
   assert.equal(Number(m[1]), FLOOR);
 });
 
-test("comp-floor consistency — personalab valid_persona.yaml equals FLOOR", () => {
-  const persona = parseYaml(
-    readFileSync(path.join(repoRoot, "personalab/tests/fixtures/valid_persona.yaml"), "utf8"),
-  );
-  assert.equal(persona.comp_floor, FLOOR);
+// personalab/ ships separately (CohortQA) and is absent from the extracted
+// OSS repo — skip these two checks when the dir isn't present.
+function readIfPresent(relPath) {
+  try {
+    return readFileSync(path.join(repoRoot, relPath), "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+}
+
+test("comp-floor consistency — personalab valid_persona.yaml (if present) equals FLOOR", () => {
+  const body = readIfPresent("personalab/tests/fixtures/valid_persona.yaml");
+  if (body === null) return;
+  assert.equal(parseYaml(body).comp_floor, FLOOR);
 });
 
-test("comp-floor consistency — personalab test_analyzer.py equals FLOOR", () => {
-  const body = readFileSync(path.join(repoRoot, "personalab/tests/test_analyzer.py"), "utf8");
+test("comp-floor consistency — personalab test_analyzer.py (if present) equals FLOOR", () => {
+  const body = readIfPresent("personalab/tests/test_analyzer.py");
+  if (body === null) return;
   const m = body.match(/"comp_floor":\s*(\d+)/);
   assert.ok(m, "comp_floor not found in test_analyzer.py");
   assert.equal(Number(m[1]), FLOOR);
