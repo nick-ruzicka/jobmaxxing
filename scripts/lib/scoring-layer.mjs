@@ -19,6 +19,7 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 
 import { parseYaml } from "./yaml-mini.mjs";
+import { readUserContextText } from "./user-context-file.mjs";
 import { getArchetype, getGlobalDisqualifiers, loadArchetypeConfig } from "./archetype-config.mjs";
 import { INSTITUTIONAL_BOOST, TITLE_SIGNAL_WEIGHTS } from "./scoring-weights.mjs";
 import { extractMinComp, extractMaxComp, compMidpoint } from "./comp-parse.mjs";
@@ -34,7 +35,9 @@ let cachedContext = null;
 
 export function loadUserContext(path = DEFAULT_PATH) {
   if (cachedContext === null) {
-    cachedContext = parseYaml(readFileSync(path, "utf8"));
+    cachedContext = parseYaml(
+      path === DEFAULT_PATH ? readUserContextText() : readFileSync(path, "utf8"),
+    );
   }
   return cachedContext;
 }

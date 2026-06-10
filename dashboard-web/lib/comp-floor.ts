@@ -8,7 +8,7 @@
 // Cross-runtime sibling: scripts/lib/comp-floor.mjs (Node side). Drift between
 // the two is prevented by scripts/lib/comp-floor-consistency.test.mjs.
 
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import yaml from "js-yaml";
 import { ROOT } from "./data";
@@ -21,9 +21,20 @@ type UserContext = {
 
 let cachedFloor: number | null = null;
 
+// Fresh clones only ship the example (the real file is personal, gitignored);
+// fall back so the dashboard works out of the box.
+function userContextPath(): string {
+  const real = join(ROOT, "config", "user-context.yaml");
+  if (existsSync(real)) return real;
+  console.warn(
+    "[user-context] config/user-context.yaml not found — using user-context.example.yaml defaults.",
+  );
+  return join(ROOT, "config", "user-context.example.yaml");
+}
+
 export function getCompFloorUsd(): number {
   if (cachedFloor !== null) return cachedFloor;
-  const ctx = yaml.load(readFileSync(join(ROOT, "config", "user-context.yaml"), "utf8")) as UserContext;
+  const ctx = yaml.load(readFileSync(userContextPath(), "utf8")) as UserContext;
   const floor = ctx?.compensation?.floor_usd;
   if (typeof floor !== "number") {
     throw new Error(

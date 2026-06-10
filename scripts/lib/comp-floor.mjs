@@ -8,19 +8,14 @@
 //
 // Cross-runtime sibling: dashboard-web/lib/comp-floor.ts (reads the same YAML).
 
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseYaml } from "./yaml-mini.mjs";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const USER_CONTEXT_PATH = path.resolve(__dirname, "..", "..", "config", "user-context.yaml");
+import { readUserContextText } from "./user-context-file.mjs";
 
 let cachedFloor = null;
 
 export function getCompFloorUsd() {
   if (cachedFloor !== null) return cachedFloor;
-  const ctx = parseYaml(readFileSync(USER_CONTEXT_PATH, "utf8"));
+  const ctx = parseYaml(readUserContextText());
   const floor = ctx?.compensation?.floor_usd;
   if (typeof floor !== "number") {
     throw new Error(
