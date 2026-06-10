@@ -14,7 +14,7 @@ jobs:
       # Checkout up-front so the post-action VERSION-sync step has a working
       # git tree. release-please-action itself uses the GitHub API and does
       # not need a checkout, but the follow-up step does.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
