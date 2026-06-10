@@ -182,3 +182,16 @@ agent:
     # "stop the scan" via voice with no card click. Safe to auto since
     # cancellation is restorative (less harmful than the original mutation).
     cancel_scan: confirm
+
+# ── Scheduled tasks (cron opt-ins) ──────────────────────────────────────────
+# Controls what the cron wrapper (scripts/run-scan.sh) is allowed to run
+# beyond the scans themselves. Everything here defaults to FALSE — these are
+# paid LLM calls, so cron never triggers one you didn't explicitly enable.
+#
+#   regenerate_briefing — regenerate the morning briefing after the scan
+#       completes (one Claude call, roughly $0.20/run; the cron wrapper only
+#       attempts it before noon, so worst case is one regen per day). The
+#       dashboard "regenerate" button and the chat agent's regenerate_briefing
+#       tool are NOT affected by this setting — it gates cron only.
+scheduled_tasks:
+  regenerate_briefing: false

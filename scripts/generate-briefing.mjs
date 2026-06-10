@@ -12,6 +12,7 @@
 //   node scripts/generate-briefing.mjs               # writes today's briefing
 //   node scripts/generate-briefing.mjs --dry-run     # print prompt + summary, no write
 //   node scripts/generate-briefing.mjs --kind=pipeline-health   # forwards to generate-pipeline-health.mjs
+//   node scripts/generate-briefing.mjs --from-cron   # no-op unless scheduled_tasks.regenerate_briefing: true
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
@@ -19,6 +20,7 @@ import { fileURLToPath } from "url";
 import { getCompFloorUsd, formatCompFloorString } from "./lib/comp-floor.mjs";
 import { defaultGoalFallback } from "./lib/default-goal.mjs";
 import { createProgress } from "./lib/progress.mjs";
+import { isScheduledTaskEnabled } from "./lib/scheduled-tasks.mjs";
 import {
   BRIEFING_APPLY_THRESHOLD,
   BRIEFING_MISSED_THRESHOLD,
@@ -396,6 +398,19 @@ async function main() {
 
   const args = new Set(process.argv.slice(2));
   const dryRun = args.has("--dry-run");
+
+  // Cron gate: --from-cron means "only run if the user opted in via
+  // scheduled_tasks.regenerate_briefing in config/user-context.yaml".
+  // Default is disabled — a briefing regen is a paid LLM call, so cron
+  // must never trigger one the user didn't explicitly enable. Manual and
+  // dashboard-triggered runs (no flag) are unaffected.
+  if (args.has("--from-cron") && !isScheduledTaskEnabled("regenerate_briefing")) {
+    console.error(
+      "[briefing] --from-cron: scheduled_tasks.regenerate_briefing is not enabled " +
+        "in config/user-context.yaml — skipping (set it to true to opt in).",
+    );
+    return;
+  }
 
   // If the caller asked for the pipeline-health flavor, forward to the sibling
   // script — this keeps the cron entry "node scripts/generate-briefing.mjs"
