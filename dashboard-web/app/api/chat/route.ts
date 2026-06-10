@@ -779,6 +779,35 @@ export const AGENT_TOOLS = [
       },
     },
   },
+  {
+    name: "cancel_scan",
+    description:
+      "Cancel an in-flight scan that was started by trigger_scan or " +
+      "trigger_signal_scan. SIGTERMs the running child and marks the record " +
+      "status='cancelled'. Use when the user says 'stop the scan', 'cancel " +
+      "that scan I just started', or similar. You MUST have a job_id from " +
+      "a prior trigger_scan / trigger_signal_scan tool_result. If the user " +
+      "asks to cancel without a specific id and you don't have one from " +
+      "earlier in the conversation, apologize and ask them to be specific " +
+      "or check /today for active scans — do NOT guess. ALWAYS pauses for " +
+      "confirmation in the chat UI (cancellation is itself a mutation).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        job_id: {
+          type: "string",
+          description:
+            "The job_id from the original trigger_scan / trigger_signal_scan tool_result.",
+        },
+        reason: {
+          type: "string",
+          description:
+            "Short user-facing why ('user changed mind', 'wrong scan kind', etc.). Surfaced in the audit trail.",
+        },
+      },
+      required: ["job_id"],
+    },
+  },
 ];
 
 // ── Confirmation gate (AI feature audit Step 7 PR b) ────────────────────────
@@ -798,6 +827,10 @@ const MUTATING_TOOLS = new Set<string>([
   "regenerate_briefing",
   "trigger_scan",
   "trigger_signal_scan",
+  // Cancellation IS itself a mutation (changes record status, sends SIGTERM
+  // to a child process). Defaults to confirm; user can flip to auto if they
+  // want fast "stop the scan" via voice with no card click.
+  "cancel_scan",
 ]);
 
 export function requiresConfirmation(name: string): boolean {
@@ -894,6 +927,15 @@ export function buildConfirmationPreview(
     const cost = "\nCost: Exa queries for funding discovery + outreach enrichment.";
     const why = reason ? `\n\nReason: ${reason}` : "";
     return `${head}\n${lastLine}${cooldownLine}${eta}${cost}${why}`;
+  }
+  if (name === "cancel_scan") {
+    const job_id = typeof input.job_id === "string" ? input.job_id.trim() : "";
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const head = `Cancel running scan`;
+    const idLine = job_id ? `job_id: ${job_id}` : "job_id: (missing — this will fail)";
+    const note = "\nSends SIGTERM to the child process. Cooldown is NOT bumped (cancellation is treated as no-completion).";
+    const why = reason ? `\n\nReason: ${reason}` : "";
+    return `${head}\n${idLine}${note}${why}`;
   }
   return `${name}\n${JSON.stringify(input, null, 2)}`;
 }
@@ -1147,6 +1189,37 @@ export async function executeMutatingTool(
         `Results will appear in /today when it completes (typical 2-5 min). ` +
         `Tell the user the scan is running and let them keep chatting — don't poll.]`
       );
+    }
+    if (call.name === "cancel_scan") {
+      const job_id = typeof call.input.job_id === "string" ? call.input.job_id.trim() : "";
+      if (!job_id) {
+        return "[cancel_scan refused — no job_id provided. Ask the user which scan they want to stop.]";
+      }
+      const reason =
+        typeof call.input.reason === "string" ? call.input.reason.trim() : undefined;
+      const { POST: cancelPost } = await import("../scans/cancel/route");
+      const req = new Request("http://internal/api/scans/cancel", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ job_id, reason }),
+      });
+      const res = await cancelPost(req);
+      const json = (await res.json()) as Record<string, unknown>;
+      if (res.status === 200 && json.ok) {
+        const record = json.record as Record<string, unknown> | undefined;
+        const kind = typeof record?.kind === "string" ? record.kind : "scan";
+        const startedAt = typeof record?.started_at === "string" ? record.started_at : "(unknown start)";
+        return `[cancel_scan ok: SIGTERM sent to ${kind} job_id=${job_id} (started ${startedAt}). Tell the user the scan is being stopped.]`;
+      }
+      if (res.status === 404) {
+        return `[cancel_scan failed: no scan with job_id=${job_id}. Ask the user to double-check the id or run a fresh scan.]`;
+      }
+      if (res.status === 400 && json.error === "already_finalized") {
+        const record = json.record as Record<string, unknown> | undefined;
+        const status = typeof record?.status === "string" ? record.status : "unknown";
+        return `[cancel_scan no-op: job_id=${job_id} is already ${status}. Nothing to stop.]`;
+      }
+      return `[cancel_scan failed (HTTP ${res.status}): ${json.message ?? JSON.stringify(json)}]`;
     }
     return `[mutating tool error: unknown tool "${call.name}"]`;
   } catch (err) {

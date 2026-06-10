@@ -354,3 +354,161 @@ describe("readJobRecord self-heal", () => {
     expect(result!.healed_at).toBe(record.healed_at);
   });
 });
+
+describe("cancelJob", () => {
+  it("returns not_found when the record doesn't exist", () => {
+    const result = lib.cancelJob("nonexistent-cancel-001");
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("not_found");
+    expect(result.record).toBeUndefined();
+  });
+
+  it("returns already_finalized for completed records", () => {
+    writeRecord({
+      job_id: "completed-cancel-001",
+      kind: "scan-jobs",
+      chained: [],
+      status: "completed",
+      started_at: new Date(Date.now() - 60_000).toISOString(),
+      ended_at: new Date().toISOString(),
+      log_path: join(scansDir, "completed-cancel-001.log"),
+    });
+    const result = lib.cancelJob("completed-cancel-001", "user changed mind");
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("already_finalized");
+    expect(result.record?.status).toBe("completed");
+  });
+
+  it("returns already_finalized for failed/cancelled/interrupted records", () => {
+    for (const status of ["failed", "cancelled", "interrupted"] as const) {
+      const id = `terminal-${status}-cancel-001`;
+      writeRecord({
+        job_id: id,
+        kind: "scan-jobs",
+        chained: [],
+        status,
+        started_at: new Date(Date.now() - 60_000).toISOString(),
+        ended_at: new Date().toISOString(),
+        log_path: join(scansDir, `${id}.log`),
+      });
+      const result = lib.cancelJob(id);
+      expect(result.ok, `status=${status} should be terminal`).toBe(false);
+      expect(result.reason).toBe("already_finalized");
+    }
+  });
+
+  it("returns no_pid when the running record has no pid (defensive)", () => {
+    writeRecord({
+      job_id: "no-pid-cancel-001",
+      kind: "scan-jobs",
+      chained: [],
+      status: "running",
+      started_at: new Date().toISOString(),
+      log_path: join(scansDir, "no-pid-cancel-001.log"),
+      // pid intentionally omitted — shouldn't happen in practice but covered
+    });
+    const result = lib.cancelJob("no-pid-cancel-001");
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("no_pid");
+  });
+
+  it("happy path: cancels a running job, writes status=cancelled with cancelled_at + cancel_reason, SIGTERMs the pid", async () => {
+    // Spawn a real long-lived child we can target. `setInterval` keeps it
+    // alive until SIGTERM, which Node's default signal handler handles by
+    // exiting. We capture the pid, write a fake record pointing at it,
+    // call cancelJob, then assert the SIGTERM actually landed.
+    const { spawn } = await import("child_process");
+    const child = spawn("node", ["-e", "setInterval(() => {}, 1000)"], {
+      stdio: "ignore",
+      detached: true,
+    });
+    child.unref();
+    const exited = new Promise<void>((resolve) => {
+      child.once("exit", () => resolve());
+    });
+    const childPid = child.pid;
+    expect(typeof childPid).toBe("number");
+
+    try {
+      writeRecord({
+        job_id: "happy-cancel-001",
+        kind: "scan-jobs",
+        chained: [],
+        status: "running",
+        started_at: new Date().toISOString(),
+        pid: childPid!,
+        log_path: join(scansDir, "happy-cancel-001.log"),
+      });
+
+      const result = lib.cancelJob("happy-cancel-001", "stopping for the test");
+      expect(result.ok).toBe(true);
+      expect(result.record?.status).toBe("cancelled");
+      expect(result.record?.cancelled_at).toBeTypeOf("string");
+      expect(result.record?.cancel_reason).toBe("stopping for the test");
+
+      // The on-disk record reflects the same state (cancelJob writes BEFORE
+      // SIGTERMing so the close handler can detect).
+      const fromDisk = JSON.parse(
+        readFileSync(join(scansDir, "happy-cancel-001.json"), "utf-8"),
+      );
+      expect(fromDisk.status).toBe("cancelled");
+      expect(fromDisk.cancelled_at).toBeTypeOf("string");
+
+      // And the child really did receive SIGTERM and die within a reasonable
+      // window. 2s is generous; in practice Node exits in ~10ms.
+      await Promise.race([
+        exited,
+        new Promise((_, rej) =>
+          setTimeout(() => rej(new Error("child didn't exit within 2s of SIGTERM")), 2000),
+        ),
+      ]);
+    } finally {
+      try {
+        child.kill("SIGKILL"); // belt + suspenders if SIGTERM raced
+      } catch {
+        /* already dead */
+      }
+    }
+  });
+
+  it("returns signal_failed when pid is already dead (race: child exited before cancelJob signaled)", () => {
+    writeRecord({
+      job_id: "race-dead-pid-001",
+      kind: "scan-jobs",
+      chained: [],
+      status: "running",
+      started_at: new Date().toISOString(),
+      pid: deadPid(),
+      log_path: join(scansDir, "race-dead-pid-001.log"),
+    });
+    const result = lib.cancelJob("race-dead-pid-001");
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("signal_failed");
+    // We DID write status=cancelled to disk before attempting SIGTERM — the
+    // user's intent is reflected even though the signal didn't land. Without
+    // this, a user clicking "Cancel" on an already-dead record would see no
+    // change and assume cancel didn't work; we'd rather show the intent.
+    const fromDisk = JSON.parse(
+      readFileSync(join(scansDir, "race-dead-pid-001.json"), "utf-8"),
+    );
+    expect(fromDisk.status).toBe("cancelled");
+  });
+
+  it("whitespace-only cancel_reason is normalized to undefined", () => {
+    writeRecord({
+      job_id: "whitespace-reason-001",
+      kind: "scan-jobs",
+      chained: [],
+      status: "running",
+      started_at: new Date().toISOString(),
+      pid: deadPid(),
+      log_path: join(scansDir, "whitespace-reason-001.log"),
+    });
+    lib.cancelJob("whitespace-reason-001", "   \n  ");
+    const fromDisk = JSON.parse(
+      readFileSync(join(scansDir, "whitespace-reason-001.json"), "utf-8"),
+    );
+    expect(fromDisk.cancel_reason).toBeUndefined();
+    expect(fromDisk.status).toBe("cancelled");
+  });
+});

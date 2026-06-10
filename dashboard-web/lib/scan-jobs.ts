@@ -69,7 +69,7 @@ function projectRoot(): string {
 
 export type ScanKind = "scan-jobs" | "scan-signals";
 
-export type JobStatus = "running" | "completed" | "failed" | "interrupted";
+export type JobStatus = "running" | "completed" | "failed" | "interrupted" | "cancelled";
 
 export interface JobRecord {
   job_id: string;
@@ -91,6 +91,14 @@ export interface JobRecord {
   /** ISO timestamp set when readJobRecord flips a stale "running" record
    *  whose pid is dead. Only present when status === "interrupted". */
   healed_at?: string;
+  /** ISO timestamp set when cancelJob is called. Set BEFORE the SIGTERM so
+   *  the in-process close handler can detect the cancel-vs-crash distinction
+   *  and preserve status="cancelled" rather than overwriting to "failed".
+   *  Only present when status === "cancelled". */
+  cancelled_at?: string;
+  /** Optional user-supplied reason. Surfaced in the agent's tool_result and
+   *  shown in the dashboard's job-history UI if it grows one. */
+  cancel_reason?: string;
 }
 
 function jobRecordPath(job_id: string): string {
@@ -259,6 +267,78 @@ function writeJobRecord(record: JobRecord): void {
   writeFileSync(jobRecordPath(record.job_id), JSON.stringify(record, null, 2) + "\n");
 }
 
+export interface CancelResult {
+  ok: boolean;
+  /** Set when ok=false. One of:
+   *    - "not_found"          → no record exists for that job_id
+   *    - "already_finalized"  → status is completed/failed/cancelled/interrupted
+   *    - "no_pid"             → record has no pid (shouldn't happen for running
+   *                              jobs but defended against)
+   *    - "signal_failed"      → process.kill threw (pid gone, permissions, etc.) */
+  reason?: "not_found" | "already_finalized" | "no_pid" | "signal_failed";
+  /** Set when ok=true OR when reason=already_finalized (the caller may want to
+   *  surface the existing terminal state). Null on not_found / no_pid. */
+  record?: JobRecord;
+}
+
+/** Cancel an in-flight job by SIGTERMing its child. Writes status="cancelled"
+ *  BEFORE sending the signal so the kickoffScanJob close handler can detect
+ *  the cancel-vs-crash distinction and preserve the cancelled state (otherwise
+ *  it'd overwrite to "failed" since SIGTERM yields a non-zero exit code).
+ *
+ *  Race shape:
+ *    1. cancelJob writes status="cancelled" + cancelled_at + cancel_reason.
+ *    2. cancelJob calls process.kill(pid, "SIGTERM").
+ *    3. Child receives SIGTERM, exits with code 143.
+ *    4. kickoffScanJob's on("close") fires; runNextOrFinalize reads the
+ *       record (raw, no self-heal), sees status="cancelled", takes the
+ *       cancelled-finalize branch instead of the failed branch.
+ *
+ *  Idempotent for terminal states — calling cancel on a completed/failed
+ *  record returns { ok: false, reason: "already_finalized", record: <state> }
+ *  rather than touching anything. */
+export function cancelJob(job_id: string, reason?: string): CancelResult {
+  const record = readJobRecordRaw(job_id);
+  if (!record) return { ok: false, reason: "not_found" };
+  if (record.status !== "running") {
+    return { ok: false, reason: "already_finalized", record };
+  }
+  if (typeof record.pid !== "number") {
+    // Defended against, but shouldn't happen — kickoffScanJob always sets pid
+    // right after spawn, before this function could possibly be called.
+    return { ok: false, reason: "no_pid", record };
+  }
+
+  // Mark cancelled BEFORE signaling so the close handler sees the flag.
+  const cancelled: JobRecord = {
+    ...record,
+    status: "cancelled",
+    cancelled_at: new Date().toISOString(),
+    cancel_reason: reason?.trim() || undefined,
+  };
+  writeJobRecord(cancelled);
+
+  try {
+    process.kill(record.pid, "SIGTERM");
+  } catch (err) {
+    // Pid is already gone (probably finished while we were racing) or we
+    // lack permission. Either way: the record already says cancelled, which
+    // is the user's intent reflected. Surface as signal_failed so the
+    // caller can decide whether to treat that as success-anyway.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") {
+      // The process is already gone — the close handler may have already
+      // fired and written a terminal status, overwriting our cancelled
+      // marker. Re-read to surface the most recent truth.
+      const current = readJobRecordRaw(job_id);
+      return { ok: false, reason: "signal_failed", record: current ?? cancelled };
+    }
+    return { ok: false, reason: "signal_failed", record: cancelled };
+  }
+
+  return { ok: true, record: cancelled };
+}
+
 interface KickoffOptions {
   kind: ScanKind;
   /** Args passed to the primary script. --progress-json is appended
@@ -346,9 +426,29 @@ export function kickoffScanJob(opts: KickoffOptions): JobRecord {
   let chainIdx = 0;
   const queuedChained = opts.chained ?? [];
   const runNextOrFinalize = (currentExitCode: number) => {
+    const current = readJobRecordRaw(job_id);
+
+    // Cancel coordination: if cancelJob() wrote status="cancelled" before
+    // the child died, preserve that state instead of overwriting with
+    // "failed". The SIGTERM yields exit_code=143; the close handler still
+    // captures the exit_code + stderr_tail for forensics, but the user-
+    // facing status stays "cancelled".
+    if (current?.status === "cancelled") {
+      const record: JobRecord = {
+        ...current,
+        ended_at: current.ended_at ?? new Date().toISOString(),
+        exit_code: currentExitCode,
+        stderr_tail: captureStderrTail(),
+        done: current.done ?? findLastDoneEvent(),
+      };
+      writeJobRecord(record);
+      try { closeSync(fd); } catch { /* fd already closed */ }
+      return;
+    }
+
     if (currentExitCode !== 0) {
       const record: JobRecord = {
-        ...readJobRecordRaw(job_id)!,
+        ...current!,
         status: "failed",
         ended_at: new Date().toISOString(),
         exit_code: currentExitCode,
@@ -366,7 +466,7 @@ export function kickoffScanJob(opts: KickoffOptions): JobRecord {
     if (chainIdx >= queuedChained.length) {
       // All scripts (primary + chain) finished OK.
       const record: JobRecord = {
-        ...readJobRecordRaw(job_id)!,
+        ...current!,
         status: "completed",
         ended_at: new Date().toISOString(),
         done: findLastDoneEvent(),
@@ -390,6 +490,14 @@ export function kickoffScanJob(opts: KickoffOptions): JobRecord {
       stdio: ["ignore", fd, fd],
     });
     child.unref();
+    // Track the chained child's pid in the record so cancelJob() can target
+    // the CURRENT child, not the original primary. Without this, cancelling
+    // mid-chain (after the primary exited and enrich-roles is running) would
+    // SIGTERM a dead pid and miss the actual running script.
+    const updated = readJobRecordRaw(job_id);
+    if (updated && updated.status === "running" && typeof child.pid === "number") {
+      writeJobRecord({ ...updated, pid: child.pid });
+    }
     child.on("close", (code) => runNextOrFinalize(code ?? 1));
     child.on("error", () => runNextOrFinalize(1));
   };

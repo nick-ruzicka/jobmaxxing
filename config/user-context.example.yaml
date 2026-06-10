@@ -178,3 +178,7 @@ agent:
     regenerate_briefing: confirm
     trigger_scan: confirm
     trigger_signal_scan: confirm
+    # Cancellation (Step 8 follow-up) — flip to "auto" if you want fast
+    # "stop the scan" via voice with no card click. Safe to auto since
+    # cancellation is restorative (less harmful than the original mutation).
+    cancel_scan: confirm
