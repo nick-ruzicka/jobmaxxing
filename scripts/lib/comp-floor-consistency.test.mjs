@@ -8,11 +8,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseYaml } from "./yaml-mini.mjs";
+import { readUserContextText } from "./user-context-file.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 
-const userContext = parseYaml(readFileSync(path.join(repoRoot, "config/user-context.yaml"), "utf8"));
+const userContext = parseYaml(readUserContextText());
 const FLOOR = userContext.compensation.floor_usd;
 const FLOOR_K = `$${FLOOR / 1000}K`;
 
