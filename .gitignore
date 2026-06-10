@@ -92,6 +92,9 @@ WORK_LOG_ANALYTICS.md
 # Personal data dirs surfaced by symlinks in this worktree
 data/briefings
 data/chats
+# Scan-job records + logs (Step 8 kickoff model) and per-day event JSONL
+data/scans/
+data/career-ops-events/*.jsonl
 # ─────────────────────────────────────────────────────────────────────────────
 WORK_LOG_12H.md
 

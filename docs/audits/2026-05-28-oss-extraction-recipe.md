@@ -66,6 +66,9 @@ Every file in this list will be **excluded** from the extracted history:
 ```
 cv.md                       — Nick's CV (Markdown)
 config/profile.yml          — Nick's profile (YAML)
+config/user-context.yaml    — Nick's live scoring biases — TRACKED (missed by
+                              the original list; found in the 2026-06-09 audit).
+                              See §10.3 for the CI implication of filtering it.
 data/applications.md        — Nick's application history (Markdown table)
 data/seen-urls.json         — ~1 MB of scraped role URL state
 data/enrichments.json       — ~3 MB of classifications
@@ -78,10 +81,19 @@ data/chats/                 — per-day chat transcripts (PII via conversation c
 data/briefings/             — per-day briefing JSON (PII via items[].context)
 interview-prep/             — entire dir: Nick's prep docs + story bank
 autoapply/resumes/parsed/   — Nick's parsed resumes (HTML, generated)
+autoapply/resumes/library.json — Nick's real resume bullet library (2026-06-09
+                              review finding; whole-file PII)
 modes/_profile.md           — Nick's profile-bound prompt
 WORK_LOG_*.md               — Nick's session work logs (root)
 MORNING_REPORT*.md          — Nick's morning reports if any
+AUDIT_COMPANY_SURFACES.md   — tracked session work log (2026-06-09 audit)
+FIX_PROPOSAL_POST_TASK_G.md — tracked session work log (2026-06-09 audit)
+data/scans/                 — scan-job records + logs (Step 8, post-recipe;
+                              untracked but filter defensively)
 ```
+
+**NOT filtered (deliberate):** `config/companies.yml` ships as a seed list —
+decision 2026-06-09 — so the public repo scans real companies out of the box.
 
 **Each PII file has a corresponding `.example.<ext>` template already in the repo** from PR #52. The extracted repo ships the templates; users `cp` them to the real names at first run.
 
@@ -110,6 +122,7 @@ git filter-repo --force \
   --invert-paths \
   --path cv.md \
   --path config/profile.yml \
+  --path config/user-context.yaml \
   --path data/applications.md \
   --path data/applications.md.bak \
   --path data/seen-urls.json \
@@ -122,9 +135,13 @@ git filter-repo --force \
   --path-glob 'data/briefings/*' \
   --path interview-prep \
   --path-glob 'autoapply/resumes/parsed/*' \
+  --path autoapply/resumes/library.json \
   --path modes/_profile.md \
   --path-glob 'WORK_LOG_*.md' \
   --path-glob 'MORNING_REPORT*.md' \
+  --path AUDIT_COMPANY_SURFACES.md \
+  --path FIX_PROPOSAL_POST_TASK_G.md \
+  --path-glob 'data/scans/*' \
   --path forge \
   --path forge-qa \
   --path chariot-qa \
@@ -364,3 +381,88 @@ After the push, GitHub Actions will fire (Release Please, CodeQL, etc.). Wait fo
 - **Templates:** 8 `.example.*` files (per the inventory in §2.1 verification)
 
 If `main` advances substantially before the extraction session, re-read §2.1 against the new tip — particularly look for any new files under `data/` or any new personal docs that landed since.
+
+---
+
+## 10. Addendum — 2026-06-09 refresh (pre-extraction audit)
+
+Re-audited per §9 against tip `5d2f045` (post-PR #78). Changes folded into
+§2.1/§2.3 above, plus the decisions and one new gotcha below.
+
+### 10.1 Decisions locked (resolves §0)
+
+- **§0.1 repo name → NEW BRAND** (not `nick-ruzicka/career-ops`). Name itself
+  still TBD. This is the heavier path: before pushing, also do the rebrand
+  pass — README title/intro rewrite (keep the santifer fork-notice for
+  lineage), `package.json` + `dashboard-web/package.json` name fields,
+  `CITATION.cff`, `release-please-config.json` package name, and any
+  "career-ops" strings in dashboard chrome (header/title tags).
+- **§0.2 visibility → public** from day one (unchanged default).
+- **`config/companies.yml` → ships as seed** (user decision 2026-06-09). It
+  only lists public AI companies + ATS slugs; gives adopters a working scan
+  out of the box. NOT in the filter list.
+
+### 10.2 PII surface delta since 2026-05-28
+
+| New finding | Disposition |
+|---|---|
+| `config/user-context.yaml` tracked (live comp floor, hard nos, archetype_fit) | added to §2.3 filter |
+| `AUDIT_COMPANY_SURFACES.md`, `FIX_PROPOSAL_POST_TASK_G.md` tracked at root | added to §2.3 filter |
+| `data/career-ops-events/career-ops-2026-05-17.jsonl` tracked (one stray) | already covered by the §2.3 glob; untracked + gitignored in the source repo by the 2026-06-09 hygiene PR |
+| `data/scans/` (Step 8 job records + logs) not gitignored | gitignored in source repo by the same PR; defensive glob added to §2.3 |
+
+### 10.3 CI gotcha — filtering config/user-context.yaml breaks the build
+
+`scripts/lib/comp-floor.mjs` (and `scoring-layer.mjs`, and the
+comp-floor-consistency test) read `config/user-context.yaml` and **throw if
+it's missing**. Today CI passes because the file is tracked. After extraction
+it won't exist in a fresh checkout, so before pushing the extracted repo,
+pick one:
+
+1. **CI bootstrap step** (cheapest): add
+   `cp config/user-context.example.yaml config/user-context.yaml` to the
+   workflow before tests/build, and the same line at the top of the README
+   quickstart (§3.4 already lists it).
+2. **Loader fallback** (nicer DX): make the loaders fall back to
+   `user-context.example.yaml` with a stderr warning when the real file is
+   absent. One-time code change; first-run experience works with zero setup.
+
+Verify with §4.3–4.5 *after* removing the file locally, not before — that's
+the state a fresh clone will see.
+
+### 10.4 Content-level PII in autoapply/ — needs a genericize pass, not path filtering
+
+Independent review (2026-06-09) found Nick's real identity (last name,
+LinkedIn, GitHub handle) baked INTO tracked source/fixture/doc files under
+`autoapply/`. Path filtering can't fix these — the files must ship, so the
+strings must be genericized (Jane-Doe-style persona) in a commit BEFORE the
+extraction:
+
+```
+autoapply/profile.json.example          — real identity in the template itself
+autoapply/chrome-extension/popup/popup.js — real identity as hardcoded defaults
+autoapply/chrome-extension/README.md
+autoapply/resume_parser.py
+autoapply/skills/ashby/SKILL.md
+autoapply/tests/test_apply_cli.py
+autoapply/tests/test_draft_answers.py
+autoapply/tests/test_resume_parser.py
+```
+
+(`autoapply/resumes/library.json` is whole-file PII — Nick's real resume
+bullet library — and was added to the §2.3 filter list instead. The
+`autoapply/resumes/parsed/*` glob already covered the parsed HTML.)
+
+Because the genericize commit lands before extraction, the OLD revisions of
+these files still carry the strings in history — but §4.2's history-wide grep
+is the gate for that. If it still hits on autoapply paths post-filter, either
+add the offending historical paths to §2.3 or use
+`git filter-repo --replace-text` with a mapping like
+`Ruzicka==>Doe` / `nicholas-ruzicka-0x==>jane-doe-example`.
+
+Verification (run after the genericize commit, expect only public-handle
+GitHub-URL hits in docs/CHANGELOG):
+
+```bash
+git grep -liE "ruzicka|nick\.c\.ruzicka|650.?554" -- ':!node_modules'
+```
