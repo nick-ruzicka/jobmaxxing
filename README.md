@@ -91,12 +91,18 @@ npx playwright install chromium   # Required for PDF generation
 # 2. Check setup
 npm run doctor                     # Validates all prerequisites
 
-# 3. Configure
-cp config/profile.example.yml config/profile.yml  # Edit with your details
-cp templates/portals.example.yml portals.yml       # Customize companies
+# 3. Configure — copy each template to its real name, then edit with your details
+cp config/profile.example.yml config/profile.yml
+cp config/user-context.example.yaml config/user-context.yaml   # Scoring calibration
+cp templates/portals.example.yml portals.yml                   # Customize companies
+cp data/applications.example.md data/applications.md
+cp data/score-overrides.example.json data/score-overrides.json
+cp data/seen-urls.example.json data/seen-urls.json
+cp data/enrichments.example.json data/enrichments.json
+cp interview-prep/story-bank.example.md interview-prep/story-bank.md
 
 # 4. Add your CV
-# Create cv.md in the project root with your CV in markdown
+cp cv.example.md cv.md            # Then replace with your CV in markdown
 
 # 5. Personalize with Claude
 claude   # Open Claude Code in this directory

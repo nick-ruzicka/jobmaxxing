@@ -1,5 +1,7 @@
-# Personal data (user fills these)
+# Personal data (use the *.example.* templates to bootstrap)
+cv.md
 data/applications.md
+data/score-overrides.json
 data/pipeline.md
 data/scan-history.tsv
 reports/*.md
@@ -54,11 +56,18 @@ scripts/*.plist
 
 # Nested reference repos kept locally — not ours to commit
 forge/
+forge-qa/
+chariot-qa/
 hebbia-signal-engine-reference/
 
-# Personal interview prep — gitignore before commit (will swap in examples/ template before going public)
-interview-prep/hearth-gtm-engineer.md
-interview-prep/hebbia-gtm-engineer.md
+# CohortQA source (extracted separately — github.com/nick-ruzicka/cohortqa)
+personalab/
+qa/
+
+# Personal interview prep (use story-bank.example.md to bootstrap)
+interview-prep/*.md
+!interview-prep/*.example.md
+!interview-prep/.gitkeep
 
 # Working notes (not for the repo)
 docs/PHASE_11_TODO.md
@@ -121,14 +130,3 @@ data/company-theses/
 
 # Dogfood week private notes
 notes/dogfood-week.md
-
-# PersonaLab session artifacts (regenerated on every orchestrator run)
-qa/runs/
-qa/reports/
-qa/regressions/
-qa/scenarios-results/
-qa/synthesis/
-personalab/__pycache__/
-personalab/**/__pycache__/
-qa/__pycache__/
-qa/**/__pycache__/
