@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.15.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.14.0...v1.15.0) (2026-06-10)
+
+
+### Features
+
+* **api:** CRUD mutation endpoints with bulk + reconfirmation guardrails (Step 7 PR a) ([1455c27](https://github.com/nick-ruzicka/nick-career-ops/commit/1455c27479ab6441f911fc1633d889a305df34e9))
+* **api:** CRUD mutation endpoints with bulk + reconfirmation guardrails (Step 7 PR a) ([720cf07](https://github.com/nick-ruzicka/nick-career-ops/commit/720cf07abfaa2b13ec5ca853e050378c77744367))
+* **chat:** cancel_scan agent tool + POST /api/scans/cancel endpoint ([#78](https://github.com/nick-ruzicka/nick-career-ops/issues/78)) ([5d2f045](https://github.com/nick-ruzicka/nick-career-ops/commit/5d2f045d1d42365da81c7e6d3aff1da0647be6ed))
+* **chat:** force:true override + in-flight scan concurrency lock (audit follow-up) ([#77](https://github.com/nick-ruzicka/nick-career-ops/issues/77)) ([01a3f65](https://github.com/nick-ruzicka/nick-career-ops/commit/01a3f6500bfede05104c79d09cc0fd33ccbb1cd9))
+* **chat:** in-chat confirmation card + update_score_override / update_user_context tools (Step 7 PR c) ([#72](https://github.com/nick-ruzicka/nick-career-ops/issues/72)) ([6d37f2d](https://github.com/nick-ruzicka/nick-career-ops/commit/6d37f2dc09bd6b960332812cffe0acc5a197f8cc))
+* **chat:** progress widget + agent.tools policy honoring (Step 8 PR c + Step 9 close) ([#75](https://github.com/nick-ruzicka/nick-career-ops/issues/75)) ([9215eb6](https://github.com/nick-ruzicka/nick-career-ops/commit/9215eb675ecd11976366a0e704795534bc301f2d))
+* **chat:** trigger_scan / trigger_signal_scan / regenerate_briefing tools + SSE refactor (Step 8 PR b) ([#74](https://github.com/nick-ruzicka/nick-career-ops/issues/74)) ([60c23d3](https://github.com/nick-ruzicka/nick-career-ops/commit/60c23d37a76b3d142de60e5b03760e8686dc1e7d))
+* **chat:** two-phase confirmation flow + update_application_status (Step 7 PR b) ([#71](https://github.com/nick-ruzicka/nick-career-ops/issues/71)) ([e2ec050](https://github.com/nick-ruzicka/nick-career-ops/commit/e2ec050e0c730f17bcf227f64398688f67e91c95))
+* **cron:** opt-in scheduled_tasks.regenerate_briefing setting + --from-cron gate ([#80](https://github.com/nick-ruzicka/nick-career-ops/issues/80)) ([4b7f283](https://github.com/nick-ruzicka/nick-career-ops/commit/4b7f283f1f5b5dc3322456d4cf5d649898506840))
+* **scripts:** --progress-json flag emits JSONL events for long-running scripts (Step 8 PR a) ([#73](https://github.com/nick-ruzicka/nick-career-ops/issues/73)) ([fe344ad](https://github.com/nick-ruzicka/nick-career-ops/commit/fe344ad818e80c954aa5cecad6e1051294ce329e))
+
+
+### Bug Fixes
+
+* **chat:** self-heal stuck scan records via pid-check + tests (audit closeout) ([#76](https://github.com/nick-ruzicka/nick-career-ops/issues/76)) ([317367a](https://github.com/nick-ruzicka/nick-career-ops/commit/317367a0e109da926a241bdc5b4b2d6f3739ac02))
+* **config:** fall back to user-context.example.yaml when real file absent ([#83](https://github.com/nick-ruzicka/nick-career-ops/issues/83)) ([ed978d2](https://github.com/nick-ruzicka/nick-career-ops/commit/ed978d201d5deb02ccbe860fc6d3c374e3c9847a))
+
 ## [1.14.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.13.0...v1.14.0) (2026-05-29)
 
 
