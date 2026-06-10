@@ -204,7 +204,7 @@ class SlugCompanyTests(unittest.TestCase):
         self.assertEqual(slug_company("PAYY (Private Payments)"), "payy")
 
     def test_handles_punctuation(self):
-        self.assertEqual(slug_company("Nick Ruzicka Consulting!"), "nick-ruzicka-consulting")
+        self.assertEqual(slug_company("Sam Rivera Consulting!"), "sam-rivera-consulting")
 
     def test_empty(self):
         self.assertEqual(slug_company(""), "")

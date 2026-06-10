@@ -4,16 +4,16 @@
 //   1. On open, ask the service worker which ATS is on the active tab.
 //   2. Show "AutoApply ready (Ashby)" or "(no supported ATS detected)".
 //   3. Check chrome.storage.local for a saved profile. If none, offer the
-//      "Use test profile" button to seed a basic one (Nick's non-PII defaults
+//      "Use test profile" button to seed a basic one (fictional defaults
 //      from profile.json.example, hardcoded here for the foundation MVP).
 //   4. "Fill form" sends FILL_FORM to the service worker, which relays to the
 //      content script. Results stream back into <pre id="results-output">.
 
 const TEST_PROFILE = {
   identity: {
-    first_name: "Nick",
-    last_name: "Ruzicka",
-    email: "test@example.com",  // replace with your real value once Nick imports
+    first_name: "Sam",
+    last_name: "Rivera",
+    email: "test@example.com",  // replaced by the real profile once import ships
     phone: "+1-555-0100",
     location_city: "New York",
     location_state: "NY",
@@ -23,13 +23,13 @@ const TEST_PROFILE = {
     remote_preference: "Hybrid NYC preferred",
   },
   links: {
-    linkedin: "https://linkedin.com/in/nicholas-ruzicka-0x",
-    github: "https://github.com/nick-ruzicka",
+    linkedin: "https://linkedin.com/in/sam-rivera-example",
+    github: "https://github.com/sam-rivera-example",
     portfolio: "",
     resume_url: "",
   },
   current_role: {
-    company: "Linera",
+    company: "Acme AI",
     title: "Head of Operations & Business Development",
   },
   compensation: {

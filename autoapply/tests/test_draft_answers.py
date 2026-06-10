@@ -13,13 +13,13 @@ from autoapply import draft_answers  # noqa: E402
 
 
 SAMPLE_PROFILE = {
-    "identity": {"first_name": "Nick", "last_name": "Ruzicka"},
+    "identity": {"first_name": "Sam", "last_name": "Rivera"},
     "current_role": {
-        "company": "Linera",
+        "company": "Acme AI",
         "title": "Head of Operations & Business Development",
     },
     "recent_projects": [
-        {"name": "Linera GTM Signal Engine", "summary": "+18% SQLs, 3x outbound"},
+        {"name": "GTM Signal Engine", "summary": "+18% SQLs, 3x outbound"},
     ],
     "differentiators": ["Sales-origin engineer"],
     "answer_style": {
@@ -65,7 +65,7 @@ class TestDraftAnswer(unittest.TestCase):
             captured["api_key"] = api_key
             captured["model"] = model
             captured["max_tokens"] = max_tokens
-            return "Linera ships an L1 chain Anthropic-style; the GTM signal engine I built converts."
+            return "Acme AI ships infra tooling; the GTM signal engine I built converts."
 
         result = draft_answers.draft_answer(
             profile=SAMPLE_PROFILE,
@@ -74,7 +74,7 @@ class TestDraftAnswer(unittest.TestCase):
             api_key="sk-test",
             _call=fake_call,
         )
-        self.assertIn("Linera", result)
+        self.assertIn("Acme AI", result)
         # The prompt must embed the answer_style verbatim.
         self.assertIn("Direct, terse, no em dashes", captured["prompt"])
         self.assertIn("Concrete numbers", captured["prompt"])
@@ -94,14 +94,14 @@ class TestDraftAnswer(unittest.TestCase):
 
     def test_strips_answer_preamble(self):
         def fake_call(prompt, *, api_key, model, max_tokens):
-            return "Answer: Linera's GTM signal engine shipped 3x outbound volume."
+            return "Answer: Acme AI's GTM signal engine shipped 3x outbound volume."
 
         result = draft_answers.draft_answer(
             profile=SAMPLE_PROFILE, jd_text=SAMPLE_JD,
             question="Why?", api_key="sk-test", _call=fake_call,
         )
         self.assertFalse(result.startswith("Answer:"))
-        self.assertIn("Linera", result)
+        self.assertIn("Acme AI", result)
 
     def test_call_failure_propagates(self):
         def fake_call(prompt, *, api_key, model, max_tokens):

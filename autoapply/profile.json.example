@@ -1,7 +1,7 @@
 {
   "identity": {
-    "first_name": "Nick",
-    "last_name": "Ruzicka",
+    "first_name": "Sam",
+    "last_name": "Rivera",
     "email": "REPLACE_WITH_REAL_EMAIL",
     "phone": "REPLACE_WITH_REAL_PHONE",
     "location_city": "New York",
@@ -12,16 +12,16 @@
     "remote_preference": "Hybrid NYC preferred"
   },
   "links": {
-    "linkedin": "https://linkedin.com/in/nicholas-ruzicka-0x",
-    "github": "https://github.com/nick-ruzicka",
+    "linkedin": "https://linkedin.com/in/sam-rivera-example",
+    "github": "https://github.com/sam-rivera-example",
     "portfolio": "",
     "resume_url": "REPLACE_WITH_RESUME_PDF_URL"
   },
   "current_role": {
-    "company": "Linera",
+    "company": "Acme AI",
     "title": "Head of Operations & Business Development",
     "start_date": "REPLACE_WITH_START_DATE",
-    "summary": "BD and Operations at Linera (a16z-backed L1 blockchain). Built and shipped the Linera GTM Signal Engine."
+    "summary": "BD and Operations at Acme AI (Series B infra startup). Built and shipped the company's GTM signal engine."
   },
   "compensation": {
     "salary_floor_usd": 200000,
@@ -31,12 +31,12 @@
   },
   "recent_projects": [
     {
-      "name": "Linera GTM Signal Engine",
+      "name": "GTM Signal Engine",
       "summary": "Signal-based outbound system: +18% SQLs, 3x outbound volume, 85% research time reduction"
     },
     {
-      "name": "Dispatch CRM",
-      "summary": "Internal AI CRM: Granola → Zapier → Claude API → Supabase → Asana → Slack. 20-hour build."
+      "name": "Internal AI CRM",
+      "summary": "Meeting notes → Zapier → Claude API → Postgres → task tracker → Slack. 20-hour build."
     },
     {
       "name": "CareerOps",
@@ -44,7 +44,7 @@
     }
   ],
   "differentiators": [
-    "Sales-origin engineer — Rivery founding AE who became technical via Flatiron + Claude Code",
+    "Sales-origin engineer — founding AE who became technical via bootcamp + Claude Code",
     "Architect of measurable revenue systems, not just user of GTM tools"
   ],
   "answer_style": {

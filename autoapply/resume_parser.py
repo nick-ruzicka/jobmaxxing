@@ -33,7 +33,7 @@ PHONE_RE = re.compile(
 )
 # Trailing "City, ST" or "City Name, State". Cities are Title Case (uppercase
 # followed by at least one lowercase), so this regex won't swallow ALL-CAPS
-# company suffixes like "NICK RUZICKA CONSULTING".
+# company suffixes like "SAM RIVERA CONSULTING".
 LOCATION_END_RE = re.compile(
     r"\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*(?:[A-Z]{2}|[A-Z][a-z]+))\s*$"
 )
@@ -286,8 +286,8 @@ def _normalize_company_name(name: str) -> str:
     Heuristic:
     - Single-word names <=4 chars stay as-is (stylized brands like PAYY, AWS, META).
     - Single-word names >4 chars are title-cased (LINERA → Linera, ORACLE → Oracle).
-    - Multi-word names get every word title-cased (NICK RUZICKA CONSULTING →
-      Nick Ruzicka Consulting), parenthesized tokens preserved as-is.
+    - Multi-word names get every word title-cased (SAM RIVERA CONSULTING →
+      Sam Rivera Consulting), parenthesized tokens preserved as-is.
     """
     if not _is_mostly_upper(name):
         return name

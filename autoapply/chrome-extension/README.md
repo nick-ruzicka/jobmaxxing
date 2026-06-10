@@ -105,8 +105,8 @@ After loading the unpacked extension:
 4. Open a tab to `https://jobs.ashbyhq.com/hebbia-ai/<any-job-id>`.
 5. Open the extension popup. The header should say
    "Detected: Ashby".
-6. Click **Use test profile** → profile status updates to "loaded — Nick
-   Ruzicka".
+6. Click **Use test profile** → profile status updates to "loaded — Sam
+   Rivera".
 7. Click **Fill form**. The Results pane shows JSON like:
 
    ```json

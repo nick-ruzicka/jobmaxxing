@@ -141,6 +141,10 @@ git filter-repo --force \
   --path-glob 'MORNING_REPORT*.md' \
   --path AUDIT_COMPANY_SURFACES.md \
   --path FIX_PROPOSAL_POST_TASK_G.md \
+  --path docs/audits/2026-05-18-california-rescore-applied.md \
+  --path docs/audits/2026-05-18-post-15-16-rescore-impact.md \
+  --path docs/audits/session-log-2026-05-18.md \
+  --path docs/handoffs \
   --path-glob 'data/scans/*' \
   --path forge \
   --path forge-qa \
@@ -466,3 +470,8 @@ GitHub-URL hits in docs/CHANGELOG):
 ```bash
 git grep -liE "ruzicka|nick\.c\.ruzicka|650.?554" -- ':!node_modules'
 ```
+
+Run on 2026-06-09 (post-genericize): remaining hits are LICENSE + README
+fork-notice attribution (intentional), CHANGELOG/recipe GitHub-URL public
+handles (fine), and four personal session docs — three 2026-05-18 audit
+docs + docs/handoffs/ — which were added to the §2.3 filter list.

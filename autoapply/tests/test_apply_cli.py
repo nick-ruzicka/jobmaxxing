@@ -17,9 +17,9 @@ from autoapply.cli import apply  # noqa: E402
 
 VALID_PROFILE = {
     "identity": {
-        "first_name": "Nick",
-        "last_name": "Ruzicka",
-        "email": "nick@example.com",
+        "first_name": "Sam",
+        "last_name": "Rivera",
+        "email": "sam@example.com",
         "phone": "+1-555-0100",
         "location_city": "New York",
         "location_state": "NY",
@@ -29,13 +29,13 @@ VALID_PROFILE = {
         "remote_preference": "Hybrid NYC preferred",
     },
     "links": {
-        "linkedin": "https://linkedin.com/in/nicholas-ruzicka-0x",
-        "github": "https://github.com/nick-ruzicka",
+        "linkedin": "https://linkedin.com/in/sam-rivera-example",
+        "github": "https://github.com/sam-rivera-example",
         "portfolio": "",
         "resume_url": "https://nick.example.com/resume.pdf",
     },
     "current_role": {
-        "company": "Linera",
+        "company": "Acme AI",
         "title": "Head of BD & Ops",
         "start_date": "2024-09",
         "summary": "BD and Ops",

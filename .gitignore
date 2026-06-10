@@ -73,6 +73,10 @@ MORNING_REPORT_FINAL.md
 # autoapply (browser-harness based)
 autoapply/.venv/
 autoapply/__pycache__/
+# Personal resume artifacts (use profile.json.example to bootstrap)
+autoapply/resumes/parsed/
+autoapply/resumes/library.json
+autoapply/profile.json
 autoapply/**/__pycache__/
 autoapply/*.log
 autoapply/.env

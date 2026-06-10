@@ -1,11 +1,11 @@
 ---
 name: ashby
-description: Fill an Ashby job application form on behalf of Nick Ruzicka — standard fields from profile.json, drafted answers for free-text questions, STOP before submit. Used by autoapply/cli/apply.py and by any agent acting on a jobs.ashbyhq.com domain.
+description: Fill an Ashby job application form on behalf of the candidate in profile.json — standard fields from profile.json, drafted answers for free-text questions, STOP before submit. Used by autoapply/cli/apply.py and by any agent acting on a jobs.ashbyhq.com domain.
 ---
 
 # Ashby Application Skill
 
-You are filling an Ashby job application form on behalf of Nick Ruzicka.
+You are filling an Ashby job application form on behalf of the candidate.
 Profile data lives in `autoapply/profile.json`; drafted answers come from
 `autoapply/draft_answers.py`. Read both before touching the form.
 
