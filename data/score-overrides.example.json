@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to data/score-overrides.json. The pipeline reads this file at scoring time. Three categories: boost (companies you want to see ranked higher), penalize (companies you want to see ranked lower or excluded — score: null means hard penalize at floor), block (companies you never want to see).",
+  "_comment": "Copy to data/score-overrides.json. The pipeline reads this file at scoring time. Three categories: boost (companies you want to see ranked higher), penalize (companies you want to see ranked lower or excluded — score: null means hard penalize at floor), block (an ARRAY of company keys — lowercase alphanumerics of the company name — you never want to see, e.g. [\"examplecorp\"]).",
   "_documentation": "Auto-populated entries come from scripts/sync-score-feedback.mjs reading data/applications.md (Applied/Evaluated → boost; Rejected → penalize). Manual entries should set source: 'manual' so the sync script knows not to overwrite them.",
   "boost": {
     "example-good-company": {
@@ -17,11 +17,5 @@
       "source": "auto:applications"
     }
   },
-  "block": {
-    "example-block": {
-      "company": "Example Block Reason",
-      "reason": "Don't show me roles from this company under any circumstances (e.g. previous bad experience, ethics conflict, founder reputation issue).",
-      "source": "manual"
-    }
-  }
+  "block": []
 }
