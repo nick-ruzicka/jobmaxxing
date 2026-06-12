@@ -58,7 +58,7 @@ export function Sidebar({
       {/* Logo */}
       <div className="flex items-center gap-2 px-5 pb-5 pt-5">
         <Briefcase size={18} className="text-accent" />
-        <span className="text-[15px] font-semibold text-text-primary">JobOps</span>
+        <span className="text-[15px] font-semibold text-text-primary">Jobmaxxing</span>
         {hasWarmLeads && <BellDot size={15} className="ml-auto animate-subtle-pulse text-amber" />}
       </div>
 

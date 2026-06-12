@@ -1,13 +1,16 @@
 cff-version: 1.2.0
-message: "If you use career-ops, please cite it using these metadata."
-title: "Career-Ops: AI-Powered Job Search Pipeline"
+message: "If you use jobmaxxing, please cite it using these metadata."
+title: "Jobmaxxing: AI-Powered Job Search Pipeline (fork of Career-Ops)"
 type: software
 authors:
   - family-names: "Fernández de Valderrama"
     given-names: "Santiago"
     website: "https://santifer.io"
-url: "https://santifer.io"
-repository-code: "https://github.com/santifer/career-ops"
+  - family-names: "Ruzicka"
+    given-names: "Nick"
+    website: "https://github.com/nick-ruzicka"
+url: "https://github.com/nick-ruzicka/jobmaxxing"
+repository-code: "https://github.com/nick-ruzicka/jobmaxxing"
 license: MIT
 keywords:
   - ai

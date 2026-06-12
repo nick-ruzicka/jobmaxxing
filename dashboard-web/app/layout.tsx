@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "JobOps — Pipeline Dashboard",
+  title: "Jobmaxxing — Pipeline Dashboard",
   description: "Job search pipeline dashboard",
 };
 

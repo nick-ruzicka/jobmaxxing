@@ -1,5 +1,5 @@
 /**
- * /design-system — living spec preview for the proposed JobOps design system.
+ * /design-system — living spec preview for the proposed Jobmaxxing design system.
  *
  * Self-contained: defines the PROPOSED tokens in a scoped <style> block (does NOT
  * touch globals.css), so this renders the target look before any migration. Once
@@ -181,7 +181,7 @@ export default function DesignSystemPage() {
         <header style={{ marginBottom: 48 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
             <Briefcase size={18} style={{ color: "var(--color-accent)" }} />
-            <span className="t-heading">JobOps</span>
+            <span className="t-heading">Jobmaxxing</span>
             <span className="badge badge-amber" style={{ marginLeft: 4 }}>proposed</span>
           </div>
           <h1 className="t-display" style={{ marginBottom: 8 }}>Design System</h1>
@@ -405,7 +405,7 @@ export default function DesignSystemPage() {
           <div className="card" style={{ padding: 16, maxWidth: 260 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 6px", marginBottom: 16 }}>
               <Briefcase size={16} style={{ color: "var(--color-text-primary)" }} />
-              <span className="t-heading">JobOps</span>
+              <span className="t-heading">Jobmaxxing</span>
               <Bell size={14} style={{ color: "var(--color-text-muted)", marginLeft: "auto" }} />
             </div>
             <div className="t-section" style={{ padding: "0 8px 8px" }}>Workspace</div>

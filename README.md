@@ -1,6 +1,6 @@
-# Career-Ops
+# Jobmaxxing
 
-> **Fork notice.** This repository is a fork of [`santifer/career-ops`](https://github.com/santifer/career-ops) maintained by [@nick-ruzicka](https://github.com/nick-ruzicka). Upstream is the original project by Santiago Fernández de Valderrama (see "Built by" section below). This fork extends the upstream framework with a per-archetype qualification gate, FDE-archetype sourcing tier, AI feature audit, and other modifications — see `docs/audits/` and `CHANGELOG.md`. Bug reports and feature requests for the upstream framework should go to santifer's repo; issues specific to this fork's modifications belong here.
+> **Fork notice.** Jobmaxxing is a fork of [`santifer/career-ops`](https://github.com/santifer/career-ops) maintained by [@nick-ruzicka](https://github.com/nick-ruzicka). Upstream is the original project by Santiago Fernández de Valderrama (see "Built by" section below). This fork extends the upstream framework with a per-archetype qualification gate, FDE-archetype sourcing tier, AI feature audit, and other modifications — see `docs/audits/` and `CHANGELOG.md`. Bug reports and feature requests for the upstream framework should go to santifer's repo; issues specific to this fork's modifications belong here.
 
 [English](README.md) | [Español](README.es.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [繁體中文](README.zh-TW.md)
 
@@ -23,7 +23,6 @@
   <img src="https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/Playwright-2EAD33?style=flat&logo=playwright&logoColor=white" alt="Playwright">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT">
-  <a href="TRADEMARK.md"><img src="https://img.shields.io/badge/Trademark-Policy-blue.svg" alt="Trademark Policy"></a>
   <a href="https://discord.gg/8pRpHETxa4"><img src="https://img.shields.io/badge/Discord-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
   <br>
   <img src="https://img.shields.io/badge/EN-blue?style=flat" alt="EN">
@@ -84,8 +83,8 @@ Built by someone who used it to evaluate 740+ job offers, generate 100+ tailored
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/santifer/career-ops.git
-cd career-ops && npm install
+git clone https://github.com/nick-ruzicka/jobmaxxing.git
+cd jobmaxxing && npm install
 npx playwright install chromium   # Required for PDF generation
 
 # 2. Check setup
@@ -135,8 +134,8 @@ npm install -g @google/gemini-cli
 # 2. Authenticate (free — uses your Google account)
 gemini auth
 
-# 3. Run in the career-ops directory
-cd career-ops
+# 3. Run in the jobmaxxing directory
+cd jobmaxxing
 gemini
 
 # 4. Use slash commands just like Claude Code
