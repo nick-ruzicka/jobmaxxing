@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.15.1](https://github.com/nick-ruzicka/jobmaxxing/compare/v1.15.0...v1.15.1) (2026-06-13)
+
+
+### Bug Fixes
+
+* **test:** comp-floor consistency gate works on fresh clones ([#84](https://github.com/nick-ruzicka/jobmaxxing/issues/84)) ([7f3749b](https://github.com/nick-ruzicka/jobmaxxing/commit/7f3749bf1ec6d35ba83da596ad35ef9954dedf60))
+* **test:** skip personalab comp-floor checks when dir is absent ([#86](https://github.com/nick-ruzicka/jobmaxxing/issues/86)) ([3999248](https://github.com/nick-ruzicka/jobmaxxing/commit/3999248b606bf3782148a5c23528a66b8a50bfe7))
+
 ## [1.15.0](https://github.com/nick-ruzicka/nick-career-ops/compare/v1.14.0...v1.15.0) (2026-06-10)
 
 
